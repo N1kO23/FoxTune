@@ -1,0 +1,20 @@
+name: _foxtune_workspace
+publish_to: none
+
+environment:
+  sdk: ^3.6.0
+
+# Dart pub workspaces (3.6+): one lockfile, one .dart_tool, `dart test` at the
+# root covers every member.
+#
+# Deliberately excludes app/foxtune_app and packages/foxtune_transport - those
+# depend on the Flutter SDK. Keeping them out is what lets the core packages be
+# resolved and tested with a bare Dart SDK.
+workspace:
+  - packages/foxtune_ini
+  - packages/foxtune_protocol
+  - packages/foxtune_tune
+
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.25.0

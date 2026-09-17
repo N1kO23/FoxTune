@@ -1,0 +1,30 @@
+# Dart / Flutter
+.dart_tool/
+.packages
+build/
+pubspec.lock
+*.dill
+doc/api/
+
+# Flutter generated
+.flutter-plugins
+.flutter-plugins-dependencies
+**/generated_plugin_registrant.dart
+app/foxtune_app/android/.gradle/
+app/foxtune_app/android/local.properties
+app/foxtune_app/ios/Pods/
+app/foxtune_app/.flutter-plugins*
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# FoxTune local artifacts
+*.msl
+*.msq.bak
+/tmp-ini/
