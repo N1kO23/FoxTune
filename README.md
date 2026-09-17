@@ -22,13 +22,13 @@ updates and, eventually, speak to rusEFI - which ships INI files in the same for
 
 The core is **pure Dart with no Flutter dependency**:
 
-| Package                      | Role                                                     |
-| ---------------------------- | -------------------------------------------------------- |
-| `packages/foxtune_ini`       | TunerStudio `.ini` parser -> typed ECU definition        |
-| `packages/foxtune_protocol`  | Speeduino serial codec: framing, CRC-32, pages, realtime |
-| `packages/foxtune_tune`      | Tune state, table/curve math, `.msq` import/export       |
-| `packages/foxtune_transport` | Flutter `EcuLink` implementations (USB serial, USB OTG)  |
-| `app/foxtune_app`            | Flutter UI                                               |
+| Package                      | Role                                                      |
+| ---------------------------- | --------------------------------------------------------- |
+| `packages/foxtune_ini`       | TunerStudio `.ini` parser -> typed ECU definition (M1 ✅) |
+| `packages/foxtune_protocol`  | Speeduino serial codec: framing, CRC-32, pages, realtime  |
+| `packages/foxtune_tune`      | Tune state, table/curve math, `.msq` import/export        |
+| `packages/foxtune_transport` | Flutter `EcuLink` implementations (USB serial, USB OTG)   |
+| `app/foxtune_app`            | Flutter UI                                                |
 
 Those first three run under `dart test` with no ECU, no device and no display. Everything the
 codec does sits above the `EcuLink` byte pipe, so it can be driven by an in-memory fake.
