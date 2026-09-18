@@ -1,3 +1,9 @@
+// Release signing comes from the environment so the keystore never lands in the
+// repository. CI decodes it from a secret and exports ANDROID_KEYSTORE_PATH; when
+// that is absent - local builds, and forks without the secret - the build falls
+// back to the debug key so `flutter build apk --release` still works.
+val ciKeystore: String? = System.getenv("ANDROID_KEYSTORE_PATH")
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
@@ -29,11 +35,22 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (ciKeystore != null) {
+            create("ci") {
+                storeFile = file(ciKeystore)
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // An unsigned release APK will not install, so fall back to the debug
+            // key rather than failing the build when no keystore is provided.
+            signingConfig = signingConfigs.getByName(if (ciKeystore != null) "ci" else "debug")
         }
     }
 }

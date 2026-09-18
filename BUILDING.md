@@ -144,6 +144,34 @@ Ways out, in rough order of preference:
    native library through the desktop build ourselves. That package has no Android module at
    all, so the problem disappears - at the cost of doing the desktop packaging by hand.
 
+## Release signing
+
+Release signing is driven entirely by the environment, so no keystore is ever committed:
+
+| Variable | Set by |
+| --- | --- |
+| `ANDROID_KEYSTORE_PATH` | CI, after decoding `ANDROID_KEYSTORE_BASE64` |
+| `ANDROID_KEYSTORE_PASSWORD` | secret |
+| `ANDROID_KEY_ALIAS` | secret |
+| `ANDROID_KEY_PASSWORD` | secret |
+
+When `ANDROID_KEYSTORE_PATH` is unset — every local build, and any fork without the secrets —
+the release build falls back to the debug key so `flutter build apk --release` still produces
+an installable APK. It is just not distributable.
+
+The signing block lives in `android/app/build.gradle.kts`, not the root `build.gradle.kts`.
+That is not cosmetic: the Android Gradle plugin is applied to the `:app` module, so `android { }`
+in the root project is an unresolved reference and fails the build script compile with
+`Unresolved reference: signingConfigs`.
+
+To sign locally, point the same variables at your own keystore:
+
+```sh
+export ANDROID_KEYSTORE_PATH=/path/to/foxtune.jks
+export ANDROID_KEYSTORE_PASSWORD=... ANDROID_KEY_ALIAS=... ANDROID_KEY_PASSWORD=...
+flutter build apk --release
+```
+
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs four jobs:

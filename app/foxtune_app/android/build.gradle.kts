@@ -1,5 +1,3 @@
-val ciKeystore = System.getenv("ANDROID_KEYSTORE_PATH")
-
 allprojects {
     repositories {
         google()
@@ -23,23 +21,4 @@ subprojects {
 
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
-}
-
-android {
-    signingConfigs {
-        if (ciKeystore != null) {
-            create("ci") {
-                storeFile = file(ciKeystore)
-                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
-                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
-            }
-        }
-    }
-
-    buildTypes {
-        release {
-            signingConfig = signingConfigs.getByName(if (ciKeystore != null) "ci" else "debug")
-        }
-    }
 }

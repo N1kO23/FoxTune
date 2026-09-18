@@ -87,8 +87,12 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
+          # Both build jobs upload, and v4+ rejects a second upload to an
+          # existing artifact name - so each needs its own.
+          name: foxtune-linux-x64
           path: foxtune-linux-x64-*.tar.gz
           archive: false
+          if-no-files-found: error
           retention-days: 30
 
   build-android:
@@ -128,6 +132,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
+          name: foxtune-android-arm64
           path: app/foxtune_app/build/foxtune-*.apk
           archive: false
           if-no-files-found: error

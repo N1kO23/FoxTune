@@ -29,5 +29,7 @@ Thumbs.db
 *.msq.bak
 /tmp-ini/
 
-# Secrets
-foxtune.jks
+# Secrets - a signing key committed anywhere is a leak, not just this one name
+*.jks
+*.keystore
+key.properties
