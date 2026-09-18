@@ -91,7 +91,11 @@ class _TableEditorScreenState extends ConsumerState<TableEditorScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (_showSurface) ...[
-                      SurfaceView(view: view, cursor: _cursorFor(view)),
+                      SurfaceView(
+                        view: view,
+                        cursor: _cursorFor(view),
+                        preciseCursor: _preciseCursorFor(view),
+                      ),
                       const SizedBox(height: 12),
                     ],
                     TableGrid(
