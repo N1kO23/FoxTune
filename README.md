@@ -88,6 +88,17 @@ The length counts the payload only; the four CRC bytes sit outside it, and the C
 payload only. That means a corrupted length prefix is undetectable, so the decoder bounds it and
 resynchronises rather than stalling.
 
+## Computed channels
+
+Several primary readings are not transmitted at all. The definition describes how to derive
+them - `coolant = { coolantRaw - 40 }`, `lambda = { afr / stoich }` - so FoxTune evaluates
+those expressions rather than hardcoding the arithmetic. Without this a dashboard could not
+show coolant or intake temperature, and switching the definition between Celsius and
+Fahrenheit would silently report the wrong number.
+
+Expressions that use functions FoxTune does not implement evaluate to `null`, and that
+propagates: a gauge reads as unavailable rather than showing a fabricated value.
+
 ## Safety
 
 Writing a bad table to a running engine destroys hardware. FoxTune is read-only by default;

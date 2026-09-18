@@ -56,6 +56,10 @@ class IniParser {
     final settingGroups = <IniSettingGroup>[];
     final pcVariables = <IniField>[];
     final channels = <IniField>[];
+    // Keyed by name so a later branch replaces an earlier one: `coolant` is
+    // declared twice, once per temperature unit, and only the surviving
+    // preprocessor branch should count.
+    final computedChannels = <String, IniComputedChannel>{};
     String? ochGetCommand;
     int? ochBlockSize;
     final tables = <_TableBuilder>[];
@@ -144,6 +148,8 @@ class IniParser {
                 previousOffset: previousOffset);
             channels.add(field);
             previousOffset = field.offset ?? previousOffset;
+          } else if (_computedChannel(key, value) case final computed?) {
+            computedChannels[computed.name] = computed;
           }
 
         case 'PcVariables':
@@ -179,6 +185,7 @@ class IniParser {
         getCommand: ochGetCommand,
         blockSize: ochBlockSize,
         channels: channels,
+        computed: computedChannels.values.toList(growable: false),
       ),
       pcVariables: pcVariables,
       tables: [for (final t in tables) t.build()],
@@ -234,6 +241,21 @@ class IniParser {
   }
 
   // --- Fields --------------------------------------------------------------
+
+  /// Recognises `name = { expression }`, optionally followed by `, "units"`.
+  ///
+  /// These carry no offset and no type: they are formulas over other channels.
+  static IniComputedChannel? _computedChannel(String key, String value) {
+    final tokens = splitTopLevel(value);
+    if (tokens.isEmpty) return null;
+    final first = tokens.first.trim();
+    if (!first.startsWith('{') || !first.endsWith('}')) return null;
+    return IniComputedChannel(
+      name: key,
+      expression: first.substring(1, first.length - 1).trim(),
+      units: tokens.length > 1 ? unquote(tokens[1]) : '',
+    );
+  }
 
   static bool _isFieldDeclaration(String value) {
     final first = splitTopLevel(value).firstOrNull?.trim().toLowerCase();

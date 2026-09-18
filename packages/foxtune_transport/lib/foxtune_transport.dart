@@ -15,4 +15,5 @@ library;
 
 export 'src/ecu_transport.dart';
 export 'src/serial_port_transport.dart';
+export 'src/tcp_transport.dart';
 export 'src/usb_serial_transport.dart';

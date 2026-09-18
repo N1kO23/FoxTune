@@ -187,7 +187,19 @@ class EcuClient {
 
   void _dispatch(_PendingRequest request) {
     _decoder.reset();
-    _link.send(EcuFrame.encode(request.payload));
+
+    try {
+      _link.send(EcuFrame.encode(request.payload));
+    } on Object catch (error) {
+      // A dead link throws synchronously from send(). Clearing _inFlight here
+      // is essential: leaving it set would wedge the client permanently, with
+      // every later command queued behind a request that can never complete.
+      _inFlight = null;
+      request.fail(EcuProtocolException('Link write failed: $error'));
+      _pump();
+      return;
+    }
+
     request.timer = Timer(timeout, () {
       if (!identical(_inFlight, request)) return;
       _inFlight = null;

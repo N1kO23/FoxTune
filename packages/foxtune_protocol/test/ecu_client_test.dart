@@ -245,6 +245,23 @@ void main() {
       );
     });
 
+    test('does not wedge when the link fails to write', () async {
+      // Regression: a synchronous throw from send() used to leave the request
+      // marked in-flight forever, so every later command queued behind one
+      // that could never complete - the client died silently with the link.
+      ecu.handlers[0x53] = (_) => ascii.encode('speeduino 202504-dev');
+      await ecu.link.close();
+
+      await expectLater(
+          client.readSignature(), throwsA(isA<EcuProtocolException>()));
+
+      // The next command must fail promptly too, not hang.
+      await expectLater(
+        client.queryVersion().timeout(const Duration(seconds: 1)),
+        throwsA(isA<EcuProtocolException>()),
+      );
+    });
+
     test('rejects use after close', () async {
       await client.close();
       expect(client.readSignature(), throwsA(isA<EcuProtocolException>()));

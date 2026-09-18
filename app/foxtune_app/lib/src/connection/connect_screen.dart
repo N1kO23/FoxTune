@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:foxtune_transport/foxtune_transport.dart';
 
+import '../dashboard/dashboard_screen.dart';
 import 'connection_controller.dart';
 import 'connection_state.dart';
 
@@ -28,6 +29,24 @@ class ConnectScreen extends ConsumerWidget {
               icon: const Icon(Icons.refresh),
               onPressed: () => ref.invalidate(portsProvider),
             ),
+          if (connection is EcuConnected) ...[
+            IconButton(
+              tooltip: 'Connection details',
+              icon: const Icon(Icons.info_outline),
+              onPressed: () => showModalBottomSheet<void>(
+                context: context,
+                showDragHandle: true,
+                isScrollControlled: true,
+                builder: (_) => _ConnectedView(state: connection),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Disconnect',
+              icon: const Icon(Icons.link_off),
+              onPressed: () =>
+                  ref.read(connectionProvider.notifier).disconnect(),
+            ),
+          ],
         ],
       ),
       body: SafeArea(
@@ -36,7 +55,7 @@ class ConnectScreen extends ConsumerWidget {
             message:
                 'FOX1: Commencing operation. Connecting to ${port.label}...',
           ),
-          EcuConnected() => _ConnectedView(state: connection),
+          EcuConnected() => DashboardScreen(connection: connection),
           EcuConnectionFailed() => _FailedView(state: connection),
           EcuDisconnected() => const _PortList(),
         },
@@ -85,18 +104,25 @@ class _PortList extends ConsumerWidget {
                 'Connect a Speeduino over USB, then rescan.\n\n'
                 'On Linux you may need to be in the dialout group:\n'
                 'sudo usermod -aG dialout \$USER',
-            action: FilledButton.tonalIcon(
-              onPressed: () => ref.invalidate(portsProvider),
-              icon: const Icon(Icons.refresh),
-              label: const Text('Rescan'),
+            action: Column(
+              children: [
+                FilledButton.tonalIcon(
+                  onPressed: () => ref.invalidate(portsProvider),
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Rescan'),
+                ),
+                const SizedBox(height: 8),
+                const _NetworkTile(),
+              ],
             ),
           );
         }
         return ListView.separated(
           padding: const EdgeInsets.symmetric(vertical: 8),
-          itemCount: list.length,
+          itemCount: list.length + 1,
           separatorBuilder: (_, _) => const Divider(height: 1),
           itemBuilder: (context, index) {
+            if (index == list.length) return const _NetworkTile();
             final port = list[index];
             return ListTile(
               leading: Icon(port.isLikelyEcu ? Icons.memory : Icons.usb),
@@ -345,4 +371,65 @@ class _Row extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Entry point for a Speeduino reached over WiFi rather than a cable.
+class _NetworkTile extends ConsumerWidget {
+  const _NetworkTile();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => ListTile(
+    leading: const Icon(Icons.wifi),
+    title: const Text('Network ECU'),
+    subtitle: const Text('ESP8266/ESP32 WiFi bridge over TCP'),
+    trailing: const Icon(Icons.chevron_right),
+    onTap: () async {
+      final address = await showDialog<String>(
+        context: context,
+        builder: (_) => const _AddressDialog(),
+      );
+      if (address == null || address.isEmpty) return;
+      await ref.read(connectionProvider.notifier).connectToNetwork(address);
+    },
+  );
+}
+
+class _AddressDialog extends StatefulWidget {
+  const _AddressDialog();
+
+  @override
+  State<_AddressDialog> createState() => _AddressDialogState();
+}
+
+class _AddressDialogState extends State<_AddressDialog> {
+  final _controller = TextEditingController(text: '192.168.4.1:2000');
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() => Navigator.of(context).pop(_controller.text);
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Connect to network ECU'),
+    content: TextField(
+      controller: _controller,
+      autofocus: true,
+      decoration: const InputDecoration(
+        labelText: 'Address',
+        helperText: 'host or host:port (default port 2000)',
+      ),
+      onSubmitted: (_) => _submit(),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(onPressed: _submit, child: const Text('Connect')),
+    ],
+  );
 }

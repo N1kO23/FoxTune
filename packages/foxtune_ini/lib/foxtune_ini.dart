@@ -16,6 +16,7 @@
 library;
 
 export 'src/data_type.dart';
+export 'src/expression.dart';
 export 'src/ini_exception.dart';
 export 'src/model/document.dart';
 export 'src/model/fields.dart';

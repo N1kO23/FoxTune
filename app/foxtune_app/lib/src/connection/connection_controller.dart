@@ -44,14 +44,20 @@ class ConnectionController extends Notifier<EcuConnectionState> {
   /// The client for the live connection, or `null` when disconnected.
   EcuClient? get client => _client;
 
-  Future<void> connect(EcuPort port) async {
+  /// Connects over TCP to an ESP-based WiFi bridge at `host:port`.
+  Future<void> connectToNetwork(String address) {
+    const transport = TcpEcuTransport();
+    return connect(transport.portFor(address), transport: transport);
+  }
+
+  Future<void> connect(EcuPort port, {EcuTransport? transport}) async {
     if (state is EcuConnecting) return;
     await _teardown();
     state = EcuConnecting(port);
 
     try {
-      final transport = ref.read(transportProvider);
-      final link = await transport.open(port);
+      final EcuTransport resolved = transport ?? ref.read(transportProvider);
+      final link = await resolved.open(port);
       _link = link;
 
       final client = EcuClient(link);

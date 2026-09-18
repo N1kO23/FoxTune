@@ -105,12 +105,40 @@ class IniConstants {
   }
 }
 
+/// A channel with no bytes of its own, derived from other channels.
+///
+/// `coolant = { coolantRaw - 40 }` is the canonical example: the ECU sends a
+/// raw temperature offset by 40, and the definition - not the firmware -
+/// describes how to turn it into a reading. Several primary gauges are only
+/// available this way, so dropping these would leave a dashboard unable to
+/// show coolant or intake temperature at all.
+class IniComputedChannel {
+  const IniComputedChannel({
+    required this.name,
+    required this.expression,
+    this.units = '',
+  });
+
+  /// Channel name, as other expressions and gauges reference it.
+  final String name;
+
+  /// The expression source, without the surrounding braces.
+  final String expression;
+
+  /// Display units, where the declaration supplies them.
+  final String units;
+
+  @override
+  String toString() => '$name = { $expression }';
+}
+
 /// The `[OutputChannels]` section: the layout of the realtime data block.
 class IniOutputChannels {
   const IniOutputChannels({
     required this.getCommand,
     required this.blockSize,
     required this.channels,
+    this.computed = const [],
   });
 
   /// Command template used to fetch realtime data,
@@ -120,16 +148,33 @@ class IniOutputChannels {
   /// Size of the realtime block in bytes.
   final int? blockSize;
 
-  /// Channels in declaration order.
+  /// Byte-backed channels in declaration order.
   final List<IniField> channels;
 
-  /// Looks up a channel by name.
+  /// Channels derived from others by expression, in declaration order.
+  final List<IniComputedChannel> computed;
+
+  /// Looks up a byte-backed channel by name.
   IniField? channelNamed(String name) {
     for (final channel in channels) {
       if (channel.name == name) return channel;
     }
     return null;
   }
+
+  /// Looks up a computed channel by name.
+  IniComputedChannel? computedNamed(String name) {
+    for (final channel in computed) {
+      if (channel.name == name) return channel;
+    }
+    return null;
+  }
+
+  /// Every channel name, byte-backed and computed.
+  Set<String> get allNames => {
+        for (final c in channels) c.name,
+        for (final c in computed) c.name,
+      };
 }
 
 /// A 3D table definition from `[TableEditor]`.
