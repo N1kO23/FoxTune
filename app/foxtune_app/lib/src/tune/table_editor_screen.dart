@@ -6,6 +6,7 @@ import 'package:foxtune_tune/foxtune_tune.dart';
 import '../connection/connection_state.dart';
 import '../dashboard/dashboard_controller.dart';
 import '../dashboard/gauge_status.dart';
+import 'msq_actions.dart';
 import 'surface_view.dart';
 import 'table_grid.dart';
 import 'tune_controller.dart';
@@ -257,6 +258,28 @@ class _Toolbar extends ConsumerWidget {
             onPressed: () => ref.read(tuneProvider.notifier).reload(),
             icon: const Icon(Icons.refresh),
             label: const Text('Re-read'),
+          ),
+          MenuAnchor(
+            builder: (context, controller, _) => IconButton(
+              tooltip: 'Tune file',
+              icon: const Icon(Icons.folder_outlined),
+              onPressed: () =>
+                  controller.isOpen ? controller.close() : controller.open(),
+            ),
+            menuChildren: [
+              MenuItemButton(
+                leadingIcon: const Icon(Icons.save_alt),
+                onPressed: () => MsqActions.save(context, ref, tune),
+                child: const Text('Save tune as .msq'),
+              ),
+              MenuItemButton(
+                leadingIcon: const Icon(Icons.file_open_outlined),
+                // Loading only changes the in-memory tune; the ECU is not
+                // touched until the user burns.
+                onPressed: () => MsqActions.load(context, ref, tune),
+                child: const Text('Load .msq into editor'),
+              ),
+            ],
           ),
         ],
       ),

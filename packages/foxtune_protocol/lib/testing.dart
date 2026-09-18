@@ -3,4 +3,5 @@
 /// Depends on `dart:io`, so it is kept out of the main library.
 library;
 
+export 'src/testing/engine_simulation.dart';
 export 'src/testing/fake_speeduino.dart';

@@ -14,4 +14,10 @@ Speeduino serial protocol codec.
 - `RealtimeMonitor`: paced polling that waits for each reply before scheduling
   the next, and reports the rate actually achieved.
 - `SocketEcuLink` for an ESP8266/ESP32 WiFi bridge.
-- `FakeSpeeduino`, a simulator speaking the real wire protocol over TCP.
+- `FakeSpeeduino`, a simulator speaking the real wire protocol over TCP,
+  including page write, burn and page-CRC verification.
+- `EngineSimulation`: drives a plausible running engine into the realtime block
+  so a UI can be developed without a car. Run it with
+  `dart run bin/fake_ecu.dart`.
+- `RealtimeDecoder` can resolve identifiers that are tune constants rather than
+  telemetry, which several computed channels need.

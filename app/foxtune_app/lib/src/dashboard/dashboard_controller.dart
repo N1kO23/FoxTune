@@ -1,8 +1,11 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:foxtune_protocol/foxtune_protocol.dart';
 
+import 'package:foxtune_tune/foxtune_tune.dart';
+
 import '../connection/connection_controller.dart';
 import '../connection/connection_state.dart';
+import '../tune/tune_controller.dart';
 
 /// The polling loop for the live connection, or `null` when disconnected.
 ///
@@ -16,9 +19,19 @@ final realtimeMonitorProvider = Provider<RealtimeMonitor?>((ref) {
   final client = ref.read(connectionProvider.notifier).client;
   if (definition == null || client == null) return null;
 
+  // Some computed channels depend on tune constants rather than telemetry -
+  // dutyCycle needs twoStroke, which lives on a configuration page - so give
+  // the decoder a way to reach the loaded tune. Without it those gauges read
+  // as unavailable.
+  final tune = ref.watch(tuneProvider).valueOrNull;
+  final resolver = tune == null ? null : TuneValueResolver(tune);
+
   final monitor = RealtimeMonitor(
     client: client,
-    decoder: RealtimeDecoder(definition.outputChannels),
+    decoder: RealtimeDecoder(
+      definition.outputChannels,
+      constantResolver: resolver?.resolve,
+    ),
     interval: const Duration(milliseconds: 33),
   );
   monitor.start();

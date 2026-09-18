@@ -8,7 +8,7 @@ import 'package:foxtune_ini/foxtune_ini.dart';
 /// from fixed offsets, so a firmware update that moves a field is picked up by
 /// loading the matching `.ini` rather than by changing this code.
 class RealtimeDecoder {
-  RealtimeDecoder(this.definition)
+  RealtimeDecoder(this.definition, {this.constantResolver})
       : _compiled = {
           for (final channel in definition.computed)
             if (CompiledExpression.tryCompile(channel.expression)
@@ -18,6 +18,15 @@ class RealtimeDecoder {
 
   /// The channel definitions this decoder was built from.
   final IniOutputChannels definition;
+
+  /// Supplies values for identifiers that are not realtime channels.
+  ///
+  /// Several computed channels depend on *tune constants* rather than
+  /// telemetry: `dutyCycle` needs `nSquirts` and `twoStroke`, which live on a
+  /// configuration page. Without this the expression cannot resolve and the
+  /// gauge reads as unavailable, so a dashboard with a loaded tune should pass
+  /// a resolver backed by it.
+  final double? Function(String name)? constantResolver;
 
   /// Computed channels that parsed successfully, by name.
   final Map<String, CompiledExpression> _compiled;
@@ -44,6 +53,7 @@ class RealtimeDecoder {
         block: block,
         definition: definition,
         compiled: _compiled,
+        constantResolver: constantResolver,
         timestamp: timestamp ?? DateTime.now(),
       );
 }
@@ -58,8 +68,10 @@ class RealtimeSnapshot {
     required IniOutputChannels definition,
     required Map<String, CompiledExpression> compiled,
     required this.timestamp,
+    double? Function(String name)? constantResolver,
   })  : _definition = definition,
-        _compiled = compiled;
+        _compiled = compiled,
+        _constantResolver = constantResolver;
 
   /// The raw bytes this snapshot was decoded from.
   final Uint8List block;
@@ -69,6 +81,7 @@ class RealtimeSnapshot {
 
   final IniOutputChannels _definition;
   final Map<String, CompiledExpression> _compiled;
+  final double? Function(String name)? _constantResolver;
 
   final Map<String, double?> _cache = {};
   final Set<String> _resolving = {};
@@ -106,7 +119,8 @@ class RealtimeSnapshot {
     final expression = _compiled[name];
     if (expression != null) return expression.evaluate(value);
 
-    return null;
+    // Not telemetry: fall back to the tune, where settings like nSquirts live.
+    return _constantResolver?.call(name);
   }
 
   double? _decodeField(IniField field) {

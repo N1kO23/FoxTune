@@ -3,9 +3,12 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:foxtune_ini/foxtune_ini.dart';
+
 import '../crc32.dart';
 import '../frame.dart';
 import '../speeduino_constants.dart';
+import 'engine_simulation.dart';
 
 /// A simulated Speeduino that speaks the real wire protocol over TCP.
 ///
@@ -40,6 +43,7 @@ class FakeSpeeduino {
     this.realtimeBlockSize = 139,
     this.canId = 0,
     this.blockingFactor = 251,
+    this.channels,
   }) {
     for (var i = 0; i < pageSizes.length; i++) {
       // Deterministic filler: byte value derives from page and offset, so a
@@ -61,6 +65,13 @@ class FakeSpeeduino {
   /// Largest payload this ECU will serve in one read. A request for more is
   /// answered with a range error, exactly as an over-large real request fails.
   final int blockingFactor;
+
+  /// Realtime channel definitions.
+  ///
+  /// Required only for [simulateEngine]: without them the simulator has no way
+  /// to know where a named channel lives in the block, and placing values at
+  /// guessed offsets would make the UI look right for the wrong reason.
+  final IniOutputChannels? channels;
 
   /// Page contents, indexed from 0 for page 1.
   final pages = <Uint8List>[];
@@ -112,7 +123,106 @@ class FakeSpeeduino {
     return server.port;
   }
 
+  EngineSimulation? _engine;
+  Timer? _engineTimer;
+
+  /// Whether the realtime block is being driven by a simulated engine.
+  bool get isSimulatingEngine => _engine != null;
+
+  /// Starts writing a running engine into the realtime block.
+  ///
+  /// Requires [channels]; throws [StateError] otherwise rather than silently
+  /// producing a block of zeroes that looks like a stalled engine.
+  void simulateEngine({
+    EngineSimulation? simulation,
+    Duration tick = const Duration(milliseconds: 40),
+  }) {
+    final definition = channels;
+    if (definition == null) {
+      throw StateError('simulateEngine() needs the [OutputChannels] '
+          'definition; construct FakeSpeeduino with channels:.');
+    }
+    _engine = simulation ?? EngineSimulation();
+    _engineTimer?.cancel();
+    _engineTimer = Timer.periodic(tick, (_) => _writeEngineSample());
+    _writeEngineSample();
+  }
+
+  /// Stops the engine simulation, leaving the last sample in place.
+  void stopEngineSimulation() {
+    _engineTimer?.cancel();
+    _engineTimer = null;
+    _engine = null;
+  }
+
+  void _writeEngineSample() {
+    final engine = _engine;
+    final definition = channels;
+    if (engine == null || definition == null) return;
+
+    engine.sample().forEach((name, value) {
+      final field = definition.channelNamed(name);
+
+      // Some transmitted values are packed bitfields rather than scalars -
+      // nSquirts is one, and computed channels divide by it.
+      if (field is IniBitsField) {
+        final offset = field.offset;
+        if (offset == null || offset >= realtime.length) return;
+        final width = field.highBit - field.lowBit + 1;
+        final mask = ((1 << width) - 1) << field.lowBit;
+        final raw = value.round().clamp(0, (1 << width) - 1);
+        realtime[offset] =
+            (realtime[offset] & ~mask) | ((raw << field.lowBit) & mask);
+        return;
+      }
+
+      if (field is! IniScalarField) return;
+      final offset = field.offset;
+      final scale = field.scale.literalValue;
+      final translate = field.translate.literalValue;
+      // An expression-scaled channel cannot be inverted here; the definition
+      // usually derives those from another channel anyway.
+      if (offset == null || scale == null || translate == null || scale == 0) {
+        return;
+      }
+      _writeScalar(offset, field.type, ((value - translate) / scale).round());
+    });
+
+    engine.flags().forEach((name, on) {
+      final field = definition.channelNamed(name);
+      if (field is! IniBitsField) return;
+      final offset = field.offset;
+      if (offset == null || offset >= realtime.length) return;
+      final mask = 1 << field.lowBit;
+      realtime[offset] =
+          on ? (realtime[offset] | mask) : (realtime[offset] & ~mask);
+    });
+  }
+
+  void _writeScalar(int offset, IniDataType type, int raw) {
+    if (offset + type.bytes > realtime.length) return;
+    final view = ByteData.sublistView(realtime);
+    // Payload data is little-endian.
+    switch (type) {
+      case IniDataType.u08:
+        view.setUint8(offset, raw.clamp(0, 255));
+      case IniDataType.s08:
+        view.setInt8(offset, raw.clamp(-128, 127));
+      case IniDataType.u16:
+        view.setUint16(offset, raw.clamp(0, 65535), Endian.little);
+      case IniDataType.s16:
+        view.setInt16(offset, raw.clamp(-32768, 32767), Endian.little);
+      case IniDataType.u32:
+        view.setUint32(offset, raw.clamp(0, 4294967295), Endian.little);
+      case IniDataType.s32:
+        view.setInt32(offset, raw, Endian.little);
+      case IniDataType.f32:
+        view.setFloat32(offset, raw.toDouble(), Endian.little);
+    }
+  }
+
   Future<void> stop() async {
+    stopEngineSimulation();
     for (final socket in [..._clients]) {
       socket.destroy();
     }

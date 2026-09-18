@@ -276,6 +276,40 @@ void main() {
       expect(snapshot['MAPxRPM'], isNotNull);
     });
 
+    test('resolves a computed channel that needs a tune constant', () {
+      // dutyCycle depends on nSquirts and twoStroke, which live on a
+      // configuration page rather than in telemetry. Without the tune it
+      // cannot resolve at all.
+      // nSquirts is transmitted; twoStroke is a page constant, so it can only
+      // come from the tune.
+      final channels = doc.outputChannels;
+      final block = blockWith({'rpm': 3000, 'pulseWidth': 4000});
+      final nSquirts = channels.channelNamed('nSquirts')! as IniBitsField;
+      block[nSquirts.offset!] |= 2 << nSquirts.lowBit;
+
+      final withoutTune = RealtimeDecoder(channels).decode(block);
+      expect(withoutTune['dutyCycle'], isNull);
+
+      final withTune = RealtimeDecoder(
+        channels,
+        constantResolver: (name) => name == 'twoStroke' ? 0 : null,
+      ).decode(block);
+
+      expect(withTune['dutyCycle'], isNotNull);
+      expect(withTune['dutyCycle'], greaterThan(0));
+    });
+
+    test('the constant resolver never shadows a real channel', () {
+      // Telemetry must win: a stale tune value would quietly replace a live
+      // reading.
+      final decoder = RealtimeDecoder(
+        doc.outputChannels,
+        constantResolver: (name) => 9999,
+      );
+      final snapshot = decoder.decode(blockWith({'rpm': 2500}));
+      expect(snapshot['rpm'], 2500);
+    });
+
     test('reads zero rpm without dividing by zero', () {
       final decoder = RealtimeDecoder(doc.outputChannels);
       final snapshot = decoder.decode(blockWith({'rpm': 0}));

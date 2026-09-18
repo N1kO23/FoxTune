@@ -63,8 +63,21 @@ simulator, `FakeSpeeduino`, that speaks the real wire protocol over TCP - envelo
 page reads, realtime block and all. The integration tests drive a real `EcuClient` against it
 over a real socket, so a framing mistake fails the build rather than passing quietly.
 
+```sh
+cd packages/foxtune_protocol
+dart run bin/fake_ecu.dart          # listens on 2000, engine running
+```
+
+Then connect from the app with **Network ECU** → `127.0.0.1:2000`. The simulator drives a
+plausible running engine into the realtime block - idle, a pull to redline, a cruise, then a
+closed-throttle overrun - so gauges move, the live table cursor travels across cells, and the
+warning thresholds are actually reached. `--static` disables it; `--ini PATH` uses a different
+definition.
+
+In tests it is used directly:
+
 ```dart
-final ecu = FakeSpeeduino();
+final ecu = FakeSpeeduino(channels: definition.outputChannels)..simulateEngine();
 final port = await ecu.start();
 final link = await SocketEcuLink.connect('127.0.0.1', port);
 final id = await EcuClient(link).identify();
@@ -98,6 +111,16 @@ Fahrenheit would silently report the wrong number.
 
 Expressions that use functions FoxTune does not implement evaluate to `null`, and that
 propagates: a gauge reads as unavailable rather than showing a fabricated value.
+
+## Tune files
+
+FoxTune reads and writes TunerStudio `.msq` files. Values are matched **by name**, not by
+offset, so a tune saved from a different firmware version loads whatever still applies and
+reports the rest rather than silently shifting everything. A signature mismatch has to be
+confirmed explicitly.
+
+Loading a `.msq` only changes the in-memory tune. Nothing reaches the ECU until you burn, so
+the guard rails below stay in one place.
 
 ## Safety
 

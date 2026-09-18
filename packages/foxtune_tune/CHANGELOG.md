@@ -16,5 +16,6 @@ Tune state, table editing and the guarded write path.
   signature match and an explicit write-mode opt-in.
 - `TuneWriter`: snapshot, write to RAM, verify against the ECU's own page CRC,
   and only then burn. A page that fails verification is never burned.
-
-Not yet implemented: `.msq` import/export.
+- `MsqCodec`: TunerStudio `.msq` read and write. Values are matched by name so a
+  tune from another firmware version loads what applies and reports the rest;
+  2D tables are written highest-Y row first, the way TunerStudio displays them.
