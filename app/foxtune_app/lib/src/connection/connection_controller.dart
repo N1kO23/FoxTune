@@ -4,6 +4,7 @@ import 'package:foxtune_ini/foxtune_ini.dart';
 import 'package:foxtune_protocol/foxtune_protocol.dart';
 import 'package:foxtune_transport/foxtune_transport.dart';
 
+import '../dashboard/gauge_status.dart';
 import 'connection_state.dart';
 
 /// The platform's serial transport.
@@ -11,13 +12,24 @@ final transportProvider = Provider<EcuTransport>((ref) {
   return EcuTransport.forPlatform();
 });
 
+/// Temperature scale the definition is parsed for.
+///
+/// This selects a branch in the ECU definition, not just a label: the
+/// Celsius and Fahrenheit builds compute `coolant` and `iat` with different
+/// expressions, so the gauges' ranges and thresholds are derived from the same
+/// choice. See [TemperatureUnit].
+final temperatureUnitProvider = StateProvider<TemperatureUnit>(
+  (ref) => TemperatureUnit.celsius,
+);
+
 /// The bundled ECU definition.
 ///
 /// Parsing ~6000 lines takes long enough to be worth keeping off the build
 /// path, so this is a future the UI awaits once.
 final definitionProvider = FutureProvider<IniDocument>((ref) async {
   final source = await rootBundle.loadString('assets/speeduino.ini');
-  return IniParser().parse(source);
+  final unit = ref.watch(temperatureUnitProvider);
+  return IniParser(defined: unit.iniSymbols).parse(source);
 });
 
 /// Serial ports currently attached.

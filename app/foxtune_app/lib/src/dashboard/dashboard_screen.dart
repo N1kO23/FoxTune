@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:foxtune_protocol/foxtune_protocol.dart';
 
+import '../connection/connection_controller.dart';
 import '../connection/connection_state.dart';
 import '../logging/record_button.dart';
 import 'dashboard_controller.dart';
@@ -154,15 +155,15 @@ class _StatusBar extends ConsumerWidget {
   }
 }
 
-class _MeterRow extends StatelessWidget {
+class _MeterRow extends ConsumerWidget {
   const _MeterRow({required this.snapshot, required this.narrow});
 
   final RealtimeSnapshot snapshot;
   final bool narrow;
 
   @override
-  Widget build(BuildContext context) {
-    final meters = DefaultGauges.primary;
+  Widget build(BuildContext context, WidgetRef ref) {
+    final meters = DefaultGauges.primary(ref.watch(temperatureUnitProvider));
     return Wrap(
       spacing: 16,
       runSpacing: 16,
@@ -198,20 +199,21 @@ class _FlagRow extends StatelessWidget {
   );
 }
 
-class _TileGrid extends StatelessWidget {
+class _TileGrid extends ConsumerWidget {
   const _TileGrid({required this.snapshot, required this.width});
 
   final RealtimeSnapshot snapshot;
   final double width;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final tiles = DefaultGauges.secondary(ref.watch(temperatureUnitProvider));
     // Roughly 160px per tile, at least two across even on a phone.
     final columns = (width / 170).floor().clamp(2, 6);
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      itemCount: DefaultGauges.secondary.length,
+      itemCount: tiles.length,
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: columns,
         crossAxisSpacing: 10,
@@ -219,7 +221,7 @@ class _TileGrid extends StatelessWidget {
         mainAxisExtent: 104,
       ),
       itemBuilder: (context, index) {
-        final spec = DefaultGauges.secondary[index];
+        final spec = tiles[index];
         return StatTile(spec: spec, value: snapshot[spec.channel]);
       },
     );

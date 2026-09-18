@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:foxtune_app/src/dashboard/gauge_status.dart';
 
 void main() {
+  _temperatureUnitTests();
   group('GaugeSpec thresholds', () {
     const rpm = GaugeSpec(
       channel: 'rpm',
@@ -116,10 +117,7 @@ void main() {
 
   group('default gauge set', () {
     test('every spec has a sane span', () {
-      for (final spec in [
-        ...DefaultGauges.primary,
-        ...DefaultGauges.secondary,
-      ]) {
+      for (final spec in DefaultGauges.allFor(TemperatureUnit.celsius)) {
         expect(spec.max, greaterThan(spec.min), reason: spec.channel);
         expect(spec.channel, isNotEmpty);
         expect(spec.label, isNotEmpty);
@@ -128,10 +126,7 @@ void main() {
 
     test('thresholds fall inside the displayed range', () {
       // A limit outside the span could never be drawn on the track.
-      for (final spec in [
-        ...DefaultGauges.primary,
-        ...DefaultGauges.secondary,
-      ]) {
+      for (final spec in DefaultGauges.allFor(TemperatureUnit.celsius)) {
         for (final limit in [
           spec.warnAbove,
           spec.dangerAbove,
@@ -151,10 +146,7 @@ void main() {
     });
 
     test('danger is beyond warning wherever both are set', () {
-      for (final spec in [
-        ...DefaultGauges.primary,
-        ...DefaultGauges.secondary,
-      ]) {
+      for (final spec in DefaultGauges.allFor(TemperatureUnit.celsius)) {
         if (spec.warnAbove != null && spec.dangerAbove != null) {
           expect(
             spec.dangerAbove,
@@ -168,6 +160,97 @@ void main() {
             lessThan(spec.warnBelow!),
             reason: spec.channel,
           );
+        }
+      }
+    });
+  });
+}
+
+void _temperatureUnitTests() {
+  group('temperature units', () {
+    test('symbols and ini flags match the scale', () {
+      expect(TemperatureUnit.celsius.symbol, '\u00B0C');
+      expect(TemperatureUnit.fahrenheit.symbol, '\u00B0F');
+      // The definition gates Celsius behind this symbol and falls through to
+      // Fahrenheit without it.
+      expect(TemperatureUnit.celsius.iniSymbols, contains('CELSIUS'));
+      expect(TemperatureUnit.fahrenheit.iniSymbols, isEmpty);
+    });
+
+    test('converts thresholds between scales', () {
+      expect(TemperatureUnit.celsius.fromCelsius(100), 100);
+      expect(TemperatureUnit.fahrenheit.fromCelsius(100), 212);
+      expect(TemperatureUnit.fahrenheit.fromCelsius(-40), -40);
+    });
+
+    test('a healthy engine is normal in both scales', () {
+      // The bug this guards: the app parsed the definition as Fahrenheit
+      // while the gauge kept Celsius limits, so a healthy 108 degree engine
+      // decoded as 226 and pegged the gauge at DANGER.
+      const healthyCelsius = 90.0;
+      for (final unit in TemperatureUnit.values) {
+        final gauge = DefaultGauges.coolant(unit);
+        final reading = unit.fromCelsius(healthyCelsius);
+
+        expect(
+          gauge.statusFor(reading),
+          GaugeStatus.normal,
+          reason: '$healthyCelsius C in ${unit.name}',
+        );
+        expect(
+          gauge.fractionFor(reading),
+          lessThan(1.0),
+          reason: 'must not peg the gauge in ${unit.name}',
+        );
+        expect(gauge.units, unit.symbol);
+      }
+    });
+
+    test('an overheating engine alarms in both scales', () {
+      for (final unit in TemperatureUnit.values) {
+        final gauge = DefaultGauges.coolant(unit);
+        expect(gauge.statusFor(unit.fromCelsius(105)), GaugeStatus.warning);
+        expect(gauge.statusFor(unit.fromCelsius(115)), GaugeStatus.danger);
+      }
+    });
+
+    test('the same physical temperature reads the same status', () {
+      // Whatever scale is selected, the engine is either fine or it is not.
+      for (final celsius in const [-20.0, 20.0, 90.0, 105.0, 120.0]) {
+        final metric = DefaultGauges.coolant(TemperatureUnit.celsius)
+            .statusFor(celsius);
+        final imperial = DefaultGauges.coolant(TemperatureUnit.fahrenheit)
+            .statusFor(TemperatureUnit.fahrenheit.fromCelsius(celsius));
+        expect(imperial, metric, reason: '$celsius C');
+      }
+    });
+
+    test('intake air follows the same rule', () {
+      for (final unit in TemperatureUnit.values) {
+        final gauge = DefaultGauges.intakeAir(unit);
+        expect(gauge.units, unit.symbol);
+        expect(gauge.statusFor(unit.fromCelsius(25)), GaugeStatus.normal);
+        expect(gauge.statusFor(unit.fromCelsius(70)), GaugeStatus.warning);
+      }
+    });
+
+    test('every gauge stays coherent in both scales', () {
+      for (final unit in TemperatureUnit.values) {
+        for (final spec in DefaultGauges.allFor(unit)) {
+          expect(spec.max, greaterThan(spec.min), reason: spec.channel);
+          for (final limit in [
+            spec.warnAbove,
+            spec.dangerAbove,
+            spec.warnBelow,
+            spec.dangerBelow,
+          ]) {
+            if (limit == null) continue;
+            expect(
+              limit,
+              inInclusiveRange(spec.min, spec.max),
+              reason: '${spec.channel} in ${unit.name}',
+            );
+          }
         }
       }
     });

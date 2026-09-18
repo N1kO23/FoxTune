@@ -105,6 +105,34 @@ class GaugeSpec {
       value == null ? '--' : value.toStringAsFixed(decimals);
 }
 
+/// Which temperature scale the ECU definition is parsed for.
+///
+/// This is not cosmetic. The definition computes `coolant` and `iat` from the
+/// raw channels with different expressions per scale, so the choice changes the
+/// *numbers* the decoder produces - and therefore what a gauge range and its
+/// warning thresholds have to mean. Getting the two out of step is how a
+/// healthy 108 degree engine reads as 226 and pegs the gauge.
+enum TemperatureUnit {
+  celsius('\u00B0C'),
+  fahrenheit('\u00B0F');
+
+  const TemperatureUnit(this.symbol);
+
+  /// Display suffix.
+  final String symbol;
+
+  /// Preprocessor symbols to parse the definition with.
+  ///
+  /// The Speeduino definition gates its Celsius expressions behind `CELSIUS`
+  /// and falls through to Fahrenheit otherwise.
+  Set<String> get iniSymbols =>
+      this == TemperatureUnit.celsius ? const {'CELSIUS'} : const {};
+
+  /// Converts a threshold expressed in Celsius into this scale.
+  double fromCelsius(double celsius) =>
+      this == TemperatureUnit.celsius ? celsius : celsius * 1.8 + 32;
+}
+
 /// Default presentation for a Speeduino.
 ///
 /// Thresholds are conservative starting points for a naturally aspirated
@@ -112,65 +140,90 @@ class GaugeSpec {
 /// visible. Making these user-configurable is follow-up work.
 abstract final class DefaultGauges {
   /// The large meters: values read at a glance by angular position.
-  static const List<GaugeSpec> primary = [
-    GaugeSpec(
-      channel: 'rpm',
-      label: 'RPM',
-      units: 'rpm',
-      min: 0,
-      max: 8000,
-      warnAbove: 6000,
-      dangerAbove: 7000,
-    ),
-    GaugeSpec(
-      channel: 'coolant',
-      label: 'Coolant',
-      units: '°',
-      min: -40,
-      max: 140,
-      warnAbove: 100,
-      dangerAbove: 110,
-    ),
-    GaugeSpec(channel: 'map', label: 'MAP', units: 'kPa', min: 0, max: 260),
+  static List<GaugeSpec> primary(TemperatureUnit unit) => [
+    _rpm,
+    coolant(unit),
+    _map,
   ];
 
+  /// The coolant meter, with its limits expressed in [unit].
+  static GaugeSpec coolant(TemperatureUnit unit) => GaugeSpec(
+    channel: 'coolant',
+    label: 'Coolant',
+    units: unit.symbol,
+    min: unit.fromCelsius(-40),
+    max: unit.fromCelsius(140),
+    warnAbove: unit.fromCelsius(100),
+    dangerAbove: unit.fromCelsius(110),
+  );
+
+  /// The intake air tile, with its limits expressed in [unit].
+  static GaugeSpec intakeAir(TemperatureUnit unit) => GaugeSpec(
+    channel: 'iat',
+    label: 'Intake air',
+    units: unit.symbol,
+    min: unit.fromCelsius(-40),
+    max: unit.fromCelsius(120),
+    warnAbove: unit.fromCelsius(60),
+  );
+
+  static const _rpm = GaugeSpec(
+    channel: 'rpm',
+    label: 'RPM',
+    units: 'rpm',
+    min: 0,
+    max: 8000,
+    warnAbove: 6000,
+    dangerAbove: 7000,
+  );
+
+  static const _map = GaugeSpec(
+    channel: 'map',
+    label: 'MAP',
+    units: 'kPa',
+    min: 0,
+    max: 260,
+  );
+
   /// Secondary readings, shown as numeric tiles.
-  static const List<GaugeSpec> secondary = [
-    GaugeSpec(
-      channel: 'afr',
-      label: 'AFR',
-      units: '',
-      min: 8,
-      max: 20,
-      decimals: 1,
-      warnAbove: 16,
-      dangerAbove: 17.5,
-    ),
-    GaugeSpec(
-      channel: 'batteryVoltage',
-      label: 'Battery',
-      units: 'V',
-      min: 8,
-      max: 16,
-      decimals: 1,
-      // Low voltage is the failure mode here, not high.
-      warnBelow: 12.0,
-      dangerBelow: 11.0,
-      warnAbove: 15.0,
-    ),
-    GaugeSpec(
-      channel: 'iat',
-      label: 'Intake air',
-      units: '°',
-      min: -40,
-      max: 120,
-      warnAbove: 60,
-    ),
+  static List<GaugeSpec> secondary(TemperatureUnit unit) => [
+    _afr,
+    _battery,
+    intakeAir(unit),
+    ..._otherSecondary,
+  ];
+
+  static const _afr = GaugeSpec(
+    channel: 'afr',
+    label: 'AFR',
+    units: '',
+    min: 8,
+    max: 20,
+    decimals: 1,
+    warnAbove: 16,
+    dangerAbove: 17.5,
+  );
+
+  static const _battery = GaugeSpec(
+    channel: 'batteryVoltage',
+    label: 'Battery',
+    units: 'V',
+    min: 8,
+    max: 16,
+    decimals: 1,
+    // Low voltage is the failure mode here, not high.
+    warnBelow: 12.0,
+    dangerBelow: 11.0,
+    warnAbove: 15.0,
+  );
+
+  /// Readings with no unit-dependent limits.
+  static const List<GaugeSpec> _otherSecondary = [
     GaugeSpec(channel: 'tps', label: 'Throttle', units: '%', min: 0, max: 100),
     GaugeSpec(
       channel: 'advance',
       label: 'Advance',
-      units: '°',
+      units: '\u00B0',
       min: -20,
       max: 60,
     ),
@@ -207,6 +260,12 @@ abstract final class DefaultGauges {
       min: 50,
       max: 150,
     ),
+  ];
+
+  /// Every gauge, for checks that should hold across the whole set.
+  static List<GaugeSpec> allFor(TemperatureUnit unit) => [
+    ...primary(unit),
+    ...secondary(unit),
   ];
 
   /// Status flags worth surfacing as indicator lamps.

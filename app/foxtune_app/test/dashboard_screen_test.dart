@@ -5,7 +5,9 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:foxtune_app/src/connection/connection_state.dart';
+import 'package:foxtune_app/src/connection/connection_controller.dart';
 import 'package:foxtune_app/src/dashboard/dashboard_controller.dart';
+import 'package:foxtune_app/src/dashboard/gauge_status.dart';
 import 'package:foxtune_app/src/dashboard/dashboard_screen.dart';
 import 'package:foxtune_ini/foxtune_ini.dart';
 import 'package:foxtune_protocol/foxtune_protocol.dart';
@@ -16,6 +18,7 @@ import 'package:foxtune_transport/foxtune_transport.dart';
 /// computed channels and widget layout.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  _definitionUnitTests();
 
   late IniDocument doc;
 
@@ -205,5 +208,52 @@ void main() {
       find.textContaining('Waiting for the first realtime sample'),
       findsOneWidget,
     );
+  });
+}
+
+void _definitionUnitTests() {
+  group('definition temperature scale', () {
+    /// Decodes a coolant reading through the definition the app actually
+    /// builds, rather than one the test parsed itself.
+    Future<double?> coolantFor(TemperatureUnit unit) async {
+      final container = ProviderContainer(
+        overrides: [temperatureUnitProvider.overrideWith((ref) => unit)],
+      );
+      addTearDown(container.dispose);
+
+      final definition = await container.read(definitionProvider.future);
+      final channels = definition.outputChannels;
+      final block = Uint8List(channels.blockSize!);
+      // 130 raw is 90 C once the definition's 40 degree offset is applied.
+      ByteData.sublistView(block)
+          .setUint8(channels.channelNamed('coolantRaw')!.offset!, 130);
+      return RealtimeDecoder(channels).decode(block)['coolant'];
+    }
+
+    test('defaults to Celsius, matching the gauge limits', () async {
+      // The regression: the app parsed with no symbols at all, so the
+      // definition fell through to Fahrenheit while the gauges kept Celsius
+      // limits - a healthy engine read 226 and pegged at DANGER.
+      final reading = await coolantFor(TemperatureUnit.celsius);
+      expect(reading, closeTo(90, 1e-9));
+
+      final gauge = DefaultGauges.coolant(TemperatureUnit.celsius);
+      expect(gauge.statusFor(reading), GaugeStatus.normal);
+      expect(gauge.fractionFor(reading), lessThan(1.0));
+    });
+
+    test('selecting Fahrenheit changes the decoded value too', () async {
+      // Proof the setting picks a definition branch, not just a label.
+      final reading = await coolantFor(TemperatureUnit.fahrenheit);
+      expect(reading, closeTo(194, 1e-6));
+
+      final gauge = DefaultGauges.coolant(TemperatureUnit.fahrenheit);
+      expect(
+        gauge.statusFor(reading),
+        GaugeStatus.normal,
+        reason: '194 F is 90 C - still a healthy engine',
+      );
+      expect(gauge.fractionFor(reading), lessThan(1.0));
+    });
   });
 }
