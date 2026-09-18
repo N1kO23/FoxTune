@@ -140,8 +140,8 @@ class _LoadingTune extends ConsumerWidget {
           const SizedBox(height: 16),
           Text(
             progress == null
-                ? 'Reading tune from ECU...'
-                : 'Reading page ${progress.page} of ${progress.total}...',
+                ? 'FOX2: Reading tune from ECU...'
+                : 'FOX2: Reading page ${progress.page} of ${progress.total}...',
           ),
         ],
       ),
@@ -193,14 +193,25 @@ class _Toolbar extends ConsumerWidget {
         runSpacing: 8,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          DropdownButton<String>(
-            value: selectedId,
-            underline: const SizedBox.shrink(),
-            items: [
-              for (final table in tables)
-                DropdownMenuItem(value: table.id, child: Text(table.title)),
-            ],
-            onChanged: (id) => id == null ? null : onSelect(id),
+          // A DropdownButton sizes itself to its widest item, and some table
+          // titles are long ("Second Ignition Advance Table"). Left
+          // unconstrained it overflows a phone-width toolbar, so cap it and let
+          // the label ellipsize.
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 260),
+            child: DropdownButton<String>(
+              value: selectedId,
+              isExpanded: true,
+              underline: const SizedBox.shrink(),
+              items: [
+                for (final table in tables)
+                  DropdownMenuItem(
+                    value: table.id,
+                    child: Text(table.title, overflow: TextOverflow.ellipsis),
+                  ),
+              ],
+              onChanged: (id) => id == null ? null : onSelect(id),
+            ),
           ),
           // The write-mode switch is the deliberate act that unlocks editing.
           Row(
@@ -421,7 +432,11 @@ class _EditBar extends StatelessWidget {
             enabled: enabled && selection.cellCount > 1,
             onPressed: () => _apply(() => view.smooth(cells)),
           ),
-          const Spacer(),
+          // No Spacer here: this is a Wrap, which has no free space to
+          // distribute. A Spacer is an Expanded, and handing Flex parent data
+          // to a Wrap child breaks the layout of the whole enclosing Column -
+          // silently in release builds, where the assertion is compiled out.
+          // The hint simply trails the actions and wraps with them.
           Text(
             'Arrows move · Shift extends · +/− adjust · [ ] scale',
             style: theme.textTheme.labelSmall?.copyWith(
