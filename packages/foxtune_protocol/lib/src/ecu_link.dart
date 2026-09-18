@@ -38,6 +38,12 @@ abstract class EcuLink {
 /// bytes back as though the ECU had replied. This is what lets the whole
 /// protocol layer be exercised in CI with no serial port present.
 class FakeEcuLink implements EcuLink {
+  FakeEcuLink({this.onSend});
+
+  /// Invoked with each outgoing chunk, letting a test act as the ECU and
+  /// reply via [deliver].
+  final void Function(List<int> bytes)? onSend;
+
   final _controller = StreamController<List<int>>.broadcast();
 
   /// Every byte passed to [send], flattened in order.
@@ -60,6 +66,7 @@ class FakeEcuLink implements EcuLink {
       throw StateError('send() on a closed FakeEcuLink');
     }
     sent.addAll(bytes);
+    onSend?.call(bytes);
   }
 
   /// Simulates [bytes] arriving from the ECU.

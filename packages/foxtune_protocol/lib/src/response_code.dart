@@ -5,6 +5,9 @@ enum SerialResponse {
   /// Command accepted; payload follows.
   ok(0x00),
 
+  /// An EEPROM burn completed successfully.
+  burnOk(0x04),
+
   /// The firmware's own 400 ms inter-byte timeout elapsed mid-command.
   timeout(0x80),
 
@@ -15,7 +18,12 @@ enum SerialResponse {
   unknownCommand(0x83),
 
   /// A page, offset or length fell outside the firmware's bounds.
-  rangeError(0x84);
+  /// The firmware does not expect a retry for this.
+  rangeError(0x84),
+
+  /// The firmware is busy. Unlike the other errors this one is transient:
+  /// the caller is expected to wait and reissue the same command.
+  busy(0x85);
 
   const SerialResponse(this.code);
 
@@ -23,7 +31,10 @@ enum SerialResponse {
   final int code;
 
   /// Whether this response indicates success.
-  bool get isOk => this == SerialResponse.ok;
+  bool get isOk => this == SerialResponse.ok || this == SerialResponse.burnOk;
+
+  /// Whether reissuing the same command is the correct response.
+  bool get isRetryable => this == SerialResponse.busy;
 
   /// Maps a raw byte to its [SerialResponse], or `null` if unrecognised.
   static SerialResponse? fromByte(int byte) {

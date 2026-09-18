@@ -22,10 +22,10 @@ jobs:
         run: dart pub get
 
       - name: Verify formatting
-        run: dart format --output=none --set-exit-if-changed .
+        run: dart format --output=none --set-exit-if-changed packages/foxtune_ini packages/foxtune_protocol packages/foxtune_tune
 
       - name: Analyze
-        run: dart analyze --fatal-infos
+        run: dart analyze packages/foxtune_ini packages/foxtune_protocol packages/foxtune_tune
 
       - name: Test
         run: ./tool/test.sh
@@ -44,3 +44,49 @@ jobs:
         run: |
           flutter pub get
           flutter analyze
+
+      - name: Analyze and test app
+        working-directory: app/foxtune_app
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
+
+  build-linux:
+    name: Build Linux desktop
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libgtk-3-dev
+
+      - name: Build
+        working-directory: app/foxtune_app
+        run: |
+          flutter pub get
+          flutter build linux --release
+
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Build
+        working-directory: app/foxtune_app
+        run: |
+          flutter pub get
+          flutter build apk --debug

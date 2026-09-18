@@ -58,13 +58,35 @@ dart format .
 `dart test` at the workspace root only sees the root package, so `tool/test.sh`
 names each member package explicitly.
 
-You do not need a Speeduino to work on the protocol layer. Use
-[speeduino-serial-sim](https://github.com/askrejans/speeduino-serial-sim) over a `socat` PTY
-pair:
+You do not need a Speeduino to work on the protocol layer. `foxtune_protocol` ships a
+simulator, `FakeSpeeduino`, that speaks the real wire protocol over TCP - envelope, CRC-32,
+page reads, realtime block and all. The integration tests drive a real `EcuClient` against it
+over a real socket, so a framing mistake fails the build rather than passing quietly.
 
-```sh
-socat -d -d pty,raw,echo=0 pty,raw,echo=0
+```dart
+final ecu = FakeSpeeduino();
+final port = await ecu.start();
+final link = await SocketEcuLink.connect('127.0.0.1', port);
+final id = await EcuClient(link).identify();
 ```
+
+The desktop serial driver itself is the one part that cannot be tested this way: libserialport
+rejects pseudo-terminals (`sp_get_port_by_name` returns `EINVAL` for `/dev/pts/*`), so a `socat`
+loopback is not a usable stand-in for a real port. Verifying that layer needs real hardware, or
+a tty0tty-style kernel module.
+
+### The wire protocol
+
+Two byte orders apply at once, and confusing them produces frames the ECU silently drops:
+
+| Part                                             | Order             |
+| ------------------------------------------------ | ----------------- |
+| Envelope - length prefix, CRC-32                 | **Big**-endian    |
+| Payload data - page ids, offsets, counts, values | **Little**-endian |
+
+The length counts the payload only; the four CRC bytes sit outside it, and the CRC covers the
+payload only. That means a corrupted length prefix is undetectable, so the decoder bounds it and
+resynchronises rather than stalling.
 
 ## Safety
 

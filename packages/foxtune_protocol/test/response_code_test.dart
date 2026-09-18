@@ -16,9 +16,24 @@ void main() {
       expect(SerialResponse.fromByte(0xFF), isNull);
     });
 
-    test('only ok counts as success', () {
+    test('maps the two success codes', () {
+      expect(SerialResponse.fromByte(0x04), SerialResponse.burnOk);
+      expect(SerialResponse.fromByte(0x85), SerialResponse.busy);
+    });
+
+    test('ok and burnOk count as success, nothing else does', () {
+      const successes = {SerialResponse.ok, SerialResponse.burnOk};
       for (final value in SerialResponse.values) {
-        expect(value.isOk, value == SerialResponse.ok, reason: value.name);
+        expect(value.isOk, successes.contains(value), reason: value.name);
+      }
+    });
+
+    test('only busy is retryable', () {
+      // Retrying a range error would loop forever; the firmware will never
+      // accept it. Only busy is a transient condition.
+      for (final value in SerialResponse.values) {
+        expect(value.isRetryable, value == SerialResponse.busy,
+            reason: value.name);
       }
     });
   });
