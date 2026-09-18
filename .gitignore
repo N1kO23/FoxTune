@@ -28,3 +28,6 @@ Thumbs.db
 *.msl
 *.msq.bak
 /tmp-ini/
+
+# Secrets
+foxtune.jks
