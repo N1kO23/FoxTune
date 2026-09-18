@@ -144,18 +144,39 @@ Ways out, in rough order of preference:
    native library through the desktop build ourselves. That package has no Android module at
    all, so the problem disappears - at the cost of doing the desktop packaging by hand.
 
+### Permissions
+
+The release manifest (`android/app/src/main/AndroidManifest.xml`) declares:
+
+| Declaration                   | Why                                                                |
+| ----------------------------- | ------------------------------------------------------------------ |
+| `android.permission.INTERNET` | TCP transport - a WiFi bridge, or the simulator on another machine |
+| `android.hardware.usb.host`   | USB OTG enumeration; without it `listDevices()` returns nothing    |
+
+`INTERNET` has to be declared explicitly. Flutter's template only puts it in the **debug** and
+**profile** manifests, so a release APK built without it fails every socket with
+`OS Error: Operation not permitted, errno = 1` - Android refuses `socket()` outright to a
+process that does not hold the permission. It works in debug and breaks in release, which makes
+it easy to miss.
+
+Local network access needs nothing extra today: at `targetSdk` 36 it is implicitly granted by
+`INTERNET`, and Google's guidance is _not_ to declare `ACCESS_LOCAL_NETWORK` yet. That changes
+at `targetSdk` 37 (Android 17), where local network access is blocked by default and
+`ACCESS_LOCAL_NETWORK` becomes a runtime permission that has to be requested. Revisit this when
+the target SDK moves.
+
 ## Release signing
 
 Release signing is driven entirely by the environment, so no keystore is ever committed:
 
-| Variable | Set by |
-| --- | --- |
-| `ANDROID_KEYSTORE_PATH` | CI, after decoding `ANDROID_KEYSTORE_BASE64` |
-| `ANDROID_KEYSTORE_PASSWORD` | secret |
-| `ANDROID_KEY_ALIAS` | secret |
-| `ANDROID_KEY_PASSWORD` | secret |
+| Variable                    | Set by                                       |
+| --------------------------- | -------------------------------------------- |
+| `ANDROID_KEYSTORE_PATH`     | CI, after decoding `ANDROID_KEYSTORE_BASE64` |
+| `ANDROID_KEYSTORE_PASSWORD` | secret                                       |
+| `ANDROID_KEY_ALIAS`         | secret                                       |
+| `ANDROID_KEY_PASSWORD`      | secret                                       |
 
-When `ANDROID_KEYSTORE_PATH` is unset — every local build, and any fork without the secrets —
+When `ANDROID_KEYSTORE_PATH` is unset - every local build, and any fork without the secrets -
 the release build falls back to the debug key so `flutter build apk --release` still produces
 an installable APK. It is just not distributable.
 
@@ -206,6 +227,10 @@ is not a real serial device, typically a `socat` pseudo-terminal.
 ```sh
 sudo usermod -aG dialout "$USER"   # log out and back in
 ```
+
+**`OS Error: Operation not permitted, errno = 1` when connecting to a network ECU** - the
+Android build is missing the `INTERNET` permission. See the Android permissions section; note
+that debug builds have it and release builds do not unless it is declared in the main manifest.
 
 **`Could not find method jcenter()`** - see the Android section above; the Gradle pin was
 probably bumped.

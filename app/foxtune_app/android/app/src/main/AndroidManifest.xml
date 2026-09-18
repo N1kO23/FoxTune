@@ -2,6 +2,15 @@
     <!-- Required for USB OTG: without this, listDevices() returns nothing on
          Android even with a Speeduino plugged in. -->
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+
+    <!-- Required to reach an ECU over TCP - an ESP8266/ESP32 WiFi bridge, or the
+         development simulator on another machine.
+
+         Flutter's template only declares this in the debug and profile manifests,
+         so a RELEASE build without it fails every socket with
+         "OS Error: Operation not permitted, errno = 1": Android denies socket()
+         outright to a process that does not hold INTERNET. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <application
         android:label="foxtune_app"
         android:name="${applicationName}"
