@@ -5,7 +5,9 @@ Open source ECU tuning software for open source ECUs.
 FoxTune targets [Speeduino](https://speeduino.com/) first, with rusEFI and MegaSquirt as later
 goals. It runs on Linux, Windows, macOS and Android from a single Flutter codebase.
 
-> **Status: early development.** Nothing here is safe to tune an engine with yet.
+> **Status: works, but unproven on hardware.** Everything below is implemented and tested
+> against a protocol-accurate simulator. None of it has yet talked to a real Speeduino, so
+> treat the write path in particular as unverified - see [Safety](#safety).
 
 ## Why
 
@@ -22,29 +24,47 @@ updates and, eventually, speak to rusEFI - which ships INI files in the same for
 
 The core is **pure Dart with no Flutter dependency**:
 
-| Package                      | Role                                                      |
-| ---------------------------- | --------------------------------------------------------- |
-| `packages/foxtune_ini`       | TunerStudio `.ini` parser -> typed ECU definition (M1 ✅) |
-| `packages/foxtune_protocol`  | Speeduino serial codec: framing, CRC-32, pages, realtime  |
-| `packages/foxtune_tune`      | Tune state, table/curve math, `.msq` import/export        |
-| `packages/foxtune_transport` | Flutter `EcuLink` implementations (USB serial, USB OTG)   |
-| `app/foxtune_app`            | Flutter UI                                                |
+| Package                      | Role                                                               |
+| ---------------------------- | ------------------------------------------------------------------ |
+| `packages/foxtune_ini`       | TunerStudio `.ini` parser, preprocessor and expression evaluator   |
+| `packages/foxtune_protocol`  | Speeduino serial codec, realtime decoding, and the ECU simulator   |
+| `packages/foxtune_tune`      | Tune state, table maths, `.msq` files, datalogging, the write path |
+| `packages/foxtune_transport` | Flutter `EcuLink` implementations (USB serial, USB OTG, TCP)       |
+| `app/foxtune_app`            | Flutter UI: gauges, table editor, 3D surface, logging              |
 
 Those first three run under `dart test` with no ECU, no device and no display. Everything the
 codec does sits above the `EcuLink` byte pipe, so it can be driven by an in-memory fake.
 
 ### Platform support
 
-| Platform                | Transport                  | Status      |
-| ----------------------- | -------------------------- | ----------- |
-| Linux / Windows / macOS | USB serial (libserialport) | Planned, M2 |
-| Android                 | USB OTG (USB host mode)    | Planned, M2 |
-| iOS                     | WiFi bridge or BLE only    | Deferred    |
+| Platform           | Transport                       | Status                      |
+| ------------------ | ------------------------------- | --------------------------- |
+| Linux              | USB serial, TCP                 | Built and run               |
+| Android            | USB OTG, TCP                    | Built and run; OTG untested |
+| Windows / macOS    | USB serial, TCP                 | Should build; never tried   |
+| Any, including iOS | TCP (ESP8266/ESP32 WiFi bridge) | Works                       |
+| iOS                | BLE                             | Not started                 |
 
 iOS exposes no generic USB serial API - the External Accessory framework requires Apple MFi
 licensing - so an iPhone can only ever reach a Speeduino over WiFi (an ESP8266/ESP32 bridge on
 the secondary serial port) or a BLE adapter. The transport layer is abstract so this can be
 added without disturbing anything above it.
+
+## What works
+
+|                   |                                                                                                                                                    |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Connect**       | USB serial or TCP, with a signature check against the loaded definition                                                                            |
+| **Dashboard**     | Live gauges and status lamps, decoded from `[OutputChannels]` at ~30 Hz                                                                            |
+| **Tables**        | Editable grid with keyboard navigation, interpolate, smooth, scale                                                                                 |
+| **Live position** | The operating cell ringed, the four interpolation neighbours marked, and a dot at the exact interpolated point - in the grid and on the 3D surface |
+| **3D surface**    | Orbitable isometric mesh, no GL dependency                                                                                                         |
+| **Writing**       | Write to RAM, verify by the ECU's own page CRC, then burn                                                                                          |
+| **Tune files**    | `.msq` read and write, matched by name                                                                                                             |
+| **Logging**       | MegaLogViewer-compatible `.msl`, columns from `[Datalog]`                                                                                          |
+
+Not yet: curve editing, a settings screen (the temperature scale is fixed to Celsius in code),
+generated UI from the definition's `[Menu]`, and rusEFI support.
 
 ## Building
 
@@ -81,6 +101,10 @@ plausible running engine into the realtime block - idle, a pull to redline, a cr
 closed-throttle overrun - so gauges move, the live table cursor travels across cells, and the
 warning thresholds are actually reached. `--static` disables it; `--ini PATH` uses a different
 definition.
+
+Pass a tune with `--msq`. Without one the simulator serves empty pages, and channels whose
+scaling depends on a configuration constant - the VE table's load axis among them - cannot be
+written at all. It prints a warning naming any it could not scale.
 
 In tests it is used directly:
 
@@ -141,6 +165,14 @@ confirmed explicitly.
 
 Loading a `.msq` only changes the in-memory tune. Nothing reaches the ECU until you burn, so
 the guard rails below stay in one place.
+
+## Temperature scale
+
+The definition computes `coolant` and `iat` with _different expressions_ depending on whether
+it is parsed with `CELSIUS` defined. That makes the scale a parsing decision, not a display
+one: choosing it wrong does not mislabel a number, it produces a different number. FoxTune
+ties the choice, the parse and the gauge thresholds to a single `TemperatureUnit` so they
+cannot drift apart. It defaults to Celsius and is not yet exposed in the UI.
 
 ## Safety
 

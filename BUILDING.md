@@ -214,8 +214,8 @@ flutter build apk --release
 | --------------- | ---------------------------------------------------------------------- |
 | `core`          | The pure-Dart packages analyze, format and test with a bare Dart SDK   |
 | `flutter`       | The transport package and app analyze, and the app's widget tests pass |
-| `build-linux`   | The desktop app actually links                                         |
-| `build-android` | The APK compiles                                                       |
+| `build-linux`   | The desktop app links, and publishes a `.tar.gz` artifact              |
+| `build-android` | The APK compiles, is signed, and publishes an artifact                 |
 
 The `core` job is the fast signal and should stay that way: it needs no device, display or
 emulator.

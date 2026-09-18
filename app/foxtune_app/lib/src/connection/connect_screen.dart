@@ -4,14 +4,16 @@ import 'package:foxtune_transport/foxtune_transport.dart';
 
 import '../dashboard/dashboard_screen.dart';
 import '../tune/table_editor_screen.dart';
+import '../tune/tune_controller.dart';
 import 'connection_controller.dart';
 import 'connection_state.dart';
 
-/// The connect-and-identify screen.
+/// The app shell: pick a port, connect, then hand off to the dashboard and
+/// table editor.
 ///
-/// This is deliberately read-only: it proves the whole stack end to end -
-/// transport, envelope, CRC, handshake, definition matching - without offering
-/// any way to change the tune.
+/// Connecting alone changes nothing on the ECU. Editing requires a signature
+/// match and an explicit write-mode opt-in, and nothing is committed until a
+/// burn - see [WritePermission].
 class ConnectScreen extends ConsumerWidget {
   const ConnectScreen({super.key});
 
@@ -201,10 +203,20 @@ class _ConnectedView extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: 24),
-        Text(
-          'Read-only. Tuning is not implemented yet.',
-          style: theme.textTheme.bodySmall,
-          textAlign: TextAlign.center,
+        Builder(
+          builder: (context) {
+            final permission = ref.watch(writePermissionProvider);
+            return Text(
+              permission.allowed
+                  ? 'Write mode is on. Changes are verified against the '
+                        "ECU's own CRC before anything is burned."
+                  // Be specific: a signature mismatch reads very differently
+                  // from write mode simply being off.
+                  : permission.reason ?? 'Read-only.',
+              style: theme.textTheme.bodySmall,
+              textAlign: TextAlign.center,
+            );
+          },
         ),
         const SizedBox(height: 16),
         OutlinedButton.icon(

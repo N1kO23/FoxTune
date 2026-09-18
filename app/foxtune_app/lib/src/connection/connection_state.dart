@@ -49,12 +49,12 @@ class EcuConnected extends EcuConnectionState {
 
   final IniDocument? definition;
 
-  /// Whether writing to this ECU may be permitted.
+  /// Whether the loaded definition is confirmed to describe this ECU.
   ///
-  /// Only a confirmed signature match qualifies. Everything else - a mismatch,
-  /// or no definition at all - means the page layout in hand may not describe
-  /// the ECU on the wire.
-  bool get writesPermitted => signatureStatus == SignatureStatus.matched;
+  /// A precondition for writing, but not the whole of it: write mode must also
+  /// be switched on deliberately. Use `writePermissionProvider` for the real
+  /// answer - this getter only says the page layout can be trusted.
+  bool get definitionMatches => signatureStatus == SignatureStatus.matched;
 }
 
 class EcuConnectionFailed extends EcuConnectionState {

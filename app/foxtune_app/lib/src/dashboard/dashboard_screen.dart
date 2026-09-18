@@ -5,6 +5,7 @@ import 'package:foxtune_protocol/foxtune_protocol.dart';
 import '../connection/connection_controller.dart';
 import '../connection/connection_state.dart';
 import '../logging/record_button.dart';
+import '../tune/tune_controller.dart';
 import 'dashboard_controller.dart';
 import 'gauge_status.dart';
 import 'meter_gauge.dart';
@@ -130,7 +131,7 @@ class _StatusBar extends ConsumerWidget {
                 ),
               ),
             const RecordButton(),
-            if (!connection.writesPermitted)
+            if (!ref.watch(writePermissionProvider).allowed)
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
