@@ -130,6 +130,54 @@ void main() {
       expect(snapshot.flag('sync'), isNotNull);
     });
 
+    test('writes channels whose scale is an expression', () async {
+      // Regression: fuelLoad is the VE table's load axis and scales by
+      // { fuelLoadFeedBack }, which depends on the `algorithm` tune constant.
+      // Without resolving that the simulator skipped the channel entirely, so
+      // it kept its filler bytes - a nonsense load that pinned the live table
+      // cursor to the top row no matter what the engine was doing.
+      // The fuel and ignition load axes each scale by their own feedback
+      // expression, over `algorithm` and `ignAlgorithm` respectively.
+      double? constants(String name) =>
+          (name == 'algorithm' || name == 'ignAlgorithm') ? 0 : null;
+
+      final resolved = FakeSpeeduino(
+        channels: doc.outputChannels,
+        constantResolver: constants,
+      );
+      final port = await resolved.start();
+      addTearDown(resolved.stop);
+      resolved.simulateEngine();
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      final probeLink = await SocketEcuLink.connect('127.0.0.1', port);
+      final probeClient = EcuClient(probeLink);
+      addTearDown(() async {
+        await probeClient.close();
+        await probeLink.close();
+      });
+
+      final snapshot =
+          RealtimeDecoder(doc.outputChannels, constantResolver: constants)
+              .decode(await probeClient.readRealtime(count: 139));
+
+      expect(resolved.unresolvedChannels, isEmpty,
+          reason: 'unscalable: ${resolved.unresolvedChannels}');
+      // The load axis must track manifold pressure, not sit at a filler value.
+      expect(snapshot['fuelLoad'], isNotNull);
+      expect(snapshot['fuelLoad'], closeTo(snapshot['map']!, 1.0));
+      expect(snapshot['fuelLoad'], lessThan(300),
+          reason: 'a plausible load, not leftover filler bytes');
+    });
+
+    test('reports channels it could not scale', () async {
+      // Without a resolver the expression cannot be evaluated; that must be
+      // visible rather than silently leaving stale data in the block.
+      ecu.simulateEngine();
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      expect(ecu.unresolvedChannels, contains('fuelLoad'));
+    });
+
     test('stops cleanly and leaves the last sample in place', () async {
       ecu.simulateEngine();
       await Future<void>.delayed(const Duration(milliseconds: 60));

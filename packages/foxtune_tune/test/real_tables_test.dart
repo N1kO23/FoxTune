@@ -95,6 +95,52 @@ void main() {
     }
   });
 
+  test('resolves a load axis units expression to a real label', () {
+    // fuelLoadBins declares { bitStringValue(algorithmUnits, algorithm) }, so
+    // the label depends on the configured load source. algorithm 0 is MAP.
+    final tune = TuneState.empty(doc);
+    final view = TableView.of(tune, doc.tableNamed('veTable1Tbl')!)!;
+
+    expect(view.yUnits, 'kPa');
+    expect(view.yUnits, isNot(contains('bitStringValue')),
+        reason: 'the expression source must never reach the UI');
+  });
+
+  test('follows the configured load source', () {
+    final tune = TuneState.empty(doc);
+    final algorithm = tune.locate('algorithm')!;
+    // Select TPS as the load source; the axis label must follow.
+    final current = tune.readRaw(algorithm.page, algorithm.field)!;
+    final field = algorithm.field as IniBitsField;
+    final mask =
+        ((1 << (field.highBit - field.lowBit + 1)) - 1) << field.lowBit;
+    tune.writeRaw(
+        algorithm.page, field, (current & ~mask) | (1 << field.lowBit));
+
+    final view = TableView.of(tune, doc.tableNamed('veTable1Tbl')!)!;
+    expect(view.yUnits, '% TPS');
+  });
+
+  test('an unresolvable units expression renders as nothing, not source', () {
+    final broken = IniParser().parse('''
+[Constants]
+nPages   = 1
+pageSize = 32
+page = 1
+  z = array, U08, 0, [2x2], { bitStringValue(missing, alsoMissing) }, 1.0, 0.0, 0.0, 255.0, 0
+  x = array, U08, 4, [2], "RPM", 1.0, 0.0, 0.0, 255.0, 0
+  y = array, U08, 6, [2], "kPa", 1.0, 0.0, 0.0, 255.0, 0
+[TableEditor]
+  table = t, tMap, "T", 1
+    xBins = x, rpm
+    yBins = y, map
+    zBins = z
+''');
+    final tune = TuneState.empty(broken);
+    final view = TableView.of(tune, broken.tables.single)!;
+    expect(view.zUnits, isEmpty);
+  });
+
   test('a fresh tune reports no live cursor cell as an error', () {
     // With all-zero axes the nearest-cell search must still return something
     // rather than throwing while the tune is still being read.

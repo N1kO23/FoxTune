@@ -7,6 +7,7 @@ import '../connection/connection_state.dart';
 import '../dashboard/dashboard_controller.dart';
 import '../dashboard/gauge_status.dart';
 import 'msq_actions.dart';
+import 'cursor_readout.dart';
 import 'surface_view.dart';
 import 'table_grid.dart';
 import 'tune_controller.dart';
@@ -76,6 +77,13 @@ class _TableEditorScreenState extends ConsumerState<TableEditorScreen> {
               },
             ),
             const Divider(height: 1),
+            CursorReadout(
+              view: view,
+              cursor: _cursorFor(view),
+              x: _channelValue(view.table.xBins.channel),
+              y: _channelValue(view.table.yBins.channel),
+            ),
+            const Divider(height: 1),
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(12),
@@ -114,13 +122,16 @@ class _TableEditorScreenState extends ConsumerState<TableEditorScreen> {
     );
   }
 
+  /// A live realtime channel value, or `null` when it is unavailable.
+  double? _channelValue(String? channel) {
+    if (channel == null) return null;
+    return ref.watch(realtimeProvider).valueOrNull?[channel];
+  }
+
   /// Where the engine is operating, from the live realtime feed.
   ({int row, int column})? _cursorFor(TableView view) {
-    final snapshot = ref.watch(realtimeProvider).valueOrNull;
-    if (snapshot == null) return null;
-
-    final x = snapshot[view.table.xBins.channel ?? ''];
-    final y = snapshot[view.table.yBins.channel ?? ''];
+    final x = _channelValue(view.table.xBins.channel);
+    final y = _channelValue(view.table.yBins.channel);
     if (x == null || y == null) return null;
     return view.cellFor(x, y);
   }

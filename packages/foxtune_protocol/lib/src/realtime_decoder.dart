@@ -31,6 +31,14 @@ class RealtimeDecoder {
   /// Computed channels that parsed successfully, by name.
   final Map<String, CompiledExpression> _compiled;
 
+  /// Scale and translate expressions, compiled once and keyed by source.
+  ///
+  /// Several channels scale by an expression rather than a literal - the VE
+  /// table's load axis, `fuelLoad`, scales by `{ fuelLoadFeedBack }`, which in
+  /// turn depends on a tune constant. Compiling these per sample would be
+  /// wasteful at 30 Hz, so they are cached on the decoder.
+  final Map<String, CompiledExpression?> _scaleExpressions = {};
+
   /// Computed channels whose expression could not be parsed.
   ///
   /// These are reported rather than silently omitted, so a definition this
@@ -53,6 +61,7 @@ class RealtimeDecoder {
         block: block,
         definition: definition,
         compiled: _compiled,
+        scaleExpressions: _scaleExpressions,
         constantResolver: constantResolver,
         timestamp: timestamp ?? DateTime.now(),
       );
@@ -67,10 +76,12 @@ class RealtimeSnapshot {
     required this.block,
     required IniOutputChannels definition,
     required Map<String, CompiledExpression> compiled,
+    required Map<String, CompiledExpression?> scaleExpressions,
     required this.timestamp,
     double? Function(String name)? constantResolver,
   })  : _definition = definition,
         _compiled = compiled,
+        _scaleExpressions = scaleExpressions,
         _constantResolver = constantResolver;
 
   /// The raw bytes this snapshot was decoded from.
@@ -81,6 +92,7 @@ class RealtimeSnapshot {
 
   final IniOutputChannels _definition;
   final Map<String, CompiledExpression> _compiled;
+  final Map<String, CompiledExpression?> _scaleExpressions;
   final double? Function(String name)? _constantResolver;
 
   final Map<String, double?> _cache = {};
@@ -138,10 +150,8 @@ class RealtimeSnapshot {
       case IniScalarField(:final type, :final scale, :final translate):
         final raw = _readRaw(offset, type);
         if (raw == null) return null;
-        final s = scale.literalValue;
-        final t = translate.literalValue;
-        // An expression-based scale cannot be resolved here; the definition
-        // usually supplies a computed channel for these instead.
+        final s = resolveScalar(scale);
+        final t = resolveScalar(translate);
         if (s == null || t == null) return null;
         return raw * s + t;
 
@@ -172,6 +182,23 @@ class RealtimeSnapshot {
   bool? flag(String name) {
     final value = this[name];
     return value == null ? null : value != 0;
+  }
+
+  /// Resolves an [IniScalarValue] that may be a literal or an expression.
+  ///
+  /// Expressions are evaluated against this snapshot, so a scale that depends
+  /// on another channel or on a tune constant resolves the same way any other
+  /// value does - and yields `null` if its inputs are unavailable rather than
+  /// silently scaling by one.
+  double? resolveScalar(IniScalarValue scalar) {
+    switch (scalar) {
+      case IniLiteral(:final value):
+        return value;
+      case IniExpression(:final source):
+        final compiled = _scaleExpressions.putIfAbsent(
+            source, () => CompiledExpression.tryCompile(source));
+        return compiled?.evaluate(value);
+    }
   }
 
   int? _readRaw(int offset, IniDataType type) {

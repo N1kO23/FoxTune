@@ -72,8 +72,8 @@ page reads, realtime block and all. The integration tests drive a real `EcuClien
 over a real socket, so a framing mistake fails the build rather than passing quietly.
 
 ```sh
-cd packages/foxtune_protocol
-dart run bin/fake_ecu.dart          # listens on 2000, engine running
+cd packages/foxtune_tune
+dart run bin/fake_ecu.dart --msq /path/to/your-tune.msq
 ```
 
 Then connect from the app with **Network ECU** → `127.0.0.1:2000`. The simulator drives a

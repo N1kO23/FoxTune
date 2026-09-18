@@ -96,8 +96,8 @@ You do not need a Speeduino to work on almost any of this. The protocol package 
 simulator that speaks the real wire protocol over TCP and drives a plausible running engine:
 
 ```sh
-cd packages/foxtune_protocol
-dart run bin/fake_ecu.dart            # listens on 2000
+cd packages/foxtune_tune
+dart run bin/fake_ecu.dart --msq /path/to/your-tune.msq
 ```
 
 Then start the app and choose **Network ECU** → `127.0.0.1:2000`. Gauges move, the live table
@@ -105,9 +105,22 @@ cursor travels across cells, and warning thresholds are actually reached.
 
 | Flag         | Effect                                          |
 | ------------ | ----------------------------------------------- |
+| `--msq PATH` | Seed the pages from a real tune                 |
 | `--port N`   | Listen on a different port                      |
 | `--ini PATH` | Use a different ECU definition                  |
 | `--static`   | Serve a fixed block instead of a running engine |
+
+**Pass a real tune.** Without one the simulator serves empty pages, which is not merely
+unrealistic - it is wrong in a way that looks like an app bug. Several realtime channels scale
+by an _expression_ rather than a constant: `fuelLoad`, the VE table's load axis, scales by
+`{ fuelLoadFeedBack }`, which resolves through a computed channel to the `algorithm`
+configuration constant. With no tune there is no `algorithm`, so the channel cannot be written
+and keeps whatever filler was in the block - a nonsense load that pins the live table cursor to
+the top row regardless of what the engine is doing. The simulator prints a warning naming any
+channel it could not scale.
+
+A base tune from a different firmware build is fine: values are matched by name, so whatever
+applies is loaded and the rest is reported.
 
 The one layer this cannot exercise is the desktop serial driver itself: libserialport rejects
 pseudo-terminals, so a `socat` loopback is not a usable stand-in for a real port. That layer

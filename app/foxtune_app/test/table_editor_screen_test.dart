@@ -1,9 +1,12 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:foxtune_app/src/connection/connection_state.dart';
 import 'package:foxtune_app/src/dashboard/dashboard_controller.dart';
+import 'package:foxtune_app/src/tune/cursor_readout.dart';
 import 'package:foxtune_app/src/tune/table_editor_screen.dart';
 import 'package:foxtune_app/src/tune/table_grid.dart';
 import 'package:foxtune_app/src/tune/tune_controller.dart';
@@ -47,6 +50,15 @@ void main() {
         ve.setValueAt(r, c, (40 + r + c).toDouble());
       }
     }
+    // Realistic axis bins. Without them every operating point maps to the
+    // same cell, because the nearest-bin search has nothing to distinguish.
+    final rpmBins = tune.locate('rpmBins')!;
+    final loadBins = tune.locate('fuelLoadBins')!;
+    for (var i = 0; i < 16; i++) {
+      // rpmBins scales by 100, so raw 5..80 spans 500..8000 rpm.
+      tune.writeRaw(rpmBins.page, rpmBins.field, 5 + i * 5, i);
+      tune.writeRaw(loadBins.page, loadBins.field, 20 + i * 5, i);
+    }
     tune.markClean();
   });
 
@@ -61,10 +73,29 @@ void main() {
     definition: doc,
   );
 
+  /// A realtime sample placing the engine at [rpm] and [load].
+  RealtimeSnapshot sampleAt({required int rpm, required int load}) {
+    final channels = doc.outputChannels;
+    final block = Uint8List(channels.blockSize!);
+    final view = ByteData.sublistView(block);
+    view.setUint16(channels.channelNamed('rpm')!.offset!, rpm, Endian.little);
+    view.setInt16(
+      channels.channelNamed('fuelLoad')!.offset!,
+      load,
+      Endian.little,
+    );
+    return RealtimeDecoder(
+      channels,
+      // fuelLoad scales by an expression that depends on this constant.
+      constantResolver: (name) => name == 'algorithm' ? 0 : null,
+    ).decode(block);
+  }
+
   Future<void> pumpEditor(
     WidgetTester tester, {
     WritePermission permission = const WritePermission.granted(),
     Size size = const Size(1400, 1000),
+    RealtimeSnapshot? live,
   }) async {
     await tester.binding.setSurfaceSize(size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -76,7 +107,9 @@ void main() {
           writePermissionProvider.overrideWithValue(permission),
           realtimeMonitorProvider.overrideWithValue(null),
           realtimeProvider.overrideWith(
-            (ref) => const Stream<RealtimeSnapshot>.empty(),
+            (ref) => live == null
+                ? const Stream<RealtimeSnapshot>.empty()
+                : Stream<RealtimeSnapshot>.value(live),
           ),
         ],
         child: MaterialApp(
@@ -147,5 +180,49 @@ void main() {
       isNull,
       reason: 'read-only must not offer a working edit action',
     );
+  });
+
+  group('live cell indicator', () {
+    testWidgets('says so when there is no live data', (tester) async {
+      await pumpEditor(tester);
+
+      expect(find.byType(CursorReadout), findsOneWidget);
+      expect(find.textContaining('No live position'), findsOneWidget);
+    });
+
+    testWidgets('reports the operating point once data arrives', (
+      tester,
+    ) async {
+      await pumpEditor(tester, live: sampleAt(rpm: 3000, load: 60));
+
+      // This is the regression that mattered: the VE table's load axis scales
+      // by an expression, so before the decoder could resolve those the cursor
+      // could never be placed at all.
+      expect(find.textContaining('Operating at'), findsOneWidget);
+      expect(find.textContaining('No live position'), findsNothing);
+      expect(find.textContaining('cell R'), findsOneWidget);
+    });
+
+    testWidgets('places the cursor at the bins matching the engine', (
+      tester,
+    ) async {
+      // Axis bins are 500..8000 rpm in 500 steps and 40..190 kPa in 10 steps,
+      // so 6000 rpm / 90 kPa lands on a cell that can be named exactly. An
+      // assertion on the precise cell catches an off-by-one or a transposed
+      // axis, which "the cell changed" would not.
+      await pumpEditor(tester, live: sampleAt(rpm: 6000, load: 90));
+
+      expect(find.textContaining('6000'), findsWidgets);
+      expect(find.text('   cell R6 C12'), findsOneWidget);
+    });
+
+    testWidgets('readout does not overflow at phone width', (tester) async {
+      await pumpEditor(
+        tester,
+        size: const Size(420, 900),
+        live: sampleAt(rpm: 6000, load: 90),
+      );
+      expect(tester.takeException(), isNull);
+    });
   });
 }

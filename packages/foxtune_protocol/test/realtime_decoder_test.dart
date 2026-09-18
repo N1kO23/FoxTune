@@ -310,6 +310,44 @@ void main() {
       expect(snapshot['rpm'], 2500);
     });
 
+    test('resolves a channel whose scale is an expression', () {
+      // fuelLoad is the VE table's load axis and scales by
+      // { fuelLoadFeedBack }, which depends on the `algorithm` tune constant.
+      // Without this the live table cursor can never be placed, because its
+      // Y coordinate is always unavailable.
+      final channels = doc.outputChannels;
+      final block = blockWith({'rpm': 3000, 'fuelLoad': 60});
+
+      final resolved = RealtimeDecoder(
+        channels,
+        // algorithm 0 selects a feedback factor of 1.0.
+        constantResolver: (name) => name == 'algorithm' ? 0 : null,
+      ).decode(block);
+
+      expect(resolved['fuelLoad'], isNotNull);
+      expect(resolved['fuelLoad'], closeTo(60, 1e-9));
+    });
+
+    test('an expression scale still yields null when its inputs are unknown',
+        () {
+      // Better an absent axis than one scaled by a guessed factor.
+      final snapshot = RealtimeDecoder(doc.outputChannels)
+          .decode(blockWith({'fuelLoad': 60}));
+      expect(snapshot['fuelLoad'], isNull);
+    });
+
+    test('places the VE table cursor from live values', () {
+      final ve = doc.tableNamed('veTable1Tbl')!;
+      final snapshot = RealtimeDecoder(
+        doc.outputChannels,
+        constantResolver: (name) => name == 'algorithm' ? 0 : null,
+      ).decode(blockWith({'rpm': 3000, 'fuelLoad': 60}));
+
+      // Both axis channels must resolve for a cursor to be possible at all.
+      expect(snapshot[ve.xBins.channel!], isNotNull);
+      expect(snapshot[ve.yBins.channel!], isNotNull);
+    });
+
     test('reads zero rpm without dividing by zero', () {
       final decoder = RealtimeDecoder(doc.outputChannels);
       final snapshot = decoder.decode(blockWith({'rpm': 0}));

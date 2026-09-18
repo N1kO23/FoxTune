@@ -2,6 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
 
+/// Cell geometry.
+///
+/// An axis label must occupy the same footprint as a cell - the cell's width
+/// *plus its margins* - or the columns drift apart by the margin on every
+/// column, which is only obvious by the far edge of a 16-wide table.
+const double _cellWidth = 54;
+const double _cellMargin = 1;
+const double _columnWidth = _cellWidth + _cellMargin * 2;
+const double _rowLabelWidth = 56;
+
 /// A rectangular block of selected cells.
 class CellSelection {
   const CellSelection({
@@ -172,7 +182,11 @@ class _TableGridState extends State<TableGrid> {
               for (var r = view.rows - 1; r >= 0; r--)
                 Row(
                   children: [
-                    _AxisLabel(text: _format(view.yAt(r), 0), width: 56),
+                    _AxisLabel(
+                      text: _format(view.yAt(r), 0),
+                      width: _rowLabelWidth,
+                      highlighted: widget.cursor?.row == r,
+                    ),
                     for (var c = 0; c < view.columns; c++)
                       _Cell(
                         value: values[r][c],
@@ -198,7 +212,7 @@ class _TableGridState extends State<TableGrid> {
               Row(
                 children: [
                   SizedBox(
-                    width: 56,
+                    width: _rowLabelWidth,
                     height: 26,
                     child: Center(
                       child: Text(
@@ -208,7 +222,11 @@ class _TableGridState extends State<TableGrid> {
                     ),
                   ),
                   for (var c = 0; c < view.columns; c++)
-                    _AxisLabel(text: _format(view.xAt(c), 0), width: 54),
+                    _AxisLabel(
+                      text: _format(view.xAt(c), 0),
+                      width: _columnWidth,
+                      highlighted: widget.cursor?.column == c,
+                    ),
                 ],
               ),
             ],
@@ -228,24 +246,39 @@ class _TableGridState extends State<TableGrid> {
 }
 
 class _AxisLabel extends StatelessWidget {
-  const _AxisLabel({required this.text, required this.width});
+  const _AxisLabel({
+    required this.text,
+    required this.width,
+    this.highlighted = false,
+  });
+
   final String text;
   final double width;
 
+  /// Whether this label sits on the live cursor's row or column.
+  final bool highlighted;
+
   @override
-  Widget build(BuildContext context) => SizedBox(
-    width: width,
-    height: 26,
-    child: Center(
-      child: Text(
-        text,
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-          fontFeatures: const [FontFeature.tabularFigures()],
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      width: width,
+      height: 26,
+      child: Center(
+        child: Text(
+          text,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            // Marking the axes as well as the cell makes the operating point
+            // readable at a glance on a 16x16 grid, where a single ringed cell
+            // is easy to lose.
+            color: highlighted ? scheme.tertiary : scheme.onSurfaceVariant,
+            fontWeight: highlighted ? FontWeight.w700 : FontWeight.w400,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _Cell extends StatelessWidget {
@@ -281,14 +314,24 @@ class _Cell extends StatelessWidget {
       fraction,
     )!;
 
+    final background = isCursor
+        // A tint as well as a ring: the ring alone disappears against a dark
+        // heat-map cell, and against the selection fill.
+        ? Color.lerp(
+            selected ? scheme.primaryContainer : heat,
+            scheme.tertiaryContainer,
+            0.55,
+          )!
+        : (selected ? scheme.primaryContainer : heat);
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: 54,
+        width: _cellWidth,
         height: 30,
-        margin: const EdgeInsets.all(1),
+        margin: const EdgeInsets.all(_cellMargin),
         decoration: BoxDecoration(
-          color: selected ? scheme.primaryContainer : heat,
+          color: background,
           borderRadius: BorderRadius.circular(3),
           border: Border.all(
             color: isCursor

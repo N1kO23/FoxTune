@@ -140,7 +140,30 @@ class TableView {
   /// Units label for the table values.
   String get zUnits => _unitsOf(zField);
 
-  String _unitsOf(IniArrayField field) => field.units;
+  /// Resolves an axis's units label.
+  ///
+  /// Units are not always a literal. A load axis declares
+  /// `{ bitStringValue(algorithmUnits, algorithm) }`, meaning "the option of
+  /// `algorithmUnits` selected by the `algorithm` setting" - so the axis reads
+  /// kPa, % TPS or % depending on how the engine is configured. Rendering the
+  /// expression source verbatim, as a bare `{ bitStringValue(al...`, is worse
+  /// than showing nothing, so an unresolvable expression yields an empty label.
+  String _unitsOf(IniArrayField field) {
+    final units = field.units.trim();
+    if (!units.startsWith('{') || !units.endsWith('}')) return units;
+
+    final source = units.substring(1, units.length - 1).trim();
+    final call = RegExp(r'^bitStringValue\(\s*(\w+)\s*,\s*(\w+)\s*\)$')
+        .firstMatch(source);
+    if (call == null) return '';
+
+    final options = tune.definition.findField(call.group(1)!);
+    final index = resolver.resolve(call.group(2)!);
+    if (options is! IniBitsField || index == null) return '';
+
+    final label = options.labelFor(index.toInt());
+    return label == null || label == 'INVALID' ? '' : label;
+  }
 
   /// Decimal places for displaying table values.
   int get zDecimals => zField.digits ?? 0;

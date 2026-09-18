@@ -42,6 +42,7 @@ page = 1
 }
 
 void main() {
+  _alignmentTests();
   _surfaceTests();
   group('CellSelection', () {
     test('a single cell covers one position', () {
@@ -255,6 +256,108 @@ void _surfaceTests() {
         ),
       );
       expect(tester.takeException(), isNull);
+    });
+  });
+}
+
+/// A wide table with unique labels, so a per-column drift is measurable.
+const _wideSource = '''
+[MegaTune]
+signature = "test 1"
+[Constants]
+endianness = little
+nPages     = 1
+pageSize   = 32
+page = 1
+  zTable = array, U08, 0,  [2x6], "%",   1.0,   0.0, 0.0, 255.0, 0
+  xAxis  = array, U08, 12, [6],   "RPM", 100.0, 0.0, 100.0, 25500.0, 0
+  yAxis  = array, U08, 18, [2],   "kPa", 2.0,   0.0, 0.0, 510.0, 0
+[TableEditor]
+  table = t, tMap, "Wide Table", 1
+    xBins = xAxis, rpm
+    yBins = yAxis, map
+    zBins = zTable
+''';
+
+({TuneState tune, TableView view}) buildWideTable() {
+  final doc = IniParser().parse(_wideSource);
+  final tune = TuneState.empty(doc);
+  final z = tune.locate('zTable')!;
+  final x = tune.locate('xAxis')!;
+  final y = tune.locate('yAxis')!;
+  for (var i = 0; i < 12; i++) {
+    tune.writeRaw(z.page, z.field, 101 + i, i);
+  }
+  for (var i = 0; i < 6; i++) {
+    tune.writeRaw(x.page, x.field, 10 * (i + 1), i);
+  }
+  for (var i = 0; i < 2; i++) {
+    tune.writeRaw(y.page, y.field, 5 * (i + 1), i);
+  }
+  tune.markClean();
+  return (tune: tune, view: TableView.of(tune, doc.tables.single)!);
+}
+
+void _alignmentTests() {
+  group('column alignment', () {
+    testWidgets('every axis label lines up with its column', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final table = buildWideTable();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TableGrid(
+              view: table.view,
+              selection: const CellSelection.single(0, 0),
+              onSelectionChanged: (_) {},
+              onEdit: (_) {},
+            ),
+          ),
+        ),
+      );
+
+      // Row 0 of the table holds 101..106, under axis labels 1000..6000.
+      // The regression: labels were sized to the cell width but cells carry a
+      // margin, so each column drifted by the margin - invisible at column 1
+      // and obvious by column 6.
+      for (var c = 0; c < 6; c++) {
+        final cell = tester.getCenter(find.text('${101 + c}')).dx;
+        final label = tester.getCenter(find.text('${(c + 1) * 1000}')).dx;
+        expect(
+          label,
+          closeTo(cell, 0.5),
+          reason: 'column ${c + 1} label is offset from its cells',
+        );
+      }
+    });
+
+    testWidgets('the row label column does not shift the first cell', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final table = buildWideTable();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TableGrid(
+              view: table.view,
+              selection: const CellSelection.single(0, 0),
+              onSelectionChanged: (_) {},
+              onEdit: (_) {},
+            ),
+          ),
+        ),
+      );
+
+      // Both rows of a column must share one x position.
+      expect(
+        tester.getCenter(find.text('101')).dx,
+        closeTo(tester.getCenter(find.text('107')).dx, 0.5),
+      );
     });
   });
 }

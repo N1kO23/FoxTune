@@ -44,6 +44,7 @@ class FakeSpeeduino {
     this.canId = 0,
     this.blockingFactor = 251,
     this.channels,
+    this.constantResolver,
   }) {
     for (var i = 0; i < pageSizes.length; i++) {
       // Deterministic filler: byte value derives from page and offset, so a
@@ -72,6 +73,15 @@ class FakeSpeeduino {
   /// to know where a named channel lives in the block, and placing values at
   /// guessed offsets would make the UI look right for the wrong reason.
   final IniOutputChannels? channels;
+
+  /// Supplies values for identifiers that are not realtime channels.
+  ///
+  /// Needed to invert expression-based scaling. `fuelLoad` - the VE table's
+  /// load axis - scales by `{ fuelLoadFeedBack }`, which resolves through a
+  /// computed channel to the `algorithm` tune constant. Without a resolver that
+  /// channel cannot be written at all, and it keeps whatever filler was in the
+  /// block: a nonsense load that pins the live table cursor to the top row.
+  final double? Function(String name)? constantResolver;
 
   /// Page contents, indexed from 0 for page 1.
   final pages = <Uint8List>[];
@@ -126,6 +136,13 @@ class FakeSpeeduino {
   EngineSimulation? _engine;
   Timer? _engineTimer;
 
+  /// Set while resolving, so a computed channel can recurse into the resolver.
+  double? Function(String)? resolveRef;
+
+  /// Simulated channels that could not be written because their scale could
+  /// not be resolved. Reported rather than left as silent stale filler.
+  final unresolvedChannels = <String>{};
+
   /// Whether the realtime block is being driven by a simulated engine.
   bool get isSimulatingEngine => _engine != null;
 
@@ -160,7 +177,31 @@ class FakeSpeeduino {
     final definition = channels;
     if (engine == null || definition == null) return;
 
-    engine.sample().forEach((name, value) {
+    final sample = engine.sample();
+
+    /// Resolves an identifier the same way the decoder will: simulated
+    /// channels first, then computed channels, then tune constants.
+    double? resolve(String name) {
+      final direct = sample[name];
+      if (direct != null) return direct;
+      final computed = definition.computedNamed(name);
+      if (computed != null) {
+        final expression = CompiledExpression.tryCompile(computed.expression);
+        final result = expression?.evaluate(resolveRef!);
+        if (result != null) return result;
+      }
+      return constantResolver?.call(name);
+    }
+
+    resolveRef = resolve;
+
+    double? scalarOf(IniScalarValue scalar) => switch (scalar) {
+          IniLiteral(:final value) => value,
+          IniExpression(:final source) =>
+            CompiledExpression.tryCompile(source)?.evaluate(resolve),
+        };
+
+    sample.forEach((name, value) {
       final field = definition.channelNamed(name);
 
       // Some transmitted values are packed bitfields rather than scalars -
@@ -178,15 +219,24 @@ class FakeSpeeduino {
 
       if (field is! IniScalarField) return;
       final offset = field.offset;
-      final scale = field.scale.literalValue;
-      final translate = field.translate.literalValue;
-      // An expression-scaled channel cannot be inverted here; the definition
-      // usually derives those from another channel anyway.
+      final scale = scalarOf(field.scale);
+      final translate = scalarOf(field.translate);
       if (offset == null || scale == null || translate == null || scale == 0) {
         return;
       }
       _writeScalar(offset, field.type, ((value - translate) / scale).round());
     });
+
+    unresolvedChannels
+      ..clear()
+      ..addAll([
+        for (final name in sample.keys)
+          if (definition.channelNamed(name) is IniScalarField &&
+              scalarOf((definition.channelNamed(name)! as IniScalarField)
+                      .scale) ==
+                  null)
+            name,
+      ]);
 
     engine.flags().forEach((name, on) {
       final field = definition.channelNamed(name);
