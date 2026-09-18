@@ -30,6 +30,7 @@ class IniParser {
     'PcVariables',
     'TableEditor',
     'CurveEditor',
+    'Datalog',
   };
 
   /// Parses [source], the full text of a `.ini` file.
@@ -62,6 +63,7 @@ class IniParser {
     final computedChannels = <String, IniComputedChannel>{};
     String? ochGetCommand;
     int? ochBlockSize;
+    final datalog = <IniDatalogEntry>[];
     final tables = <_TableBuilder>[];
     final curves = <_CurveBuilder>[];
     final rawSections = <String, List<String>>{};
@@ -160,6 +162,12 @@ class IniParser {
             previousOffset = field.offset ?? previousOffset;
           }
 
+        case 'Datalog':
+          if (key == 'entry') {
+            final entry = _parseDatalogEntry(value);
+            if (entry != null) datalog.add(entry);
+          }
+
         case 'TableEditor':
           _parseTableLine(key, value, tables, line);
 
@@ -188,6 +196,7 @@ class IniParser {
         computed: computedChannels.values.toList(growable: false),
       ),
       pcVariables: pcVariables,
+      datalog: datalog,
       tables: [for (final t in tables) t.build()],
       curves: [for (final c in curves) c.build()],
       rawSections: {
@@ -431,6 +440,47 @@ class IniParser {
       if (target != null) return List<String>.of(target);
     }
     return [unquote(trimmed)];
+  }
+
+  // --- Datalog -------------------------------------------------------------
+
+  /// Parses `entry = channel, label, type, format[, condition]`.
+  ///
+  /// The label may be a quoted string or a `{ ... }` expression; expressions
+  /// reference aliases this parser cannot resolve, so the channel name stands
+  /// in and the source is retained.
+  static IniDatalogEntry? _parseDatalogEntry(String value) {
+    final tokens = splitTopLevel(value);
+    if (tokens.length < 3) return null;
+
+    final channel = tokens[0].trim();
+    if (channel.isEmpty) return null;
+
+    final rawLabel = tokens[1].trim();
+    final isExpression = rawLabel.startsWith('{') && rawLabel.endsWith('}');
+
+    final typeToken = tokens[2].trim().toLowerCase();
+    final format = tokens.length > 3 ? unquote(tokens[3]) : '%d';
+
+    String? condition;
+    if (tokens.length > 4) {
+      final raw = tokens[4].trim();
+      if (raw.startsWith('{') && raw.endsWith('}')) {
+        condition = raw.substring(1, raw.length - 1).trim();
+      }
+    }
+
+    return IniDatalogEntry(
+      channel: channel,
+      label: isExpression ? channel : unquote(rawLabel),
+      labelExpression: isExpression
+          ? rawLabel.substring(1, rawLabel.length - 1).trim()
+          : null,
+      type:
+          typeToken == 'float' ? IniDatalogType.float : IniDatalogType.integer,
+      format: format,
+      condition: condition,
+    );
   }
 
   // --- SettingGroups -------------------------------------------------------

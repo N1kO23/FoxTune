@@ -214,6 +214,50 @@ void main() {
       }
     });
 
+    test('parses the datalog column definitions', () {
+      final datalog = parse().datalog;
+      expect(datalog.length, greaterThan(100));
+
+      // Order matters: the file says entries are written in the order listed.
+      expect(datalog.first.channel, 'time');
+      expect(datalog.first.label, 'Time');
+      expect(datalog.first.type, IniDatalogType.float);
+      expect(datalog.first.decimals, 3);
+
+      final rpm = datalog.firstWhere((e) => e.channel == 'rpm');
+      expect(rpm.label, 'RPM');
+      expect(rpm.type, IniDatalogType.integer);
+      expect(rpm.decimals, 0);
+    });
+
+    test('falls back to the channel name for an expression label', () {
+      // Aliased auxiliary inputs name their column with stringValue(), which
+      // cannot be resolved here.
+      final datalog = parse().datalog;
+      final aliased = datalog.where((e) => e.labelExpression != null).toList();
+      expect(aliased, isNotEmpty);
+      for (final entry in aliased) {
+        expect(entry.label, entry.channel);
+        expect(entry.labelExpression, contains('stringValue'));
+      }
+    });
+
+    test('retains the condition that gates optional columns', () {
+      final gated = parse().datalog.where((e) => e.condition != null).toList();
+      expect(gated, isNotEmpty);
+      expect(gated.first.condition, isNotEmpty);
+    });
+
+    test('every logged channel exists in the definition', () {
+      final doc = parse();
+      final names = doc.outputChannels.allNames;
+      final missing = [
+        for (final entry in doc.datalog)
+          if (!names.contains(entry.channel)) entry.channel,
+      ];
+      expect(missing, isEmpty, reason: 'unknown log channels: $missing');
+    });
+
     test('collects the build-configuration groups', () {
       final groups = parse().settingGroups;
       expect(groups, isNotEmpty);

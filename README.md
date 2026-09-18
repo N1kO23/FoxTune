@@ -112,6 +112,18 @@ Fahrenheit would silently report the wrong number.
 Expressions that use functions FoxTune does not implement evaluate to `null`, and that
 propagates: a gauge reads as unavailable rather than showing a fabricated value.
 
+## Datalogging
+
+FoxTune records to MegaLogViewer-compatible `.msl` - a tab-separated file with the column
+names, order and number formats taken from the definition's own `[Datalog]` section, because
+tools like MegaLogViewer key off specific column names.
+
+Two things it deliberately does not do: it does not invent a zero for a reading that is
+absent (the cell is left blank so a plot shows the gap), and it does not create columns that
+would be blank for the entire log - a channel the ECU cannot report, or one whose `[Datalog]`
+condition is false, is left out and listed instead. Rows are flushed as they are recorded, so
+a log survives the session ending abruptly, which is when it matters most.
+
 ## Tune files
 
 FoxTune reads and writes TunerStudio `.msq` files. Values are matched **by name**, not by

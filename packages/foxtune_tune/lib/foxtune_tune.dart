@@ -1,4 +1,4 @@
-/// Tune state, table and curve math, and `.msq` import/export.
+/// Tune state, table and curve math, tune files and datalogging.
 ///
 /// Tune state is held as raw page byte buffers with typed views projected over
 /// them via the `.ini` model. Keeping bytes as the source of truth makes round
@@ -10,6 +10,8 @@
 /// Pure Dart.
 library;
 
+export 'src/log_recorder.dart';
+export 'src/msl_writer.dart';
 export 'src/msq_codec.dart';
 export 'src/table_view.dart';
 export 'src/tune_state.dart';

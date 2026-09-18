@@ -139,6 +139,11 @@ void main() {
     expect(find.text('DANGER'), findsAtLeastNWidgets(1));
   });
 
+  testWidgets('offers a record control when connected', (tester) async {
+    await pumpDashboard(tester, blockWith({'rpm': 1200}));
+    expect(find.text('Record'), findsOneWidget);
+  });
+
   testWidgets('shows status lamps', (tester) async {
     await pumpDashboard(tester, blockWith({'rpm': 900}));
     expect(find.text('Running'), findsOneWidget);

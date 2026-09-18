@@ -301,3 +301,56 @@ class IniSettingGroup {
   @override
   String toString() => 'settingGroup $name (${options.length} options)';
 }
+
+/// How a value is converted before being written to a log.
+enum IniDatalogType { integer, float }
+
+/// One column of the datalog, from the `[Datalog]` section.
+///
+/// The definition - not FoxTune - decides what gets logged and what each column
+/// is called, because tools like MegaLogViewer key off specific column names.
+class IniDatalogEntry {
+  const IniDatalogEntry({
+    required this.channel,
+    required this.label,
+    required this.type,
+    required this.format,
+    this.labelExpression,
+    this.condition,
+  });
+
+  /// Output channel to log. Case sensitive.
+  final String channel;
+
+  /// Column heading written to the log's header line.
+  ///
+  /// When the definition supplies an expression instead of a literal - an
+  /// aliased auxiliary input, say - this falls back to [channel] and the
+  /// source is kept in [labelExpression].
+  final String label;
+
+  /// The unevaluated label expression, when the definition used one.
+  final String? labelExpression;
+
+  /// Whether the value is written as an integer or a decimal.
+  final IniDatalogType type;
+
+  /// C-style format string, e.g. `%.3f`.
+  final String format;
+
+  /// Expression gating whether this column is logged at all.
+  ///
+  /// Typically tests a configuration constant, so a log does not carry columns
+  /// for hardware that is not fitted.
+  final String? condition;
+
+  /// Decimal places implied by [format].
+  int get decimals {
+    final match = RegExp(r'%\.(\d+)f').firstMatch(format);
+    if (match != null) return int.parse(match.group(1)!);
+    return 0;
+  }
+
+  @override
+  String toString() => 'entry $channel as "$label"';
+}

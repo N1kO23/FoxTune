@@ -19,3 +19,7 @@ Tune state, table editing and the guarded write path.
 - `MsqCodec`: TunerStudio `.msq` read and write. Values are matched by name so a
   tune from another firmware version loads what applies and reports the rest;
   2D tables are written highest-Y row first, the way TunerStudio displays them.
+- `MslLogWriter` and `LogRecorder`: MegaLogViewer-compatible `.msl` datalogging,
+  with columns, labels and formats taken from the definition's `[Datalog]`
+  section. Absent readings are left blank rather than written as zero, and
+  channels that could never produce a value are excluded and reported.

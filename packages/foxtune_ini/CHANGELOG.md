@@ -15,3 +15,5 @@ Initial TunerStudio ECU definition parser.
   the `lastOffset` alias.
 - `{ ... }` expressions preserved verbatim rather than guessed at.
 - Unmodelled sections retained as raw lines for a possible generated-UI pass.
+- `[Datalog]` column definitions, including expression labels and the
+  conditions that gate optional columns.

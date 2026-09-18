@@ -58,6 +58,7 @@ class IniDocument {
     required this.constants,
     required this.outputChannels,
     required this.pcVariables,
+    required this.datalog,
     required this.tables,
     required this.curves,
     required this.rawSections,
@@ -81,6 +82,9 @@ class IniDocument {
 
   /// Host-side variables that are not stored on the ECU.
   final List<IniField> pcVariables;
+
+  /// Datalog columns, in the order they should be written.
+  final List<IniDatalogEntry> datalog;
 
   /// 3D table definitions.
   final List<IniTable> tables;
