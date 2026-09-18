@@ -99,6 +99,7 @@ class _TableEditorScreenState extends ConsumerState<TableEditorScreen> {
                       selection: _selection,
                       editable: permission.allowed,
                       cursor: _cursorFor(view),
+                      preciseCursor: _preciseCursorFor(view),
                       onSelectionChanged: (s) => setState(() => _selection = s),
                       onEdit: (edit) {
                         edit(view);
@@ -126,6 +127,14 @@ class _TableEditorScreenState extends ConsumerState<TableEditorScreen> {
   double? _channelValue(String? channel) {
     if (channel == null) return null;
     return ref.watch(realtimeProvider).valueOrNull?[channel];
+  }
+
+  /// The engine's exact position on the grid, for the overlay marker.
+  ({double row, double column})? _preciseCursorFor(TableView view) {
+    final x = _channelValue(view.table.xBins.channel);
+    final y = _channelValue(view.table.yBins.channel);
+    if (x == null || y == null) return null;
+    return view.preciseCellFor(x, y);
   }
 
   /// Where the engine is operating, from the live realtime feed.

@@ -43,6 +43,7 @@ page = 1
 
 void main() {
   _alignmentTests();
+  _overlayTests();
   _surfaceTests();
   group('CellSelection', () {
     test('a single cell covers one position', () {
@@ -358,6 +359,100 @@ void _alignmentTests() {
         tester.getCenter(find.text('101')).dx,
         closeTo(tester.getCenter(find.text('107')).dx, 0.5),
       );
+    });
+  });
+}
+
+void _overlayTests() {
+  group('precise position overlay', () {
+    Future<void> pumpWide(
+      WidgetTester tester,
+      TableView view, {
+      ({double row, double column})? precise,
+    }) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TableGrid(
+              view: view,
+              selection: const CellSelection.single(0, 0),
+              preciseCursor: precise,
+              onSelectionChanged: (_) {},
+              onEdit: (_) {},
+            ),
+          ),
+        ),
+      );
+    }
+
+    testWidgets('its geometry matches where the cells actually render', (
+      tester,
+    ) async {
+      // The overlay computes pixel positions by hand from the cell constants.
+      // This ties that arithmetic to the real layout: an on-bin coordinate has
+      // to land on the centre of that cell, including the inverted row axis.
+      final table = buildWideTable();
+      await pumpWide(tester, table.view);
+
+      final gridOrigin = tester.getTopLeft(find.byType(TableGrid));
+      for (final (row, column, text) in const [
+        (0, 0, '101'),
+        (0, 5, '106'),
+        (1, 0, '107'),
+        (1, 5, '112'),
+      ]) {
+        final expected =
+            gridOrigin +
+            gridPointFor(
+              row: row.toDouble(),
+              column: column.toDouble(),
+              rows: table.view.rows,
+            );
+        final actual = tester.getCenter(find.text(text));
+        expect(
+          actual.dx,
+          closeTo(expected.dx, 0.5),
+          reason: 'x for cell ($row, $column)',
+        );
+        expect(
+          actual.dy,
+          closeTo(expected.dy, 0.5),
+          reason: 'y for cell ($row, $column)',
+        );
+      }
+    });
+
+    testWidgets('an interpolated point sits between the cells it spans', (
+      tester,
+    ) async {
+      final table = buildWideTable();
+      await pumpWide(tester, table.view);
+
+      final left = gridPointFor(row: 0, column: 2, rows: table.view.rows);
+      final right = gridPointFor(row: 0, column: 3, rows: table.view.rows);
+      final middle = gridPointFor(row: 0, column: 2.5, rows: table.view.rows);
+
+      expect(middle.dx, closeTo((left.dx + right.dx) / 2, 1e-9));
+      expect(middle.dy, closeTo(left.dy, 1e-9));
+    });
+
+    testWidgets('is drawn only when there is a live position', (tester) async {
+      final table = buildWideTable();
+
+      await pumpWide(tester, table.view);
+      final without = tester.widgetList(find.byType(CustomPaint)).length;
+
+      await pumpWide(tester, table.view, precise: (row: 0.5, column: 2.5));
+      final with_ = tester.widgetList(find.byType(CustomPaint)).length;
+
+      expect(
+        with_,
+        greaterThan(without),
+        reason: 'the overlay must appear once a position is known',
+      );
+      expect(tester.takeException(), isNull);
     });
   });
 }

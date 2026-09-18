@@ -331,6 +331,50 @@ class TableView {
     return (row: row, column: column);
   }
 
+  /// The exact position of ([x], [y]) on the grid, as continuous indices.
+  ///
+  /// [cellFor] snaps to the nearest bin, which is what an editor needs to know
+  /// which cell is in play. But the engine rarely sits on a bin: at 3250 rpm
+  /// between bins at 3000 and 3500 the true position is halfway between two
+  /// columns. This interpolates between the surrounding bins so an indicator
+  /// can be drawn where the engine actually is, rather than snapped.
+  ///
+  /// Values outside the axis range clamp to the end bins - the engine can run
+  /// past the top of a table, but there is nowhere beyond it to point at.
+  ({double row, double column})? preciseCellFor(double x, double y) {
+    final column = _fractionalIndex(columns, xAt, x);
+    final row = _fractionalIndex(rows, yAt, y);
+    if (column == null || row == null) return null;
+    return (row: row, column: column);
+  }
+
+  double? _fractionalIndex(
+      int count, double? Function(int) axis, double target) {
+    final points = <({int index, double value})>[];
+    for (var i = 0; i < count; i++) {
+      final value = axis(i);
+      if (value != null) points.add((index: i, value: value));
+    }
+    if (points.isEmpty) return null;
+    if (points.length == 1) return points.first.index.toDouble();
+
+    if (target <= points.first.value) return points.first.index.toDouble();
+    if (target >= points.last.value) return points.last.index.toDouble();
+
+    for (var i = 0; i < points.length - 1; i++) {
+      final low = points[i];
+      final high = points[i + 1];
+      if (target >= low.value && target <= high.value) {
+        final span = high.value - low.value;
+        // Repeated bins would divide by zero; fall back to the lower one.
+        if (span == 0) return low.index.toDouble();
+        final fraction = (target - low.value) / span;
+        return low.index + (high.index - low.index) * fraction;
+      }
+    }
+    return points.last.index.toDouble();
+  }
+
   int? _nearestIndex(int count, double? Function(int) axis, double target) {
     int? best;
     double? bestDistance;

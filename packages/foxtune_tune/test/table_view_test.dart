@@ -265,6 +265,68 @@ void main() {
     });
   });
 
+  group('precise position', () {
+    late TableView view;
+
+    setUp(() {
+      // x bins 1000/2000/3000, y bins 10/20/30.
+      view = viewOf(tuneWith(
+        z: List.filled(9, 0),
+        x: [10, 20, 30],
+        y: [5, 10, 15],
+      ));
+    });
+
+    test('lands exactly on a bin', () {
+      final p = view.preciseCellFor(2000, 20)!;
+      expect(p.column, closeTo(1, 1e-9));
+      expect(p.row, closeTo(1, 1e-9));
+    });
+
+    test('interpolates between bins', () {
+      // Halfway between the 1000 and 2000 columns.
+      final p = view.preciseCellFor(1500, 15)!;
+      expect(p.column, closeTo(0.5, 1e-9));
+      expect(p.row, closeTo(0.5, 1e-9));
+    });
+
+    test('interpolates proportionally, not just to the midpoint', () {
+      final p = view.preciseCellFor(1250, 28)!;
+      expect(p.column, closeTo(0.25, 1e-9));
+      expect(p.row, closeTo(1.8, 1e-9));
+    });
+
+    test('clamps beyond the ends of the axes', () {
+      // An engine can run past the top of a table; there is nowhere further
+      // to point at.
+      final low = view.preciseCellFor(0, 0)!;
+      expect(low.column, 0);
+      expect(low.row, 0);
+
+      final high = view.preciseCellFor(99999, 99999)!;
+      expect(high.column, 2);
+      expect(high.row, 2);
+    });
+
+    test('agrees with the snapped cell after rounding', () {
+      // Away from exact midpoints. On a tie the two deliberately differ:
+      // cellFor keeps the lower bin while rounding goes up. That is not a
+      // disagreement worth forcing - a point exactly on a boundary is
+      // exactly on a boundary, and the overlay draws it there.
+      for (final (x, y) in const [
+        (1200.0, 12.0),
+        (2600.0, 26.0),
+        (2900.0, 29.0)
+      ]) {
+        final precise = view.preciseCellFor(x, y)!;
+        final snapped = view.cellFor(x, y)!;
+        expect(precise.column.round(), snapped.column,
+            reason: 'precise and snapped must not disagree at $x');
+        expect(precise.row.round(), snapped.row);
+      }
+    });
+  });
+
   group('construction failures', () {
     test('returns null when the table fields cannot be resolved', () {
       const broken = '''

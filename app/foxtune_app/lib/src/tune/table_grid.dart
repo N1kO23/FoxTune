@@ -11,6 +11,24 @@ const double _cellWidth = 54;
 const double _cellMargin = 1;
 const double _columnWidth = _cellWidth + _cellMargin * 2;
 const double _rowLabelWidth = 56;
+const double _cellHeight = 30;
+const double _rowHeight = _cellHeight + _cellMargin * 2;
+
+/// Pixel position of a continuous grid coordinate, relative to the grid's
+/// top-left corner.
+///
+/// Shared by the overlay painter and its tests so the geometry is asserted
+/// against the real layout rather than restated in two places. Row 0 is the
+/// lowest Y but is painted last, hence the inverted vertical axis.
+@visibleForTesting
+Offset gridPointFor({
+  required double row,
+  required double column,
+  required int rows,
+}) => Offset(
+  _rowLabelWidth + (column + 0.5) * _columnWidth,
+  (rows - 1 - row + 0.5) * _rowHeight,
+);
 
 /// A rectangular block of selected cells.
 class CellSelection {
@@ -73,6 +91,7 @@ class TableGrid extends StatefulWidget {
     required this.onSelectionChanged,
     required this.onEdit,
     this.cursor,
+    this.preciseCursor,
     this.editable = false,
   });
 
@@ -83,8 +102,15 @@ class TableGrid extends StatefulWidget {
   /// Called with a delta or replacement to apply to the current selection.
   final void Function(void Function(TableView view) edit) onEdit;
 
-  /// Where the engine is currently operating, if known.
+  /// The cell the engine is operating in, snapped to the nearest bins.
   final ({int row, int column})? cursor;
+
+  /// The engine's exact position as continuous indices, for the overlay.
+  ///
+  /// The snapped cell says which cell is in play; this says whereabouts inside
+  /// it - the difference between "you are in this cell" and "you are at its
+  /// top-left corner, about to cross into the next one".
+  final ({double row, double column})? preciseCursor;
 
   /// Whether cells may be changed.
   final bool editable;
@@ -168,6 +194,8 @@ class _TableGridState extends State<TableGrid> {
       hi = 1;
     }
 
+    final overlay = widget.preciseCursor;
+
     return Focus(
       focusNode: _focusNode,
       onKeyEvent: _onKey,
@@ -175,60 +203,81 @@ class _TableGridState extends State<TableGrid> {
         onTap: _focusNode.requestFocus,
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          child: Stack(
             children: [
-              // Rows top-down are highest Y first.
-              for (var r = view.rows - 1; r >= 0; r--)
-                Row(
-                  children: [
-                    _AxisLabel(
-                      text: _format(view.yAt(r), 0),
-                      width: _rowLabelWidth,
-                      highlighted: widget.cursor?.row == r,
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Rows top-down are highest Y first.
+                  for (var r = view.rows - 1; r >= 0; r--)
+                    Row(
+                      children: [
+                        _AxisLabel(
+                          text: _format(view.yAt(r), 0),
+                          width: _rowLabelWidth,
+                          highlighted: widget.cursor?.row == r,
+                        ),
+                        for (var c = 0; c < view.columns; c++)
+                          _Cell(
+                            value: values[r][c],
+                            decimals: view.zDecimals,
+                            fraction: _fraction(values[r][c], lo, hi),
+                            selected: widget.selection.contains(r, c),
+                            isFocus:
+                                widget.selection.focusRow == r &&
+                                widget.selection.focusColumn == c,
+                            isCursor:
+                                widget.cursor?.row == r &&
+                                widget.cursor?.column == c,
+                            onTap: () => widget.onSelectionChanged(
+                              widget.selection.movedTo(
+                                r,
+                                c,
+                                extend:
+                                    HardwareKeyboard.instance.isShiftPressed,
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
-                    for (var c = 0; c < view.columns; c++)
-                      _Cell(
-                        value: values[r][c],
-                        decimals: view.zDecimals,
-                        fraction: _fraction(values[r][c], lo, hi),
-                        selected: widget.selection.contains(r, c),
-                        isFocus:
-                            widget.selection.focusRow == r &&
-                            widget.selection.focusColumn == c,
-                        isCursor:
-                            widget.cursor?.row == r &&
-                            widget.cursor?.column == c,
-                        onTap: () => widget.onSelectionChanged(
-                          widget.selection.movedTo(
-                            r,
-                            c,
-                            extend: HardwareKeyboard.instance.isShiftPressed,
+                  Row(
+                    children: [
+                      SizedBox(
+                        width: _rowLabelWidth,
+                        height: 26,
+                        child: Center(
+                          child: Text(
+                            '${view.yUnits}\\${view.xUnits}',
+                            style: theme.textTheme.labelSmall,
                           ),
                         ),
                       ),
-                  ],
-                ),
-              Row(
-                children: [
-                  SizedBox(
-                    width: _rowLabelWidth,
-                    height: 26,
-                    child: Center(
-                      child: Text(
-                        '${view.yUnits}\\${view.xUnits}',
-                        style: theme.textTheme.labelSmall,
+                      for (var c = 0; c < view.columns; c++)
+                        _AxisLabel(
+                          text: _format(view.xAt(c), 0),
+                          width: _columnWidth,
+                          highlighted: widget.cursor?.column == c,
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+              if (overlay != null)
+                Positioned.fill(
+                  // Purely decorative, and it sits over the cells - it must
+                  // never intercept a tap meant for the cell underneath.
+                  child: IgnorePointer(
+                    child: CustomPaint(
+                      painter: _PrecisePositionPainter(
+                        row: overlay.row,
+                        column: overlay.column,
+                        rows: view.rows,
+                        color: theme.colorScheme.tertiary,
+                        haloColor: theme.colorScheme.surface,
                       ),
                     ),
                   ),
-                  for (var c = 0; c < view.columns; c++)
-                    _AxisLabel(
-                      text: _format(view.xAt(c), 0),
-                      width: _columnWidth,
-                      highlighted: widget.cursor?.column == c,
-                    ),
-                ],
-              ),
+                ),
             ],
           ),
         ),
@@ -328,7 +377,7 @@ class _Cell extends StatelessWidget {
       onTap: onTap,
       child: Container(
         width: _cellWidth,
-        height: 30,
+        height: _cellHeight,
         margin: const EdgeInsets.all(_cellMargin),
         decoration: BoxDecoration(
           color: background,
@@ -357,4 +406,73 @@ class _Cell extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Draws the engine's exact operating point over the grid.
+///
+/// The ringed cell says which cell is in play; this marks where inside it the
+/// engine actually is. Watching the dot travel between cells is how you see a
+/// transition coming, which a snapped highlight cannot show.
+class _PrecisePositionPainter extends CustomPainter {
+  _PrecisePositionPainter({
+    required this.row,
+    required this.column,
+    required this.rows,
+    required this.color,
+    required this.haloColor,
+  });
+
+  /// Continuous indices; 1.5 means halfway between bins 1 and 2.
+  final double row;
+  final double column;
+
+  /// Total rows, needed because the grid is drawn highest-Y first.
+  final int rows;
+
+  final Color color;
+
+  /// Drawn under the marker so it stays visible on any heat-map colour.
+  final Color haloColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final centre = gridPointFor(row: row, column: column, rows: rows);
+    final x = centre.dx;
+    final y = centre.dy;
+
+    final gridBottom = rows * _rowHeight;
+    final gridRight = _rowLabelWidth + size.width;
+
+    final halo = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3
+      ..color = haloColor.withValues(alpha: 0.8);
+    final line = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..color = color.withValues(alpha: 0.6);
+
+    // Crosshair to the axes, so the position can be read off them directly.
+    for (final paint in [halo, line]) {
+      canvas
+        ..drawLine(Offset(_rowLabelWidth, y), Offset(gridRight, y), paint)
+        ..drawLine(Offset(x, 0), Offset(x, gridBottom), paint);
+    }
+
+    canvas
+      ..drawCircle(centre, 6, Paint()..color = haloColor.withValues(alpha: 0.9))
+      ..drawCircle(centre, 4.5, Paint()..color = color)
+      ..drawCircle(
+        centre,
+        4.5,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5
+          ..color = haloColor,
+      );
+  }
+
+  @override
+  bool shouldRepaint(_PrecisePositionPainter old) =>
+      old.row != row || old.column != column || old.color != color;
 }
