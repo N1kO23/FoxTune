@@ -11,6 +11,8 @@ environment:
 dependencies:
   foxtune_ini:
     path: ../foxtune_ini
+  foxtune_protocol:
+    path: ../foxtune_protocol
   xml: ^6.5.0
 
 dev_dependencies:

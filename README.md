@@ -101,9 +101,18 @@ propagates: a gauge reads as unavailable rather than showing a fabricated value.
 
 ## Safety
 
-Writing a bad table to a running engine destroys hardware. FoxTune is read-only by default;
-writes require an explicit mode toggle, are clamped to the bounds declared in the `.ini`,
-are refused outright on a signature mismatch, and snapshot the tune to disk first.
+Writing a bad table to a running engine destroys hardware, so writing is something a session
+has to _earn_:
+
+1. **Refused by default.** Read-only unless the signature matches the loaded definition _and_
+   write mode has been switched on deliberately. Write mode resets on every disconnect.
+2. **Clamped.** Every value is pinned to the `lo`/`hi` bounds the definition declares before it
+   reaches the wire, and again to what the storage type can hold - 256 wrapping to 0 in a `U08`
+   would turn a rich cell into a lean one.
+3. **Snapshotted.** A restore point is written to disk before the first write of a session.
+4. **Verified before it is permanent.** Each page is written to RAM, then the ECU is asked for
+   that page's own CRC-32. Only on a match is it burned to EEPROM. RAM can be rewritten; a
+   corrupt page burned to EEPROM is what strands someone at the roadside.
 
 ## License
 

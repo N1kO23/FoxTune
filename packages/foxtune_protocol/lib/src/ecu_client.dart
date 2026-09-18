@@ -132,6 +132,60 @@ class EcuClient {
     return result;
   }
 
+  /// Writes [data] into configuration [page] at [offset], in RAM only.
+  ///
+  /// Nothing is persisted until [burnPage]. Transfers are split to
+  /// [blockingFactor] for the same reason reads are: the firmware does not
+  /// reject an oversized write cleanly.
+  Future<void> writePage(
+    int page, {
+    required List<int> data,
+    required int blockingFactor,
+    int offset = 0,
+  }) async {
+    if (blockingFactor <= 0) {
+      throw ArgumentError.value(
+          blockingFactor, 'blockingFactor', 'must be positive');
+    }
+    var written = 0;
+    while (written < data.length) {
+      final remaining = data.length - written;
+      final chunk = remaining < blockingFactor ? remaining : blockingFactor;
+      await _command([
+        SpeeduinoCommand.pageWrite,
+        ..._uint16le(page),
+        ..._uint16le(offset + written),
+        ..._uint16le(chunk),
+        ...data.sublist(written, written + chunk),
+      ]);
+      written += chunk;
+    }
+  }
+
+  /// Commits [page] from RAM to EEPROM.
+  ///
+  /// [burnCommand] selects the variant the definition declares - `b` normally,
+  /// `B` on COMMS_COMPAT builds, which deliberately slow the EEPROM write.
+  Future<void> burnPage(int page,
+      {int burnCommand = SpeeduinoCommand.burn}) async {
+    await _command([burnCommand, ..._uint16le(page)]);
+  }
+
+  /// Asks the ECU for the CRC-32 of a whole page.
+  ///
+  /// Comparing this with a locally computed CRC is a far stronger check that a
+  /// write landed than re-reading and comparing, and it costs one short
+  /// command instead of a full page transfer.
+  Future<int> pageCrc(int page) async {
+    final data = await _command([SpeeduinoCommand.pageCrc, ..._uint16le(page)]);
+    if (data.length < 4) {
+      throw EcuProtocolException(
+          'Page CRC reply was ${data.length} bytes, expected 4');
+    }
+    // The envelope is big-endian and so is this value.
+    return ByteData.sublistView(data).getUint32(0, Endian.big);
+  }
+
   /// Fetches [count] bytes of the realtime data block.
   ///
   /// The field layout comes from the definition's `[OutputChannels]`; this

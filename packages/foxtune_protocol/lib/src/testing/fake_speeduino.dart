@@ -71,11 +71,23 @@ class FakeSpeeduino {
   /// Payloads received, for assertions.
   final requests = <Uint8List>[];
 
+  /// Pages whose RAM has been written but not yet burned.
+  final ramDirty = <int>{};
+
+  /// Pages that have been burned to EEPROM.
+  final burnedPages = <int>{};
+
   /// Number of `busy` replies to send before answering normally.
   int busyRepliesRemaining = 0;
 
   /// When true, the next response is emitted with a corrupted CRC.
   bool corruptNextResponse = false;
+
+  /// When true, a byte is flipped after each page write.
+  ///
+  /// Simulates a write that does not land intact, so the verify-before-burn
+  /// step can be proven to catch it.
+  bool mutateAfterWrite = false;
 
   ServerSocket? _server;
   final _clients = <Socket>[];
@@ -180,6 +192,67 @@ class FakeSpeeduino {
           return;
         }
         _reply(socket, [0x00, ...contents.sublist(offset, offset + count)]);
+
+      case SpeeduinoCommand.pageWrite:
+        // 'M', page LE, offset LE, count LE, then the data.
+        if (payload.length < 7) {
+          _reply(socket, [0x84]);
+          return;
+        }
+        final wPage = payload[1] | (payload[2] << 8);
+        final wOffset = payload[3] | (payload[4] << 8);
+        final wCount = payload[5] | (payload[6] << 8);
+        if (wPage < 1 || wPage > pages.length) {
+          _reply(socket, [0x84]);
+          return;
+        }
+        final target = pages[wPage - 1];
+        if (wCount > blockingFactor ||
+            wOffset + wCount > target.length ||
+            payload.length < 7 + wCount) {
+          _reply(socket, [0x84]);
+          return;
+        }
+        target.setRange(wOffset, wOffset + wCount, payload.sublist(7));
+        if (mutateAfterWrite) target[wOffset] ^= 0xFF;
+        ramDirty.add(wPage);
+        _reply(socket, [0x00]);
+
+      case SpeeduinoCommand.burn:
+      case SpeeduinoCommand.burnCompat:
+        if (payload.length < 3) {
+          _reply(socket, [0x84]);
+          return;
+        }
+        final bPage = payload[1] | (payload[2] << 8);
+        if (bPage < 1 || bPage > pages.length) {
+          _reply(socket, [0x84]);
+          return;
+        }
+        // A burn commits RAM to EEPROM; the simulator records that it happened
+        // so a test can assert nothing was persisted without one.
+        burnedPages.add(bPage);
+        ramDirty.remove(bPage);
+        _reply(socket, [0x04]); // SERIAL_RC_BURN_OK
+
+      case SpeeduinoCommand.pageCrc:
+        if (payload.length < 3) {
+          _reply(socket, [0x84]);
+          return;
+        }
+        final cPage = payload[1] | (payload[2] << 8);
+        if (cPage < 1 || cPage > pages.length) {
+          _reply(socket, [0x84]);
+          return;
+        }
+        final crc = crc32(pages[cPage - 1]);
+        _reply(socket, [
+          0x00,
+          (crc >> 24) & 0xFF,
+          (crc >> 16) & 0xFF,
+          (crc >> 8) & 0xFF,
+          crc & 0xFF,
+        ]);
 
       case SpeeduinoCommand.realtime:
         // 'r', canId, 0x30, offset LE, count LE

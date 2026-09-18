@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:foxtune_transport/foxtune_transport.dart';
 
 import '../dashboard/dashboard_screen.dart';
+import '../tune/table_editor_screen.dart';
 import 'connection_controller.dart';
 import 'connection_state.dart';
 
@@ -55,7 +56,7 @@ class ConnectScreen extends ConsumerWidget {
             message:
                 'FOX1: Commencing operation. Connecting to ${port.label}...',
           ),
-          EcuConnected() => DashboardScreen(connection: connection),
+          EcuConnected() => _ConnectedShell(connection: connection),
           EcuConnectionFailed() => _FailedView(state: connection),
           EcuDisconnected() => const _PortList(),
         },
@@ -432,4 +433,53 @@ class _AddressDialogState extends State<_AddressDialog> {
       FilledButton(onPressed: _submit, child: const Text('Connect')),
     ],
   );
+}
+
+/// Dashboard and table editor, once connected.
+class _ConnectedShell extends StatefulWidget {
+  const _ConnectedShell({required this.connection});
+
+  final EcuConnected connection;
+
+  @override
+  State<_ConnectedShell> createState() => _ConnectedShellState();
+}
+
+class _ConnectedShellState extends State<_ConnectedShell> {
+  int _index = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final pages = [
+      DashboardScreen(connection: widget.connection),
+      TableEditorScreen(connection: widget.connection),
+    ];
+
+    return Column(
+      children: [
+        Expanded(
+          // Kept alive so switching tabs does not restart polling or discard
+          // an in-progress edit.
+          child: IndexedStack(index: _index, children: pages),
+        ),
+        NavigationBar(
+          selectedIndex: _index,
+          height: 60,
+          onDestinationSelected: (i) => setState(() => _index = i),
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.speed_outlined),
+              selectedIcon: Icon(Icons.speed),
+              label: 'Dashboard',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.grid_on_outlined),
+              selectedIcon: Icon(Icons.grid_on),
+              label: 'Tables',
+            ),
+          ],
+        ),
+      ],
+    );
+  }
 }
