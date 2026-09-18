@@ -331,6 +331,29 @@ class TableView {
     return (row: row, column: column);
   }
 
+  /// The cells whose values determine the interpolated output at a position.
+  ///
+  /// The ECU interpolates between the four cells bracketing the operating
+  /// point, so these - not the single nearest cell - are what an edit has to
+  /// change to alter behaviour there. Fewer than four are returned at the
+  /// edges of the table, where the bracket collapses.
+  List<({int row, int column})> contributingCells(double row, double column) {
+    if (rows == 0 || columns == 0) return const [];
+
+    final r0 = row.floor().clamp(0, rows - 1);
+    final c0 = column.floor().clamp(0, columns - 1);
+    final r1 = (r0 + 1).clamp(0, rows - 1);
+    final c1 = (c0 + 1).clamp(0, columns - 1);
+
+    final cells = <({int row, int column})>[];
+    for (final r in {r0, r1}) {
+      for (final c in {c0, c1}) {
+        cells.add((row: r, column: c));
+      }
+    }
+    return cells;
+  }
+
   /// The exact position of ([x], [y]) on the grid, as continuous indices.
   ///
   /// [cellFor] snaps to the nearest bin, which is what an editor needs to know

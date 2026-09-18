@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:foxtune_app/src/tune/surface_view.dart';
 
@@ -103,6 +105,86 @@ void main() {
     test('edge cells fall back to the last quad', () {
       // There is no quad beyond the final row or column.
       expect(holds(2, 2, 3, 3), isTrue);
+    });
+  });
+
+  group('marker depth', () {
+    double quadDepth(double row, double column, double rotation) =>
+        surfaceDepthFor(
+          row: row,
+          column: column,
+          rows: 4,
+          columns: 4,
+          rotation: rotation,
+        );
+
+    double markerDepth(double row, double column, double rotation) =>
+        surfaceMarkerDepth(
+          row: row,
+          column: column,
+          rows: 4,
+          columns: 4,
+          rotation: rotation,
+        );
+
+    test('draws just after the quad it sits on', () {
+      // Sorting the marker by its own depth would bury it under its own quad
+      // whenever it fell in that quad's back half.
+      for (final (row, column) in const [(1.1, 1.1), (1.5, 1.5), (1.9, 1.9)]) {
+        expect(
+          markerDepth(row, column, 0),
+          greaterThan(quadDepth(1.5, 1.5, 0)),
+          reason: 'marker at ($row, $column)',
+        );
+      }
+    });
+
+    test('is hidden by a quad nearer the viewer', () {
+      // Row 0 is the front, so a quad in front of the marker must sort later
+      // and paint over it.
+      final marker = markerDepth(2.5, 1.5, 0);
+      expect(quadDepth(0.5, 1.5, 0), greaterThan(marker));
+    });
+
+    test('paints over a quad further away', () {
+      final marker = markerDepth(0.5, 1.5, 0);
+      expect(quadDepth(2.5, 1.5, 0), lessThan(marker));
+    });
+
+    test('holds through a full rotation', () {
+      // Orbiting is exactly when incorrect sorting shows, so the ordering has
+      // to survive every viewing angle, not just the default one.
+      for (var i = 0; i < 16; i++) {
+        final rotation = i * math.pi / 8;
+        final marker = markerDepth(1.5, 1.5, rotation);
+        expect(
+          marker,
+          greaterThan(quadDepth(1.5, 1.5, rotation)),
+          reason: 'own quad at rotation $rotation',
+        );
+
+        // Whichever neighbour is nearer must still occlude it.
+        for (final (row, column) in const [
+          (0.5, 1.5),
+          (2.5, 1.5),
+          (1.5, 0.5),
+          (1.5, 2.5),
+        ]) {
+          final neighbour = quadDepth(row, column, rotation);
+          if (neighbour > quadDepth(1.5, 1.5, rotation) + 0.01) {
+            expect(
+              neighbour,
+              greaterThan(marker),
+              reason: 'nearer neighbour ($row, $column) at $rotation',
+            );
+          }
+        }
+      }
+    });
+
+    test('clamps at the far edges where no quad follows', () {
+      expect(() => markerDepth(3, 3, 0), returnsNormally);
+      expect(markerDepth(3, 3, 0), greaterThan(quadDepth(2.5, 2.5, 0)));
     });
   });
 

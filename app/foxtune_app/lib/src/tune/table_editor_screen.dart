@@ -104,6 +104,7 @@ class _TableEditorScreenState extends ConsumerState<TableEditorScreen> {
                       editable: permission.allowed,
                       cursor: _cursorFor(view),
                       preciseCursor: _preciseCursorFor(view),
+                      contributing: _contributingFor(view),
                       onSelectionChanged: (s) => setState(() => _selection = s),
                       onEdit: (edit) {
                         edit(view);
@@ -131,6 +132,13 @@ class _TableEditorScreenState extends ConsumerState<TableEditorScreen> {
   double? _channelValue(String? channel) {
     if (channel == null) return null;
     return ref.watch(realtimeProvider).valueOrNull?[channel];
+  }
+
+  /// The cells the ECU is interpolating between right now.
+  Set<({int row, int column})> _contributingFor(TableView view) {
+    final precise = _preciseCursorFor(view);
+    if (precise == null) return const {};
+    return view.contributingCells(precise.row, precise.column).toSet();
   }
 
   /// The engine's exact position on the grid, for the overlay marker.

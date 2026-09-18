@@ -65,6 +65,34 @@ bool surfaceQuadHoldsCell({
     math.min(cellRow, rows - 2) == quadRow &&
     math.min(cellColumn, columns - 2) == quadColumn;
 
+/// Depth to sort the exact-position marker at.
+///
+/// The marker lies *on* the surface, so sorting it by its own depth would put
+/// it behind the very quad it sits on whenever it falls in that quad's back
+/// half. Instead it takes the depth of its containing quad plus a hair, which
+/// draws it immediately after that quad - visible on its own cell, and still
+/// occluded by any quad genuinely nearer the viewer.
+@visibleForTesting
+double surfaceMarkerDepth({
+  required double row,
+  required double column,
+  required int rows,
+  required int columns,
+  required double rotation,
+}) {
+  // The containing quad, clamped at the far edges where no quad follows.
+  final quadRow = row.floor().clamp(0, math.max(0, rows - 2));
+  final quadColumn = column.floor().clamp(0, math.max(0, columns - 2));
+  return surfaceDepthFor(
+        row: quadRow + 0.5,
+        column: quadColumn + 0.5,
+        rows: rows,
+        columns: columns,
+        rotation: rotation,
+      ) +
+      1e-3;
+}
+
 /// Bilinearly interpolates the surface value at a fractional position, so a
 /// marker sits on the surface rather than snapping to the nearest corner.
 @visibleForTesting
@@ -222,8 +250,15 @@ class _SurfacePainter extends CustomPainter {
       rotation: rotation,
     );
 
-    // Painter's algorithm: draw far quads first so near ones overlap them.
-    final quads = <({double depth, Path path, double height, bool isCursor})>[];
+    // Painter's algorithm: draw far things first so near ones overlap them.
+    // The marker joins this list rather than being painted afterwards, so a
+    // peak in front of the operating point actually hides it.
+    final drawables = <({double depth, void Function(Canvas) paint})>[];
+
+    final edge = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..color = edgeColor;
     for (var r = 0; r < rows - 1; r++) {
       for (var c = 0; c < columns - 1; c++) {
         final corners = [(r, c), (r, c + 1), (r + 1, c + 1), (r + 1, c)];
@@ -240,64 +275,65 @@ class _SurfacePainter extends CustomPainter {
         ];
         final mean = values.reduce((a, b) => a! + b!)! / values.length;
 
-        quads.add((
+        final path = Path()..addPolygon(points, true);
+        final heightFraction = (mean - lo) / span;
+        // A quad's four corners are exactly the cells the ECU interpolates
+        // between, so highlighting the quad holding the precise position marks
+        // the contributing cells - the same four the grid rings.
+        final marked = precise ?? _preciseFromCursor();
+        final isCursor =
+            marked != null &&
+            surfaceQuadHoldsCell(
+              quadRow: r,
+              quadColumn: c,
+              cellRow: marked.row.floor(),
+              cellColumn: marked.column.floor(),
+              rows: rows,
+              columns: columns,
+            );
+
+        drawables.add((
           depth: depthOf(r + 0.5, c + 0.5),
-          path: Path()..addPolygon(points, true),
-          height: (mean - lo) / span,
-          // Exactly one quad, the one containing the cell. The previous test
-          // was inclusive at both ends, so a cursor on an interior cell lit a
-          // 2x2 block of quads rather than the cell it was in.
-          isCursor:
-              cursor != null &&
-              surfaceQuadHoldsCell(
-                quadRow: r,
-                quadColumn: c,
-                cellRow: cursor!.row,
-                cellColumn: cursor!.column,
-                rows: rows,
-                columns: columns,
-              ),
+          paint: (canvas) {
+            // Magnitude is sequential: one hue, light to dark.
+            canvas
+              ..drawPath(
+                path,
+                Paint()
+                  ..style = PaintingStyle.fill
+                  ..color = Color.lerp(
+                    lowColor,
+                    highColor,
+                    heightFraction,
+                  )!.withValues(alpha: 0.92),
+              )
+              ..drawPath(path, edge);
+            if (isCursor) {
+              canvas.drawPath(
+                path,
+                Paint()
+                  ..style = PaintingStyle.stroke
+                  ..strokeWidth = 2.5
+                  ..color = cursorColor,
+              );
+            }
+          },
         ));
       }
     }
 
-    quads.sort((a, b) => a.depth.compareTo(b.depth));
+    _addMarker(drawables, rows, columns, lo, span, project);
 
-    final edge = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1
-      ..color = edgeColor;
-
-    for (final quad in quads) {
-      // Magnitude is sequential: one hue, light to dark.
-      final fill = Paint()
-        ..style = PaintingStyle.fill
-        ..color = Color.lerp(
-          lowColor,
-          highColor,
-          quad.height,
-        )!.withValues(alpha: 0.92);
-      canvas
-        ..drawPath(quad.path, fill)
-        ..drawPath(quad.path, edge);
-
-      if (quad.isCursor) {
-        canvas.drawPath(
-          quad.path,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 2.5
-            ..color = cursorColor,
-        );
-      }
+    drawables.sort((a, b) => a.depth.compareTo(b.depth));
+    for (final drawable in drawables) {
+      drawable.paint(canvas);
     }
-
-    _paintMarker(canvas, rows, columns, lo, span, project);
   }
 
-  /// Draws the engine's exact position on the surface.
-  void _paintMarker(
-    Canvas canvas,
+  /// Queues the engine's exact position for drawing, depth-sorted with the
+  /// mesh so a peak in front of it hides it.
+  void _addMarker(
+    List<({double depth, void Function(Canvas) paint})> drawables,
     int rows,
     int columns,
     double lo,
@@ -315,31 +351,52 @@ class _SurfacePainter extends CustomPainter {
     // sense of where it sits, so anchor it.
     final base = project(point.row, point.column, lo);
 
-    canvas
-      ..drawLine(
-        base,
-        top,
-        Paint()
-          ..strokeWidth = 3
-          ..color = markerHalo.withValues(alpha: 0.85),
-      )
-      ..drawLine(
-        base,
-        top,
-        Paint()
-          ..strokeWidth = 1.4
-          ..color = cursorColor.withValues(alpha: 0.85),
-      )
-      ..drawCircle(top, 6.5, Paint()..color = markerHalo.withValues(alpha: 0.9))
-      ..drawCircle(top, 5, Paint()..color = cursorColor)
-      ..drawCircle(
-        top,
-        5,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.5
-          ..color = markerHalo,
-      );
+    drawables.add((
+      depth: surfaceMarkerDepth(
+        row: point.row,
+        column: point.column,
+        rows: rows,
+        columns: columns,
+        rotation: rotation,
+      ),
+      paint: (canvas) => canvas
+        ..drawLine(
+          base,
+          top,
+          Paint()
+            ..strokeWidth = 3
+            ..color = markerHalo.withValues(alpha: 0.85),
+        )
+        ..drawLine(
+          base,
+          top,
+          Paint()
+            ..strokeWidth = 1.4
+            ..color = cursorColor.withValues(alpha: 0.85),
+        )
+        ..drawCircle(
+          top,
+          6.5,
+          Paint()..color = markerHalo.withValues(alpha: 0.9),
+        )
+        ..drawCircle(top, 5, Paint()..color = cursorColor)
+        ..drawCircle(
+          top,
+          5,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.5
+            ..color = markerHalo,
+        ),
+    ));
+  }
+
+  /// Falls back to the snapped cell when no exact position is available.
+  ({double row, double column})? _preciseFromCursor() {
+    final cell = cursor;
+    return cell == null
+        ? null
+        : (row: cell.row.toDouble(), column: cell.column.toDouble());
   }
 
   @override

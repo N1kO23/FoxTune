@@ -327,6 +327,62 @@ void main() {
     });
   });
 
+  group('contributing cells', () {
+    late TableView view;
+
+    setUp(() {
+      view = viewOf(tuneWith(
+        z: List.filled(9, 0),
+        x: [10, 20, 30],
+        y: [5, 10, 15],
+      ));
+    });
+
+    test('brackets an interior point with four cells', () {
+      final cells = view.contributingCells(0.5, 1.5);
+      expect(cells, hasLength(4));
+      expect(
+          cells,
+          containsAll(const [
+            (row: 0, column: 1),
+            (row: 0, column: 2),
+            (row: 1, column: 1),
+            (row: 1, column: 2),
+          ]));
+    });
+
+    test('still returns four when exactly on a bin', () {
+      // Sitting on a bin, the bracket runs from that bin to the next.
+      expect(view.contributingCells(1, 1), hasLength(4));
+    });
+
+    test('collapses at the far edges', () {
+      // There is no cell beyond the last row or column to interpolate toward.
+      expect(view.contributingCells(2, 2), [(row: 2, column: 2)]);
+      expect(view.contributingCells(2, 0.5), hasLength(2));
+    });
+
+    test('never returns a cell outside the table', () {
+      for (final (row, column) in const [(-5.0, -5.0), (99.0, 99.0)]) {
+        for (final cell in view.contributingCells(row, column)) {
+          expect(cell.row, inInclusiveRange(0, view.rows - 1));
+          expect(cell.column, inInclusiveRange(0, view.columns - 1));
+        }
+      }
+    });
+
+    test('contains the snapped cell', () {
+      // Whatever the editor rings as nearest must be among the cells that
+      // actually affect the reading.
+      for (final (x, y) in const [(1200.0, 12.0), (2600.0, 26.0)]) {
+        final precise = view.preciseCellFor(x, y)!;
+        final snapped = view.cellFor(x, y)!;
+        expect(view.contributingCells(precise.row, precise.column),
+            contains(snapped));
+      }
+    });
+  });
+
   group('construction failures', () {
     test('returns null when the table fields cannot be resolved', () {
       const broken = '''

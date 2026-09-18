@@ -92,6 +92,7 @@ class TableGrid extends StatefulWidget {
     required this.onEdit,
     this.cursor,
     this.preciseCursor,
+    this.contributing = const {},
     this.editable = false,
   });
 
@@ -104,6 +105,13 @@ class TableGrid extends StatefulWidget {
 
   /// The cell the engine is operating in, snapped to the nearest bins.
   final ({int row, int column})? cursor;
+
+  /// Cells bracketing the operating point, faintly ringed.
+  ///
+  /// The ECU interpolates between these four, so they are what an edit must
+  /// change to alter behaviour at the current operating point - the single
+  /// nearest cell only tells half the story.
+  final Set<({int row, int column})> contributing;
 
   /// The engine's exact position as continuous indices, for the overlay.
   ///
@@ -229,6 +237,10 @@ class _TableGridState extends State<TableGrid> {
                             isCursor:
                                 widget.cursor?.row == r &&
                                 widget.cursor?.column == c,
+                            isContributing: widget.contributing.contains((
+                              row: r,
+                              column: c,
+                            )),
                             onTap: () => widget.onSelectionChanged(
                               widget.selection.movedTo(
                                 r,
@@ -338,6 +350,7 @@ class _Cell extends StatelessWidget {
     required this.selected,
     required this.isFocus,
     required this.isCursor,
+    required this.isContributing,
     required this.onTap,
   });
 
@@ -347,6 +360,10 @@ class _Cell extends StatelessWidget {
   final bool selected;
   final bool isFocus;
   final bool isCursor;
+
+  /// One of the four cells the ECU interpolates between right now.
+  final bool isContributing;
+
   final VoidCallback onTap;
 
   @override
@@ -383,14 +400,24 @@ class _Cell extends StatelessWidget {
           color: background,
           borderRadius: BorderRadius.circular(3),
           border: Border.all(
+            // The live cursor gets the heaviest ring: it is the one thing on
+            // screen that moves on its own. The other three cells feeding the
+            // interpolation are marked more lightly - present, but not
+            // competing with it or with the selection.
             color: isCursor
                 ? scheme.tertiary
                 : isFocus
                 ? scheme.primary
+                : isContributing
+                ? scheme.tertiary.withValues(alpha: 0.45)
                 : Colors.transparent,
-            // The live cursor gets the heaviest ring: it is the one thing on
-            // screen that moves on its own.
-            width: isCursor ? 2.5 : (isFocus ? 2 : 1),
+            width: isCursor
+                ? 2.5
+                : isFocus
+                ? 2
+                : isContributing
+                ? 1.5
+                : 1,
           ),
         ),
         child: Center(

@@ -43,6 +43,7 @@ page = 1
 
 void main() {
   _alignmentTests();
+  _contributingTests();
   _overlayTests();
   _surfaceTests();
   group('CellSelection', () {
@@ -334,6 +335,54 @@ void _alignmentTests() {
       }
     });
 
+    testWidgets('alignment holds while scrolled horizontally', (tester) async {
+      // The app shows a 16-wide table in a viewport narrower than it, so the
+      // grid is usually scrolled. The overlay lives inside the same scroll
+      // view, so its offset from every cell must stay constant - any variation
+      // between columns would be drift that grows across the table.
+      await tester.binding.setSurfaceSize(const Size(300, 600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final table = buildWideTable();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TableGrid(
+              view: table.view,
+              selection: const CellSelection.single(0, 0),
+              onSelectionChanged: (_) {},
+              onEdit: (_) {},
+            ),
+          ),
+        ),
+      );
+
+      await tester.drag(find.byType(TableGrid), const Offset(-120, 0));
+      await tester.pumpAndSettle();
+
+      final origin = tester.getTopLeft(find.byType(TableGrid));
+      final deltas = <double>[];
+      for (var c = 0; c < 6; c++) {
+        final finder = find.text('${101 + c}');
+        if (finder.evaluate().isEmpty) continue;
+        final expected =
+            origin +
+            gridPointFor(row: 0, column: c.toDouble(), rows: table.view.rows);
+        deltas.add(tester.getCenter(finder).dx - expected.dx);
+      }
+
+      expect(deltas, isNotEmpty);
+      for (final delta in deltas) {
+        expect(
+          delta,
+          closeTo(deltas.first, 0.5),
+          reason:
+              'the offset must be the scroll amount, equal for every '
+              'column - a varying offset is drift',
+        );
+      }
+    });
+
     testWidgets('the row label column does not shift the first cell', (
       tester,
     ) async {
@@ -453,6 +502,116 @@ void _overlayTests() {
         reason: 'the overlay must appear once a position is known',
       );
       expect(tester.takeException(), isNull);
+    });
+  });
+}
+
+void _contributingTests() {
+  group('contributing cells', () {
+    /// The border colour of the cell showing [text].
+    Color? borderOf(WidgetTester tester, String text) {
+      final container = tester.widget<Container>(
+        find
+            .ancestor(of: find.text(text), matching: find.byType(Container))
+            .first,
+      );
+      final decoration = container.decoration! as BoxDecoration;
+      return decoration.border?.top.color;
+    }
+
+    testWidgets('rings the four cells bracketing the operating point', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final table = buildWideTable();
+      // Between rows 0/1 and columns 2/3, so cells 103, 104, 109, 110 bracket
+      // it: row 0 holds 101..106 and row 1 holds 107..112.
+      const precise = (row: 0.5, column: 2.5);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TableGrid(
+              view: table.view,
+              selection: const CellSelection.single(5, 5),
+              preciseCursor: precise,
+              contributing: table.view
+                  .contributingCells(precise.row, precise.column)
+                  .toSet(),
+              onSelectionChanged: (_) {},
+              onEdit: (_) {},
+            ),
+          ),
+        ),
+      );
+
+      final transparent = borderOf(tester, '101');
+      for (final text in const ['103', '104', '109', '110']) {
+        expect(
+          borderOf(tester, text),
+          isNot(transparent),
+          reason: '$text brackets the point and must be marked',
+        );
+      }
+      // A cell outside the bracket stays unmarked.
+      expect(borderOf(tester, '102'), transparent);
+      expect(borderOf(tester, '105'), transparent);
+    });
+
+    testWidgets('marks nothing when there is no live position', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final table = buildWideTable();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TableGrid(
+              view: table.view,
+              selection: const CellSelection.single(5, 5),
+              onSelectionChanged: (_) {},
+              onEdit: (_) {},
+            ),
+          ),
+        ),
+      );
+
+      final transparent = borderOf(tester, '101');
+      for (final text in const ['103', '104', '109', '110']) {
+        expect(borderOf(tester, text), transparent);
+      }
+    });
+
+    testWidgets('the nearest cell keeps the stronger ring', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final table = buildWideTable();
+      const precise = (row: 0.2, column: 2.2);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TableGrid(
+              view: table.view,
+              selection: const CellSelection.single(5, 5),
+              cursor: (row: 0, column: 2),
+              preciseCursor: precise,
+              contributing: table.view
+                  .contributingCells(precise.row, precise.column)
+                  .toSet(),
+              onSelectionChanged: (_) {},
+              onEdit: (_) {},
+            ),
+          ),
+        ),
+      );
+
+      // 103 is the nearest cell; 104 only contributes. Both are marked, but
+      // the dominant one must stay distinguishable.
+      expect(borderOf(tester, '103'), isNot(borderOf(tester, '104')));
     });
   });
 }
