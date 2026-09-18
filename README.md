@@ -46,6 +46,14 @@ licensing - so an iPhone can only ever reach a Speeduino over WiFi (an ESP8266/E
 the secondary serial port) or a BLE adapter. The transport layer is abstract so this can be
 added without disturbing anything above it.
 
+## Building
+
+See **[BUILDING.md](BUILDING.md)** for prerequisites, per-platform notes and troubleshooting.
+
+Two things that trip people up: Dart commands run from the repository root while Flutter
+commands run from the package directory, and the Android build is deliberately pinned to
+Gradle 8.
+
 ## Development
 
 ```sh

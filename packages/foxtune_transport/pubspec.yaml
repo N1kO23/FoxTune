@@ -14,7 +14,7 @@ dependencies:
   flutter:
     sdk: flutter
   # Desktop (Linux / Windows / macOS) - libserialport via FFI.
-  flutter_libserialport: ^0.4.0
+  flutter_libserialport: ^0.6.0
   foxtune_protocol:
     path: ../foxtune_protocol
   # Android - USB host mode / OTG. No-op on other platforms.

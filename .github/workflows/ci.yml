@@ -5,6 +5,14 @@ on:
     branches: [main]
   pull_request:
 
+env:
+  # Pinned rather than tracking stable. The Android build sits in a narrow
+  # window - Flutter 3.47 hard-errors below Gradle 8.14.0 / AGP 8.11.1, and
+  # Gradle 9 removes the jcenter() that flutter_libserialport still calls - so a
+  # Flutter bump needs to be a deliberate change with that window rechecked.
+  # See BUILDING.md.
+  FLUTTER_VERSION: 3.47.4
+
 jobs:
   # The core packages carry no Flutter dependency, so they build and test with
   # a bare Dart SDK - no device, no display, no emulator. This job is the fast
@@ -37,6 +45,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
 
       - name: Analyze transport
@@ -59,6 +68,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
 
       - name: Install Linux build dependencies
@@ -83,6 +93,7 @@ jobs:
           java-version: '17'
       - uses: subosito/flutter-action@v2
         with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
 
       - name: Build
