@@ -3,6 +3,9 @@ import 'package:foxtune_ini/foxtune_ini.dart';
 import 'tune_state.dart';
 import 'value_resolver.dart';
 
+/// How a cell has changed against a reference tune.
+enum CellChange { raised, lowered }
+
 /// An editable view of a 3D table, in engineering units.
 ///
 /// ## Axis orientation
@@ -323,6 +326,31 @@ class TableView {
     if (lo != null && result < lo) result = lo;
     if (hi != null && result > hi) result = hi;
     return result;
+  }
+
+  /// Cells whose value differs from [baseline], and in which direction.
+  ///
+  /// Used to show what this session has touched but not yet burned. Direction
+  /// matters more than the fact of a change: on a fuel table, leaner and
+  /// richer carry very different risk, and a tuner scanning a map wants to see
+  /// at a glance which way it was pushed.
+  ///
+  /// Returns empty when the tables are not comparable, rather than reporting
+  /// every cell as changed.
+  Map<({int row, int column}), CellChange> changesAgainst(TableView baseline) {
+    if (baseline.rows != rows || baseline.columns != columns) return const {};
+
+    final changes = <({int row, int column}), CellChange>{};
+    for (var r = 0; r < rows; r++) {
+      for (var c = 0; c < columns; c++) {
+        final now = valueAt(r, c);
+        final was = baseline.valueAt(r, c);
+        if (now == null || was == null || now == was) continue;
+        changes[(row: r, column: c)] =
+            now > was ? CellChange.raised : CellChange.lowered;
+      }
+    }
+    return changes;
   }
 
   /// The whole table as rows of engineering values, row 0 lowest Y.

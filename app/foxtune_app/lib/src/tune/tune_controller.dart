@@ -58,8 +58,22 @@ final tuneProvider = AsyncNotifierProvider<TuneController, TuneState?>(
   TuneController.new,
 );
 
+/// The tune as it was last read from the ECU, or last burned to it.
+///
+/// Editing is compared against this so the editor can show what this session
+/// has changed but not yet committed.
+final tuneBaselineProvider = Provider<TuneState?>((ref) {
+  // Depend on the tune so this refreshes as edits land.
+  ref.watch(tuneProvider);
+  return ref.read(tuneProvider.notifier).baseline;
+});
+
 class TuneController extends AsyncNotifier<TuneState?> {
   TuneLoadProgress? _progress;
+  TuneState? _baseline;
+
+  /// The tune as last synchronised with the ECU.
+  TuneState? get baseline => _baseline;
 
   /// Progress of the current read, or `null` when not loading.
   TuneLoadProgress? get progress => _progress;
@@ -89,6 +103,8 @@ class TuneController extends AsyncNotifier<TuneState?> {
       onProgress: (page, total) => _progress = TuneLoadProgress(page, total),
     );
     _progress = null;
+    // Everything from here on is compared against what the ECU actually holds.
+    _baseline = tune.copy();
     return tune;
   }
 
@@ -126,6 +142,8 @@ class TuneController extends AsyncNotifier<TuneState?> {
     );
 
     final results = await writer.commitDirtyPages();
+    // The ECU now holds what we hold, so the comparison restarts from here.
+    _baseline = tune.copy();
     notifyEdited();
     return results;
   }

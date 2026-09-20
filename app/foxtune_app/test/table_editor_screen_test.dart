@@ -182,6 +182,57 @@ void main() {
     );
   });
 
+  group('set value action', () {
+    testWidgets('writes one typed value across the selection', (tester) async {
+      await pumpEditor(tester);
+
+      // Select by position rather than by text: cell values and axis bins
+      // overlap in this table, so a text finder is ambiguous.
+      final origin = tester.getTopLeft(find.byType(TableGrid));
+      Offset at(int row, int column) =>
+          origin +
+          gridPointFor(
+            row: row.toDouble(),
+            column: column.toDouble(),
+            rows: 16,
+          );
+
+      await tester.tapAt(at(0, 0));
+      await tester.pump();
+      await tester.longPressAt(at(0, 2));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Set…'));
+      await tester.pumpAndSettle();
+      expect(find.byType(TextField), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField), '77');
+      await tester.tap(find.widgetWithText(FilledButton, 'Set'));
+      await tester.pumpAndSettle();
+
+      final ve = TableView.of(tune, doc.tableNamed('veTable1Tbl')!)!;
+      expect(ve.valueAt(0, 0), 77);
+      expect(ve.valueAt(0, 2), 77);
+      expect(ve.valueAt(0, 1), 77);
+      expect(tune.isDirty, isTrue);
+    });
+
+    testWidgets('is unavailable when writing is refused', (tester) async {
+      await pumpEditor(
+        tester,
+        permission: const WritePermission.refused('Write mode is off.'),
+      );
+
+      final button = tester.widget<OutlinedButton>(
+        find.ancestor(
+          of: find.text('Set…'),
+          matching: find.byType(OutlinedButton),
+        ),
+      );
+      expect(button.onPressed, isNull);
+    });
+  });
+
   group('live cell indicator', () {
     testWidgets('says so when there is no live data', (tester) async {
       await pumpEditor(tester);

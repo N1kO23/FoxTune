@@ -2,6 +2,39 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
 
+/// Colours marking a cell this session has changed.
+///
+/// A diverging pair - one warm, one cool, with no tint for unchanged - because
+/// the useful question is which *way* a cell moved. These are deliberately not
+/// the status palette, which is reserved for good/warning/danger and must not
+/// be read as "this edit is dangerous".
+abstract final class EditTint {
+  static const Color raised = Color(0xFFB45309);
+  static const Color lowered = Color(0xFF1D4ED8);
+
+  static Color of(CellChange change) =>
+      change == CellChange.raised ? raised : lowered;
+
+  /// Outline for an edited cell, weighted towards the direction of change.
+  ///
+  /// The weight carries the direction - heavy along the top for a raised
+  /// value, along the bottom for a lowered one - so the change survives a
+  /// colour-blind reading without a glyph. A glyph beside the value shifts
+  /// the number, and one in a corner crosses the outline at any inset.
+  static Border borderFor(CellChange change) {
+    const thin = 1.0;
+    const heavy = 3.0;
+    final colour = of(change);
+    final isRaised = change == CellChange.raised;
+    return Border(
+      top: BorderSide(color: colour, width: isRaised ? heavy : thin),
+      bottom: BorderSide(color: colour, width: isRaised ? thin : heavy),
+      left: BorderSide(color: colour, width: thin),
+      right: BorderSide(color: colour, width: thin),
+    );
+  }
+}
+
 /// Cell geometry.
 ///
 /// An axis label must occupy the same footprint as a cell - the cell's width
@@ -93,6 +126,7 @@ class TableGrid extends StatefulWidget {
     this.cursor,
     this.preciseCursor,
     this.contributing = const {},
+    this.changes = const {},
     this.onEditAxis,
     this.editable = false,
   });
@@ -121,6 +155,9 @@ class TableGrid extends StatefulWidget {
   /// nearest cell only tells half the story.
   final Set<({int row, int column})> contributing;
 
+  /// Cells changed since the tune was last synchronised with the ECU.
+  final Map<({int row, int column}), CellChange> changes;
+
   /// The engine's exact position as continuous indices, for the overlay.
   ///
   /// The snapped cell says which cell is in play; this says whereabouts inside
@@ -138,10 +175,39 @@ class TableGrid extends StatefulWidget {
 class _TableGridState extends State<TableGrid> {
   final _focusNode = FocusNode();
 
+  /// Digits typed so far, before they are committed.
+  ///
+  /// Typing over a selection replaces it outright, the way a spreadsheet
+  /// behaves - the alternative, nudging with +/-, is far too slow for entering
+  /// a known number into a block of cells.
+  String? _entry;
+
   @override
   void dispose() {
     _focusNode.dispose();
     super.dispose();
+  }
+
+  /// Applies the typed value to every selected cell.
+  void _commitEntry() {
+    final text = _entry;
+    setState(() => _entry = null);
+    if (text == null || text.isEmpty || text == '-' || text == '.') return;
+
+    final value = double.tryParse(text);
+    if (value == null) return;
+    final cells = widget.selection.cells;
+    widget.onEdit((view) => view.fill(cells, value));
+  }
+
+  /// Handles a printable character as numeric entry.
+  ///
+  /// Returns false when the character is not part of a number, so the key can
+  /// fall through to the shortcuts.
+  bool _handleCharacter(String character) {
+    if (!RegExp(r'[0-9.\-]').hasMatch(character)) return false;
+    setState(() => _entry = (_entry ?? '') + character);
+    return true;
   }
 
   void _move(int dRow, int dColumn, {required bool extend}) {
@@ -154,12 +220,47 @@ class _TableGridState extends State<TableGrid> {
     widget.onSelectionChanged(selection.movedTo(row, column, extend: extend));
   }
 
+  static bool _isArrow(LogicalKeyboardKey key) =>
+      key == LogicalKeyboardKey.arrowUp ||
+      key == LogicalKeyboardKey.arrowDown ||
+      key == LogicalKeyboardKey.arrowLeft ||
+      key == LogicalKeyboardKey.arrowRight;
+
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
       return KeyEventResult.ignored;
     }
     final keys = HardwareKeyboard.instance;
     final extend = keys.isShiftPressed;
+
+    if (widget.editable) {
+      if (event.logicalKey == LogicalKeyboardKey.escape) {
+        setState(() => _entry = null);
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.enter ||
+          event.logicalKey == LogicalKeyboardKey.numpadEnter) {
+        _commitEntry();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.backspace) {
+        final current = _entry;
+        if (current != null) {
+          setState(
+            () => _entry = current.isEmpty
+                ? null
+                : current.substring(0, current.length - 1),
+          );
+          return KeyEventResult.handled;
+        }
+      }
+      final character = event.character;
+      if (character != null && _handleCharacter(character)) {
+        return KeyEventResult.handled;
+      }
+      // Moving away commits, as a spreadsheet does.
+      if (_entry != null && _isArrow(event.logicalKey)) _commitEntry();
+    }
 
     switch (event.logicalKey) {
       case LogicalKeyboardKey.arrowUp:
@@ -262,12 +363,36 @@ class _TableGridState extends State<TableGrid> {
                               row: r,
                               column: c,
                             )),
+                            // Only the focused cell shows what is being typed;
+                            // the rest keep their values so the surrounding
+                            // numbers stay readable while entering.
+                            entry:
+                                widget.selection.focusRow == r &&
+                                    widget.selection.focusColumn == c
+                                ? _entry
+                                : null,
+                            change: widget.changes[(row: r, column: c)],
+                            onLongPress: () {
+                              // The touch equivalent of shift-click: there is
+                              // no modifier key on a phone, and a block
+                              // selection is the whole point of the edit
+                              // actions.
+                              _focusNode.requestFocus();
+                              _commitEntry();
+                              widget.onSelectionChanged(
+                                widget.selection.movedTo(r, c, extend: true),
+                              );
+                            },
                             onTap: () {
                               // The cell consumes the tap, so the grid's own
                               // gesture detector never sees it - without this
                               // the keyboard shortcuts stay dead after
                               // clicking a cell.
                               _focusNode.requestFocus();
+                              // A pending entry belongs to the cells it was
+                              // typed into. Carrying it to the new selection
+                              // would silently retarget the edit.
+                              _commitEntry();
                               widget.onSelectionChanged(
                                 widget.selection.movedTo(
                                   r,
@@ -502,6 +627,9 @@ class _Cell extends StatelessWidget {
     required this.isCursor,
     required this.isContributing,
     required this.onTap,
+    this.entry,
+    this.change,
+    this.onLongPress,
   });
 
   final double? value;
@@ -514,7 +642,14 @@ class _Cell extends StatelessWidget {
   /// One of the four cells the ECU interpolates between right now.
   final bool isContributing;
 
+  /// Digits being typed into this cell, shown in place of its value.
+  final String? entry;
+
+  /// How this cell differs from the last tune read from the ECU.
+  final CellChange? change;
+
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -542,6 +677,7 @@ class _Cell extends StatelessWidget {
 
     return GestureDetector(
       onTap: onTap,
+      onLongPress: onLongPress,
       child: Container(
         width: _cellWidth,
         height: _cellHeight,
@@ -570,15 +706,49 @@ class _Cell extends StatelessWidget {
                 : 1,
           ),
         ),
-        child: Center(
-          child: Text(
-            value == null ? '--' : value!.toStringAsFixed(decimals),
-            style: theme.textTheme.bodySmall?.copyWith(
-              fontFeatures: const [FontFeature.tabularFigures()],
-              color: selected ? scheme.onPrimaryContainer : scheme.onSurface,
-              fontWeight: isCursor ? FontWeight.w700 : FontWeight.w400,
+        child: Stack(
+          // Stack clips to its bounds by default, which would quietly shave
+          // the corner off the marker. The cell has a margin to overhang into.
+          clipBehavior: Clip.none,
+          children: [
+            if (change != null)
+              // Inset, so it reads as a second, inner rectangle rather than
+              // another ring. The outer border is spoken for: it carries the
+              // live cursor, the interpolation neighbours and the keyboard
+              // selection, and an edit has to stay legible on top of any of
+              // them.
+              Positioned.fill(
+                child: Container(
+                  margin: const EdgeInsets.all(1.5),
+                  // A non-uniform border cannot carry a radius, and a crisp
+                  // rectangle reads more distinctly against the rounded rings
+                  // anyway.
+                  decoration: BoxDecoration(
+                    border: EditTint.borderFor(change!),
+                  ),
+                ),
+              ),
+            Center(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  entry ??
+                      (value == null ? '--' : value!.toStringAsFixed(decimals)),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                    color: entry != null
+                        ? scheme.primary
+                        : (selected
+                              ? scheme.onPrimaryContainer
+                              : scheme.onSurface),
+                    fontWeight: entry != null || isCursor
+                        ? FontWeight.w700
+                        : FontWeight.w400,
+                  ),
+                ),
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );

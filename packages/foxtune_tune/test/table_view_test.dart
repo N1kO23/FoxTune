@@ -254,6 +254,75 @@ void main() {
     });
   });
 
+  group('change tracking', () {
+    late TuneState tune;
+    late TableView view;
+    late TableView baseline;
+
+    setUp(() {
+      tune = tuneWith(
+        z: [10, 20, 30, 40, 50, 60, 70, 80, 90],
+        x: [10, 20, 30],
+        y: [5, 10, 15],
+      );
+      // A snapshot taken before editing, as the editor holds after a read.
+      baseline = viewOf(tune.copy());
+      view = viewOf(tune);
+    });
+
+    test('reports nothing when nothing has changed', () {
+      expect(view.changesAgainst(baseline), isEmpty);
+    });
+
+    test('distinguishes raised from lowered', () {
+      view
+        ..setValueAt(0, 0, 25)
+        ..setValueAt(1, 1, 10);
+
+      final changes = view.changesAgainst(baseline);
+      expect(changes, hasLength(2));
+      expect(changes[(row: 0, column: 0)], CellChange.raised);
+      expect(changes[(row: 1, column: 1)], CellChange.lowered);
+    });
+
+    test('a value set back to its original is not a change', () {
+      view.setValueAt(0, 0, 25);
+      expect(view.changesAgainst(baseline), isNotEmpty);
+
+      view.setValueAt(0, 0, 10);
+      expect(view.changesAgainst(baseline), isEmpty);
+    });
+
+    test('a clamped edit that changes nothing is not reported', () {
+      // 90 is already the highest cell; pushing past the ceiling leaves it be.
+      view.setValueAt(2, 2, 9999);
+      final changes = view.changesAgainst(baseline);
+      expect(changes[(row: 2, column: 2)], CellChange.raised,
+          reason: '255 is above 90, so this really did rise');
+    });
+
+    test('refuses to compare tables of different shapes', () {
+      // Better to show nothing than to mark every cell as changed.
+      const other = '''
+[Constants]
+nPages   = 1
+pageSize = 64
+page = 1
+  zTable = array, U08, 0,  [2x2], "%",   1.0,   0.0, 0.0, 255.0, 0
+  xAxis  = array, U08, 4,  [2],   "RPM", 100.0, 0.0, 0.0, 25500.0, 0
+  yAxis  = array, U08, 6,  [2],   "kPa", 2.0,   0.0, 0.0, 510.0, 0
+[TableEditor]
+  table = t, tMap, "Other", 1
+    xBins = xAxis, rpm
+    yBins = yAxis, map
+    zBins = zTable
+''';
+      final doc = IniParser().parse(other);
+      final small = TableView.of(TuneState.empty(doc), doc.tables.single)!;
+      expect(view.changesAgainst(small), isEmpty);
+    });
+  });
+
   group('live cursor', () {
     test('finds the cell nearest an operating point', () {
       final view = viewOf(tuneWith(

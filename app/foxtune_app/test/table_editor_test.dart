@@ -43,6 +43,8 @@ page = 1
 
 void main() {
   _alignmentTests();
+  _commitOnClickTests();
+  _typeToSetTests();
   _axisEditTests();
   _contributingTests();
   _overlayTests();
@@ -750,6 +752,350 @@ void _axisEditTests() {
       await tester.pump();
 
       expect(edits, 1);
+    });
+  });
+}
+
+void _typeToSetTests() {
+  group('type to set', () {
+    Future<({TuneState tune, TableView view})> pump(
+      WidgetTester tester, {
+      required bool editable,
+      CellSelection selection = const CellSelection.single(0, 0),
+      void Function(CellSelection)? onSelectionChanged,
+    }) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final table = buildWideTable();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TableGrid(
+              view: table.view,
+              selection: selection,
+              editable: editable,
+              onSelectionChanged: onSelectionChanged ?? (_) {},
+              onEdit: (apply) => apply(table.view),
+            ),
+          ),
+        ),
+      );
+      return table;
+    }
+
+    Future<void> type(WidgetTester tester, String text) async {
+      for (final character in text.split('')) {
+        await tester.sendKeyEvent(_keyFor(character));
+        await tester.pump();
+      }
+    }
+
+    testWidgets('typing a number and pressing Enter overwrites the cell', (
+      tester,
+    ) async {
+      final table = await pump(tester, editable: true);
+      await tester.tap(find.text('101'));
+      await tester.pump();
+
+      await type(tester, '42');
+      // The pending entry is shown in place of the value before it commits.
+      expect(find.text('42'), findsOneWidget);
+      expect(table.view.valueAt(0, 0), 101, reason: 'not committed yet');
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+
+      expect(table.view.valueAt(0, 0), 42);
+    });
+
+    testWidgets('it writes to every selected cell', (tester) async {
+      final table = await pump(
+        tester,
+        editable: true,
+        selection: const CellSelection(
+          anchorRow: 0,
+          anchorColumn: 0,
+          focusRow: 1,
+          focusColumn: 2,
+        ),
+      );
+      await tester.tap(find.text('101'));
+      await tester.pump();
+
+      await type(tester, '55');
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+
+      // The 2x3 block, and nothing outside it.
+      for (var r = 0; r <= 1; r++) {
+        for (var c = 0; c <= 2; c++) {
+          expect(table.view.valueAt(r, c), 55, reason: 'cell ($r, $c)');
+        }
+      }
+      expect(table.view.valueAt(0, 3), 104);
+    });
+
+    testWidgets('Escape abandons the entry', (tester) async {
+      final table = await pump(tester, editable: true);
+      await tester.tap(find.text('101'));
+      await tester.pump();
+
+      await type(tester, '42');
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+
+      expect(table.view.valueAt(0, 0), 101);
+      expect(find.text('101'), findsOneWidget);
+    });
+
+    testWidgets('Backspace corrects a typo', (tester) async {
+      final table = await pump(tester, editable: true);
+      await tester.tap(find.text('101'));
+      await tester.pump();
+
+      await type(tester, '49');
+      await tester.sendKeyEvent(LogicalKeyboardKey.backspace);
+      await tester.pump();
+      await type(tester, '2');
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+
+      expect(table.view.valueAt(0, 0), 42);
+    });
+
+    testWidgets('typing does nothing when writing is not permitted', (
+      tester,
+    ) async {
+      final table = await pump(tester, editable: false);
+      await tester.tap(find.text('101'));
+      await tester.pump();
+
+      await type(tester, '42');
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+
+      expect(table.view.valueAt(0, 0), 101);
+      expect(table.tune.isDirty, isFalse);
+    });
+
+    testWidgets('long-press extends the selection for touch', (tester) async {
+      // A phone has no shift key, and the block operations are useless
+      // without a way to select a block.
+      CellSelection? updated;
+      await pump(
+        tester,
+        editable: true,
+        onSelectionChanged: (s) => updated = s,
+      );
+
+      await tester.longPress(find.text('109'));
+      await tester.pump();
+
+      expect(updated, isNotNull);
+      expect(updated!.cellCount, greaterThan(1));
+      expect(updated!.contains(0, 0), isTrue);
+      expect(updated!.contains(1, 2), isTrue);
+    });
+  });
+}
+
+LogicalKeyboardKey _keyFor(String character) => switch (character) {
+  '0' => LogicalKeyboardKey.digit0,
+  '1' => LogicalKeyboardKey.digit1,
+  '2' => LogicalKeyboardKey.digit2,
+  '3' => LogicalKeyboardKey.digit3,
+  '4' => LogicalKeyboardKey.digit4,
+  '5' => LogicalKeyboardKey.digit5,
+  '6' => LogicalKeyboardKey.digit6,
+  '7' => LogicalKeyboardKey.digit7,
+  '8' => LogicalKeyboardKey.digit8,
+  '9' => LogicalKeyboardKey.digit9,
+  '.' => LogicalKeyboardKey.period,
+  '-' => LogicalKeyboardKey.minus,
+  _ => throw ArgumentError('no key for "$character"'),
+};
+
+void _commitOnClickTests() {
+  group('pending entry', () {
+    testWidgets(
+      'clicking another cell commits to the cells it was typed into',
+      (tester) async {
+        // The entry belongs to the selection it was typed against. Carrying it
+        // to the new selection would silently retarget the edit.
+        await tester.binding.setSurfaceSize(const Size(1200, 600));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final table = buildWideTable();
+        var selection = const CellSelection.single(0, 0);
+        await tester.pumpWidget(
+          StatefulBuilder(
+            builder: (context, setState) => MaterialApp(
+              home: Scaffold(
+                body: TableGrid(
+                  view: table.view,
+                  selection: selection,
+                  editable: true,
+                  onSelectionChanged: (s) => setState(() => selection = s),
+                  onEdit: (apply) => apply(table.view),
+                ),
+              ),
+            ),
+          ),
+        );
+
+        await tester.tap(find.text('101'));
+        await tester.pump();
+        await tester.sendKeyEvent(LogicalKeyboardKey.digit7);
+        await tester.pump();
+
+        // Click a different cell without pressing Enter.
+        await tester.tap(find.text('104'));
+        await tester.pumpAndSettle();
+
+        expect(table.view.valueAt(0, 0), 7, reason: 'committed where typed');
+        expect(table.view.valueAt(0, 3), 104, reason: 'new cell untouched');
+      },
+    );
+
+    testWidgets('long-press also commits before extending', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final table = buildWideTable();
+      var selection = const CellSelection.single(0, 0);
+      await tester.pumpWidget(
+        StatefulBuilder(
+          builder: (context, setState) => MaterialApp(
+            home: Scaffold(
+              body: TableGrid(
+                view: table.view,
+                selection: selection,
+                editable: true,
+                onSelectionChanged: (s) => setState(() => selection = s),
+                onEdit: (apply) => apply(table.view),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('101'));
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.digit8);
+      await tester.pump();
+      await tester.longPress(find.text('103'));
+      await tester.pumpAndSettle();
+
+      expect(table.view.valueAt(0, 0), 8);
+      expect(table.view.valueAt(0, 2), 103);
+    });
+  });
+
+  group('edit indicators', () {
+    /// The edit outline drawn inside the cell showing [text], if any.
+    ///
+    /// The outline is a sibling of the value in the cell's Stack, not an
+    /// ancestor of it, so this walks down from the cell rather than up.
+    Border? outlineIn(WidgetTester tester, String text) {
+      final cell = find
+          .ancestor(of: find.text(text), matching: find.byType(Container))
+          .first;
+      for (final container in tester.widgetList<Container>(
+        find.descendant(of: cell, matching: find.byType(Container)),
+      )) {
+        final border = (container.decoration as BoxDecoration?)?.border;
+        if (border is Border &&
+            (border.top.color == EditTint.raised ||
+                border.top.color == EditTint.lowered)) {
+          return border;
+        }
+      }
+      return null;
+    }
+
+    Color? backgroundOf(WidgetTester tester, String text) {
+      final container = tester.widget<Container>(
+        find
+            .ancestor(of: find.text(text), matching: find.byType(Container))
+            .first,
+      );
+      return (container.decoration! as BoxDecoration).color;
+    }
+
+    testWidgets('marks raised and lowered cells differently', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final table = buildWideTable();
+      final baseline = TableView.of(
+        table.tune.copy(),
+        table.tune.definition.tables.single,
+      )!;
+      table.view
+        ..setValueAt(0, 0, 150)
+        ..setValueAt(0, 1, 5);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TableGrid(
+              view: table.view,
+              selection: const CellSelection.single(5, 5),
+              changes: table.view.changesAgainst(baseline),
+              onSelectionChanged: (_) {},
+              onEdit: (_) {},
+            ),
+          ),
+        ),
+      );
+
+      // An inset outline in the edit tint, on its own layer so it never
+      // competes with the cursor / neighbour / selection rings.
+      final raisedOutline = outlineIn(tester, '150');
+      final loweredOutline = outlineIn(tester, '5');
+      expect(raisedOutline?.top.color, EditTint.raised);
+      expect(loweredOutline?.top.color, EditTint.lowered);
+      expect(
+        outlineIn(tester, '103'),
+        isNull,
+        reason: 'an untouched cell carries no edit outline',
+      );
+
+      // Direction is carried by where the weight sits, not by colour alone.
+      expect(raisedOutline!.top.width, greaterThan(raisedOutline.bottom.width));
+      expect(
+        loweredOutline!.bottom.width,
+        greaterThan(loweredOutline.top.width),
+      );
+
+      final raised = backgroundOf(tester, '150');
+      final lowered = backgroundOf(tester, '5');
+      final untouched = backgroundOf(tester, '103');
+      expect(raised, isNot(lowered));
+      expect(raised, isNot(untouched));
+      expect(lowered, isNot(untouched));
+    });
+
+    testWidgets('an unchanged table shows no markers', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final table = buildWideTable();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TableGrid(
+              view: table.view,
+              selection: const CellSelection.single(0, 0),
+              onSelectionChanged: (_) {},
+              onEdit: (_) {},
+            ),
+          ),
+        ),
+      );
+
+      expect(outlineIn(tester, '101'), isNull);
+      expect(outlineIn(tester, '112'), isNull);
     });
   });
 }

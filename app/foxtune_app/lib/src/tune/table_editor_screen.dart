@@ -110,6 +110,7 @@ class _TableEditorScreenState extends ConsumerState<TableEditorScreen> {
                       cursor: _cursorFor(view),
                       preciseCursor: _preciseCursorFor(view),
                       contributing: _contributingFor(view),
+                      changes: _changesFor(view, table),
                       onSelectionChanged: (s) => setState(() => _selection = s),
                       onEdit: (edit) {
                         edit(view);
@@ -141,6 +142,17 @@ class _TableEditorScreenState extends ConsumerState<TableEditorScreen> {
   double? _channelValue(String? channel) {
     if (channel == null) return null;
     return ref.watch(realtimeProvider).valueOrNull?[channel];
+  }
+
+  /// Cells this session has changed but not yet burned.
+  Map<({int row, int column}), CellChange> _changesFor(
+    TableView view,
+    IniTable table,
+  ) {
+    final baseline = ref.watch(tuneBaselineProvider);
+    if (baseline == null) return const {};
+    final before = TableView.of(baseline, table);
+    return before == null ? const {} : view.changesAgainst(before);
   }
 
   /// The cells the ECU is interpolating between right now.
@@ -426,6 +438,23 @@ class _EditBar extends StatelessWidget {
     onEdited();
   }
 
+  /// Asks for one value and writes it to every selected cell.
+  Future<void> _promptForValue(BuildContext context) async {
+    final value = await showDialog<double>(
+      context: context,
+      builder: (_) => _SetValueDialog(
+        cellCount: selection.cellCount,
+        units: view.zUnits,
+        decimals: view.zDecimals,
+        low: view.low,
+        high: view.high,
+        current: view.valueAt(selection.focusRow, selection.focusColumn),
+      ),
+    );
+    if (value == null) return;
+    _apply(() => view.fill(selection.cells, value));
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -463,6 +492,13 @@ class _EditBar extends StatelessWidget {
             enabled: enabled,
             onPressed: () => _apply(() => view.scaleBy(cells, 101)),
           ),
+          // The keyboard path is type-over; a phone has no keyboard, so the
+          // same operation needs a button.
+          _Action(
+            label: 'Set…',
+            enabled: enabled,
+            onPressed: () => _promptForValue(context),
+          ),
           _Action(
             label: 'Interpolate',
             enabled: enabled && selection.cellCount > 2,
@@ -479,7 +515,8 @@ class _EditBar extends StatelessWidget {
           // silently in release builds, where the assertion is compiled out.
           // The hint simply trails the actions and wraps with them.
           Text(
-            'Arrows move · Shift extends · +/− adjust · [ ] scale',
+            'Type to set · Enter applies · Arrows move · Shift or long-press \n'
+            'extends · +/− adjust · [ ] scale',
             style: theme.textTheme.labelSmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
@@ -547,6 +584,97 @@ class _AxisOrderWarning extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Prompts for a value to write across the selection.
+class _SetValueDialog extends StatefulWidget {
+  const _SetValueDialog({
+    required this.cellCount,
+    required this.units,
+    required this.decimals,
+    required this.low,
+    required this.high,
+    required this.current,
+  });
+
+  final int cellCount;
+  final String units;
+  final int decimals;
+  final double? low;
+  final double? high;
+  final double? current;
+
+  @override
+  State<_SetValueDialog> createState() => _SetValueDialogState();
+}
+
+class _SetValueDialogState extends State<_SetValueDialog> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.current?.toStringAsFixed(widget.decimals) ?? '',
+  );
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    // Preselected so typing replaces, matching the keyboard behaviour.
+    _controller.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: _controller.text.length,
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final value = double.tryParse(_controller.text.trim());
+    if (value == null) {
+      setState(() => _error = 'Not a number');
+      return;
+    }
+    Navigator.of(context).pop(value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final range = widget.low == null || widget.high == null
+        ? null
+        : 'Permitted: ${widget.low!.toStringAsFixed(widget.decimals)} to '
+              '${widget.high!.toStringAsFixed(widget.decimals)}';
+
+    return AlertDialog(
+      title: Text(
+        widget.cellCount == 1
+            ? 'Set cell value'
+            : 'Set ${widget.cellCount} cells',
+      ),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        keyboardType: const TextInputType.numberWithOptions(
+          decimal: true,
+          signed: true,
+        ),
+        decoration: InputDecoration(
+          suffixText: widget.units,
+          errorText: _error,
+          helperText: range,
+        ),
+        onSubmitted: (_) => _submit(),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(onPressed: _submit, child: const Text('Set')),
+      ],
     );
   }
 }
