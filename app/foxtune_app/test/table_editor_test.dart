@@ -1068,6 +1068,21 @@ void _commitOnClickTests() {
         greaterThan(loweredOutline.top.width),
       );
 
+      // The value itself takes the direction colour too.
+      expect(
+        tester.widget<Text>(find.text('150')).style?.color,
+        EditTint.raised,
+      );
+      expect(
+        tester.widget<Text>(find.text('5')).style?.color,
+        EditTint.lowered,
+      );
+      expect(
+        tester.widget<Text>(find.text('103')).style?.color,
+        isNot(EditTint.raised),
+        reason: 'an untouched value keeps its ordinary text colour',
+      );
+
       final raised = backgroundOf(tester, '150');
       final lowered = backgroundOf(tester, '5');
       final untouched = backgroundOf(tester, '103');

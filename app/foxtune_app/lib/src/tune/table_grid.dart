@@ -4,13 +4,15 @@ import 'package:foxtune_tune/foxtune_tune.dart';
 
 /// Colours marking a cell this session has changed.
 ///
-/// A diverging pair - one warm, one cool, with no tint for unchanged - because
-/// the useful question is which *way* a cell moved. These are deliberately not
-/// the status palette, which is reserved for good/warning/danger and must not
-/// be read as "this edit is dangerous".
+/// A diverging pair - red for raised, blue for lowered, with no tint for
+/// unchanged - because the useful question is which *way* a cell moved.
+///
+/// The red is a deeper shade than the status palette's critical, so an edit
+/// does not read as an alarm; the outline and background wash carry the same
+/// information, so nothing rests on telling the two reds apart.
 abstract final class EditTint {
-  static const Color raised = Color(0xFFB45309);
-  static const Color lowered = Color(0xFF1D4ED8);
+  static const Color raised = Color(0xFFC62828);
+  static const Color lowered = Color(0xFF1565C0);
 
   static Color of(CellChange change) =>
       change == CellChange.raised ? raised : lowered;
@@ -736,8 +738,12 @@ class _Cell extends StatelessWidget {
                       (value == null ? '--' : value!.toStringAsFixed(decimals)),
                   style: theme.textTheme.bodySmall?.copyWith(
                     fontFeatures: const [FontFeature.tabularFigures()],
+                    // A pending entry wins, then the edit direction, then
+                    // the ordinary text tokens.
                     color: entry != null
                         ? scheme.primary
+                        : change != null
+                        ? EditTint.of(change!)
                         : (selected
                               ? scheme.onPrimaryContainer
                               : scheme.onSurface),
