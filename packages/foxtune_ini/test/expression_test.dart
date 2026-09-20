@@ -144,6 +144,56 @@ void main() {
     });
   });
 
+  group('element access', () {
+    // Dialog conditions in a real definition test pin assignments this way -
+    // `{ outputPin[0] != 0 }` - and there are around a hundred of them. An
+    // expression that will not compile is a field that never appears.
+    test('resolves an indexed name through the resolver', () {
+      expect(eval('outputPin[0]', {'outputPin[0]': 7}), 7);
+      expect(eval('outputPin[2] != 0', {'outputPin[2]': 0}), 0);
+    });
+
+    test('evaluates the index as an expression', () {
+      expect(
+        eval('outputPin[nCylinders - 1]', {'nCylinders': 4, 'outputPin[3]': 9}),
+        9,
+      );
+    });
+
+    test('reports an unavailable element as unavailable', () {
+      expect(eval('outputPin[1]'), isNull);
+    });
+
+    test('collects the base name as a reference', () {
+      expect(CompiledExpression.compile('outputPin[idx] > 0').references,
+          containsAll(['outputPin', 'idx']));
+    });
+
+    test('arrayValue is the same lookup spelled as a call', () {
+      // `arrayValue(array.boardHasRTC, pinLayout)` gates Speeduino's whole
+      // Data Logging menu.
+      expect(
+        eval('arrayValue( array.boardHasRTC, pinLayout ) > 0',
+            {'pinLayout': 3, 'boardHasRTC[3]': 1}),
+        1,
+      );
+      expect(
+        eval('arrayValue( array.boardHasRTC, pinLayout ) > 0',
+            {'pinLayout': 2, 'boardHasRTC[2]': 0}),
+        0,
+      );
+    });
+
+    test('other function calls still evaluate to null', () {
+      expect(eval('bitStringValue(algorithmUnits, algorithm)'), isNull);
+    });
+
+    test('rejects a malformed index', () {
+      expect(CompiledExpression.tryCompile('outputPin[0'), isNull);
+      expect(CompiledExpression.tryCompile('outputPin[]'), isNull);
+    });
+  });
+
   group('malformed input', () {
     test('tryCompile returns null instead of throwing', () {
       expect(CompiledExpression.tryCompile('1 +'), isNull);

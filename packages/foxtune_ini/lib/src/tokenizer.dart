@@ -116,3 +116,110 @@ List<int> parseBracketed(String token) {
       .map((m) => int.parse(m.group(0)!))
       .toList(growable: false);
 }
+
+/// Splits one comma-separated chunk into whitespace-separated atoms.
+///
+/// The `[Menu]` and `[UserDefined]` sections are only loosely comma-delimited.
+/// The shipped Speeduino definition contains
+/// `subMenu = dwell_tblMap    "Dwell Map", { useDwellMap }` and
+/// `field = "Trigger edge", TrigEdge  { TrigPattern != 4 }` - a missing comma
+/// in each - and TunerStudio accepts both. Running every comma-separated chunk
+/// through this recovers the intended arguments instead of reading a target
+/// and its label as one token.
+///
+/// An atom is a `"quoted string"`, a balanced `{...}`, `[...]` or `(...)`
+/// group, or a run of characters up to the next whitespace or group opener.
+List<String> splitAtoms(String chunk) {
+  final atoms = <String>[];
+  var i = 0;
+
+  while (i < chunk.length) {
+    if (chunk[i].trim().isEmpty) {
+      i++;
+      continue;
+    }
+
+    final start = i;
+    final char = chunk[i];
+
+    if (char == '"') {
+      i++;
+      while (i < chunk.length && chunk[i] != '"') {
+        i++;
+      }
+      if (i < chunk.length) i++; // closing quote
+    } else if (char == '{' || char == '[' || char == '(') {
+      var depth = 0;
+      var inQuotes = false;
+      while (i < chunk.length) {
+        final c = chunk[i];
+        if (inQuotes) {
+          if (c == '"') inQuotes = false;
+        } else if (c == '"') {
+          inQuotes = true;
+        } else if (c == '{' || c == '[' || c == '(') {
+          depth++;
+        } else if (c == '}' || c == ']' || c == ')') {
+          depth--;
+          if (depth == 0) {
+            i++;
+            break;
+          }
+        }
+        i++;
+      }
+    } else {
+      // A `!` warning or `#` note marker is written either inside the quotes
+      // it decorates or just outside them - `!"No PWM fan available"` - so it
+      // stays attached to the string rather than becoming an atom of its own.
+      while (i < chunk.length && (chunk[i] == '!' || chunk[i] == '#')) {
+        i++;
+      }
+      if (i < chunk.length && chunk[i] == '"') {
+        i++;
+        while (i < chunk.length && chunk[i] != '"') {
+          i++;
+        }
+        if (i < chunk.length) i++; // closing quote
+      } else {
+        while (i < chunk.length) {
+          final c = chunk[i];
+          if (c.trim().isEmpty ||
+              c == '"' ||
+              c == '{' ||
+              c == '[' ||
+              c == '(') {
+            break;
+          }
+          i++;
+        }
+      }
+    }
+
+    atoms.add(chunk.substring(start, i).trim());
+  }
+
+  return atoms;
+}
+
+/// Splits a value on top-level commas, then each chunk into atoms.
+///
+/// The flat argument list that `[Menu]` and `[UserDefined]` directives are
+/// written against, whether or not their author remembered the commas.
+List<String> splitArguments(String value) =>
+    [for (final chunk in splitTopLevel(value)) ...splitAtoms(chunk)];
+
+/// Whether [token] is a `{ ... }` expression group.
+bool isBraceGroup(String token) {
+  final trimmed = token.trim();
+  return trimmed.startsWith('{') && trimmed.endsWith('}');
+}
+
+/// Strips the braces from a `{ ... }` group, returning the expression source.
+///
+/// An empty group (`{}`) yields an empty string, which the definition uses as
+/// "no condition here" in the argument slot before a real one.
+String braceContents(String token) {
+  final trimmed = token.trim();
+  return trimmed.substring(1, trimmed.length - 1).trim();
+}

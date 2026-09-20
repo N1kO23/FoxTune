@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:foxtune_transport/foxtune_transport.dart';
 
 import '../dashboard/dashboard_screen.dart';
+import '../settings/settings_screen.dart';
 import '../tune/table_editor_screen.dart';
 import '../tune/tune_controller.dart';
 import 'connection_controller.dart';
@@ -465,6 +466,7 @@ class _ConnectedShellState extends State<_ConnectedShell> {
     final pages = [
       DashboardScreen(connection: widget.connection),
       TableEditorScreen(connection: widget.connection),
+      SettingsScreen(connection: widget.connection),
     ];
 
     return Column(
@@ -488,6 +490,11 @@ class _ConnectedShellState extends State<_ConnectedShell> {
               icon: Icon(Icons.grid_on_outlined),
               selectedIcon: Icon(Icons.grid_on),
               label: 'Tables',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.tune_outlined),
+              selectedIcon: Icon(Icons.tune),
+              label: 'Settings',
             ),
           ],
         ),

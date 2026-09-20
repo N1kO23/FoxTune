@@ -1,4 +1,6 @@
+import 'dialogs.dart';
 import 'fields.dart';
+import 'menus.dart';
 import 'sections.dart';
 
 /// Identification block from `[MegaTune]` and `[TunerStudio]`.
@@ -31,11 +33,42 @@ class IniIdentity {
   final String? iniSpecVersion;
 }
 
+/// What kind of screen a menu entry or panel points at.
+///
+/// A target name alone does not say which: `triggerSettings` is a dialog,
+/// `afrTable1Tbl` a table and `airdensity_curve` a curve, and only the rest of
+/// the document distinguishes them. See [IniDocument.targetKind].
+enum IniTargetKind {
+  /// A `[UserDefined]` dialog, which FoxTune generates a screen from.
+  dialog,
+
+  /// A `[TableEditor]` table, opened in the table editor.
+  table,
+
+  /// The 3D view of a `[TableEditor]` table, named by its map identifier.
+  ///
+  /// Speeduino's "3D Tuning Maps" menu points at `veTable1Map` where the
+  /// "Tuning" menu points at `veTable1Tbl` - the same data, opened as a
+  /// surface rather than as a grid.
+  map,
+
+  /// A `[CurveEditor]` curve, opened in the curve editor.
+  curve,
+
+  /// One of TunerStudio's own editors, named `std_*`. These live in
+  /// TunerStudio rather than in the definition, so there is nothing here to
+  /// build a screen from.
+  builtIn,
+
+  /// A name the document does not define.
+  unknown,
+}
+
 /// A section the parser retains verbatim rather than modelling.
 ///
-/// `[Menu]`, `[UserDefined]` and friends describe TunerStudio's own UI. They
-/// are kept as raw lines so a generated-UI pass could use them later without
-/// the file needing to be parsed twice.
+/// `[FrontPage]` and friends describe parts of TunerStudio's own UI that
+/// FoxTune does not reproduce. They are kept as raw lines rather than dropped,
+/// so a later pass can use them without the file needing a second parse.
 class IniRawSection {
   const IniRawSection({required this.name, required this.lines});
 
@@ -63,6 +96,11 @@ class IniDocument {
     required this.curves,
     required this.rawSections,
     required this.definedSymbols,
+    this.menus = const [],
+    this.dialogs = const [],
+    this.settingHelp = const {},
+    this.defaultValues = const {},
+    this.requiresPowerCycle = const {},
   });
 
   /// Signature and version information.
@@ -97,6 +135,55 @@ class IniDocument {
 
   /// Preprocessor symbols that were in effect, after `#set` / `#unset`.
   final Set<String> definedSymbols;
+
+  /// Top-level menus from `[Menu]`, in declaration order.
+  final List<IniMenu> menus;
+
+  /// Settings dialogs from `[UserDefined]`, in declaration order.
+  final List<IniDialog> dialogs;
+
+  /// Per-constant help text from `[SettingContextHelp]`.
+  final Map<String, String> settingHelp;
+
+  /// Factory values from `[ConstantsExtensions]`, keyed by constant name.
+  ///
+  /// These are the only values `[PcVariables]` entries ever have: a PC
+  /// variable lives on the host, not on a page, so nothing else supplies one.
+  /// Several menu conditions ask whether the selected board has a real-time
+  /// clock, which is exactly such a lookup.
+  final Map<String, List<double>> defaultValues;
+
+  /// Constants whose change only takes effect after the ECU is power-cycled.
+  final Set<String> requiresPowerCycle;
+
+  /// Looks up a dialog by its identifier.
+  IniDialog? dialogNamed(String id) {
+    for (final dialog in dialogs) {
+      if (dialog.id == id) return dialog;
+    }
+    return null;
+  }
+
+  /// Help text for a constant, or `null` when the definition supplies none.
+  String? helpFor(String constant) => settingHelp[constant];
+
+  /// Classifies what [target] - a `subMenu` or `panel` name - points at.
+  IniTargetKind targetKind(String target) {
+    if (target.startsWith('std_')) return IniTargetKind.builtIn;
+    if (dialogNamed(target) != null) return IniTargetKind.dialog;
+    if (tableNamed(target) != null) return IniTargetKind.table;
+    if (tableForMap(target) != null) return IniTargetKind.map;
+    if (curveNamed(target) != null) return IniTargetKind.curve;
+    return IniTargetKind.unknown;
+  }
+
+  /// Looks up a table by its *map* identifier - the 3D view's name.
+  IniTable? tableForMap(String mapId) {
+    for (final table in tables) {
+      if (table.mapId == mapId) return table;
+    }
+    return null;
+  }
 
   /// Looks up a table by its identifier.
   IniTable? tableNamed(String id) {
@@ -139,5 +226,6 @@ class IniDocument {
   String toString() => 'IniDocument(${identity.signature}, '
       '${constants.pageCount} pages, '
       '${outputChannels.channels.length} channels, '
-      '${tables.length} tables, ${curves.length} curves)';
+      '${tables.length} tables, ${curves.length} curves, '
+      '${dialogs.length} dialogs)';
 }

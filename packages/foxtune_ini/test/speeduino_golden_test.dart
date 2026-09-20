@@ -265,10 +265,205 @@ void main() {
       expect(mcu.selectableSymbols, containsAll(['mcu_teensy', 'mcu_stm32']));
     });
 
-    test('retains the UI sections verbatim instead of dropping them', () {
+    test('retains unmodelled sections verbatim instead of dropping them', () {
       final raw = parse().rawSections;
-      expect(raw.keys, containsAll(['Menu', 'UserDefined', 'FrontPage']));
-      expect(raw['Menu']!.lines, isNotEmpty);
+      expect(raw.keys, containsAll(['FrontPage', 'GaugeConfigurations']));
+      expect(raw['FrontPage']!.lines, isNotEmpty);
+    });
+
+    test('builds the whole menu tree', () {
+      final doc = parse(defined: {'CELSIUS'});
+      expect(doc.menus.map((m) => m.displayLabel),
+          containsAll(['Settings', 'Tuning', 'Spark', 'Startup/Idle']));
+
+      // The accelerator marker must not reach a label a user reads.
+      for (final menu in doc.menus) {
+        expect(menu.displayLabel, isNot(contains('&')));
+      }
+
+      final startup =
+          doc.menus.firstWhere((m) => m.displayLabel == 'Startup/Idle');
+      expect(
+          startup.items.map((i) => i.target), containsAll(['warmup', 'ASE']));
+    });
+
+    test('nests grouped menu entries under their group', () {
+      final tuning =
+          parse().menus.firstWhere((m) => m.displayLabel == 'Tuning');
+      final group = tuning.items.firstWhere((i) => i.isGroup);
+      expect(group.label, 'Engine Protection');
+      expect(group.children.map((c) => c.target),
+          containsAll(['engineProtection', 'revLimiterDialog', 'boostCut']));
+      // A grouped entry must not also appear at the top level.
+      expect(tuning.items.map((i) => i.target), isNot(contains('boostCut')));
+    });
+
+    test('every menu entry leads somewhere', () {
+      // A `subMenu` target may name a dialog, a table, a table's 3D map, a
+      // curve or one of TunerStudio's own editors. Anything else is a menu
+      // entry that would dead-end when tapped.
+      final doc = parse(defined: {'CELSIUS'});
+      final dangling = <String>[];
+      for (final menu in doc.menus) {
+        for (final item in menu.leaves) {
+          if (doc.targetKind(item.target) == IniTargetKind.unknown) {
+            dangling.add('${menu.displayLabel} > ${item.target}');
+          }
+        }
+      }
+      expect(dangling, isEmpty);
+    });
+
+    test('every embedded panel resolves to something renderable', () {
+      final doc = parse(defined: {'CELSIUS'});
+      final dangling = <String>[];
+      for (final dialog in doc.dialogs) {
+        for (final item in dialog.items) {
+          if (item is! IniDialogPanel) continue;
+          if (doc.targetKind(item.target) == IniTargetKind.unknown) {
+            dangling.add('${dialog.id} > ${item.target}');
+          }
+        }
+      }
+      expect(dangling, isEmpty);
+    });
+
+    test('builds the settings dialogs', () {
+      final doc = parse(defined: {'CELSIUS'});
+      expect(doc.dialogs.length, greaterThan(200));
+
+      final trigger = doc.dialogNamed('triggerSettings');
+      expect(trigger, isNotNull);
+      expect(trigger!.title, 'Trigger Settings');
+      expect(trigger.columns, 4);
+
+      final pattern = trigger.items
+          .whereType<IniDialogField>()
+          .firstWhere((f) => f.constant == 'TrigPattern');
+      expect(pattern.label, 'Trigger Pattern');
+      expect(pattern.enableCondition, isNull);
+
+      // A missing comma between the constant and its condition is in the
+      // shipped file and must not swallow one into the other.
+      final edge = trigger.items
+          .whereType<IniDialogField>()
+          .firstWhere((f) => f.label == 'Trigger edge');
+      expect(edge.constant, 'TrigEdge');
+      expect(edge.enableCondition, contains('TrigPattern != 4'));
+    });
+
+    test('reads warmup and afterstart enrichment as curve-bearing dialogs', () {
+      final doc = parse(defined: {'CELSIUS'});
+
+      final warmup = doc.dialogNamed('warmup');
+      expect(warmup, isNotNull);
+      final warmupCurve = warmup!.items.whereType<IniDialogPanel>().single;
+      expect(doc.targetKind(warmupCurve.target), IniTargetKind.curve);
+
+      // ASE nests one level further: its panels are dialogs, each of which
+      // holds the curve. Rendering it means recursing rather than stopping at
+      // the first panel.
+      final ase = doc.dialogNamed('ASE');
+      expect(ase, isNotNull);
+      final asePanels = ase!.items.whereType<IniDialogPanel>().toList();
+      expect(asePanels.map((p) => p.target), ['ASE_amount', 'ASE_time']);
+      for (final panel in asePanels) {
+        expect(doc.targetKind(panel.target), IniTargetKind.dialog);
+        final inner = doc.dialogNamed(panel.target)!;
+        expect(
+          inner.items
+              .whereType<IniDialogPanel>()
+              .any((p) => doc.targetKind(p.target) == IniTargetKind.curve),
+          isTrue,
+          reason: '${panel.target} holds no curve',
+        );
+      }
+    });
+
+    test('keeps the warning marker off the label and out of the constant', () {
+      // `displayOnlyField = !"No PWM Fan available on MCU", blankfield, ...`
+      // writes the marker outside the quotes. Read naively the marker becomes
+      // an argument of its own, which shunts the label into the constant slot
+      // and binds the field to a constant that does not exist.
+      final doc = parse(defined: {'CELSIUS'});
+      final warnings = [
+        for (final dialog in doc.dialogs)
+          for (final item in dialog.items)
+            if (item is IniDialogField &&
+                item.emphasis == IniFieldEmphasis.warning)
+              item,
+      ];
+      expect(warnings, isNotEmpty);
+      for (final field in warnings) {
+        expect(field.label, isNot(startsWith('!')));
+        expect(field.constant, isNot(contains(' ')));
+      }
+    });
+
+    test('every dialog condition compiles', () {
+      // These decide which fields a tuner is shown. One that will not compile
+      // is a field that either never appears or never hides.
+      final doc = parse(defined: {'CELSIUS'});
+      final broken = <String>[];
+      var checked = 0;
+
+      void check(String? source) {
+        if (source == null) return;
+        checked++;
+        if (CompiledExpression.tryCompile(source) == null) broken.add(source);
+      }
+
+      for (final dialog in doc.dialogs) {
+        for (final item in dialog.items) {
+          check(item.enableCondition);
+          check(item.visibleCondition);
+        }
+      }
+      for (final menu in doc.menus) {
+        for (final item in menu.items) {
+          check(item.condition);
+          for (final child in item.children) {
+            check(child.condition);
+          }
+        }
+      }
+
+      expect(checked, greaterThan(800));
+      expect(broken, isEmpty);
+    });
+
+    test('binds dialog fields to constants that exist', () {
+      // The only exceptions are the `string` PC variables - aux channel
+      // aliases - which the field model does not cover. Anything else
+      // unbound would be a setting shown with nothing behind it.
+      final doc = parse(defined: {'CELSIUS'});
+      final unbound = <String>{};
+      for (final dialog in doc.dialogs) {
+        for (final item in dialog.items) {
+          final name = switch (item) {
+            IniDialogField(:final constant) => constant,
+            IniDialogSlider(:final constant) => constant,
+            _ => null,
+          };
+          if (name == null) continue;
+          if (doc.findField(name) == null) unbound.add(name);
+        }
+      }
+      expect(unbound.every((n) => n.endsWith('Alias')), isTrue,
+          reason: 'unbound: $unbound');
+    });
+
+    test('reads per-constant help text', () {
+      final help = parse().settingHelp;
+      expect(help.length, greaterThan(300));
+      expect(help['nCylinders'], 'Cylinder count');
+    });
+
+    test('reads factory values and power-cycle flags', () {
+      final doc = parse();
+      expect(doc.defaultValues['injAngRPM'], [500, 2000, 4500, 6500]);
+      expect(doc.defaultValues['boardHasRTC'], hasLength(128));
+      expect(doc.requiresPowerCycle, contains('pinLayout'));
     });
 
     test('CELSIUS changes units without moving offsets', () {

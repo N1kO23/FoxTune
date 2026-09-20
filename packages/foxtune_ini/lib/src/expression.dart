@@ -6,13 +6,19 @@
 /// evaluator a dashboard simply cannot show coolant or intake temperature,
 /// because the ECU never sends them.
 ///
-/// Supported: numeric literals, identifiers, `+ - * / %`, unary `- !`,
-/// comparisons, `&& ||`, `<< >>`, parentheses and the `? :` ternary. Booleans
-/// follow C conventions - false is 0, true is 1, and any non-zero value is
-/// truthy.
+/// Supported: numeric literals, identifiers, `name[index]` element access,
+/// `+ - * / %`, unary `- !`, comparisons, `&& ||`, `<< >>`, parentheses and
+/// the `? :` ternary. Booleans follow C conventions - false is 0, true is 1,
+/// and any non-zero value is truthy.
 ///
-/// Function calls (`bitStringValue`, `arrayValue`, `smoothBasic`) parse but
-/// evaluate to `null`, which propagates. A channel that depends on one reads as
+/// Element access is how the dialog conditions in a definition test pin
+/// assignments - `{ outputPin[0] != 0 }` - and it is resolved by handing the
+/// resolver the composed name `outputPin[0]`, so a caller that does not model
+/// arrays simply reports it unavailable. `arrayValue(array.name, index)` is
+/// the same lookup spelled as a call, and is treated as one.
+///
+/// Other function calls (`bitStringValue`, `smoothBasic`) parse but evaluate
+/// to `null`, which propagates. A channel that depends on one reads as
 /// unavailable rather than as a fabricated number.
 library;
 
@@ -60,9 +66,35 @@ class CompiledExpression {
   String toString() => 'CompiledExpression($source)';
 }
 
+/// Spells the name an indexed reference resolves through, e.g. `outputPin[3]`.
+String composeIndexedName(String name, int index) => '$name[$index]';
+
+/// Splits a name produced by [composeIndexedName] back into its parts.
+///
+/// Returns `null` for a plain name, so a resolver can branch on the result
+/// rather than string-matching brackets itself.
+({String name, int index})? parseIndexedName(String composed) {
+  if (!composed.endsWith(']')) return null;
+  final open = composed.lastIndexOf('[');
+  if (open <= 0) return null;
+  final index = int.tryParse(composed.substring(open + 1, composed.length - 1));
+  if (index == null) return null;
+  return (name: composed.substring(0, open), index: index);
+}
+
 // --- Tokenizer -------------------------------------------------------------
 
-enum _TokenType { number, identifier, operator, lparen, rparen, comma, end }
+enum _TokenType {
+  number,
+  identifier,
+  operator,
+  lparen,
+  rparen,
+  lbracket,
+  rbracket,
+  comma,
+  end
+}
 
 class _Token {
   const _Token(this.type, this.text, this.position);
@@ -119,6 +151,14 @@ List<_Token> _tokenize(String source) {
     }
     if (char == ')') {
       tokens.add(_Token(_TokenType.rparen, char, i++));
+      continue;
+    }
+    if (char == '[') {
+      tokens.add(_Token(_TokenType.lbracket, char, i++));
+      continue;
+    }
+    if (char == ']') {
+      tokens.add(_Token(_TokenType.rbracket, char, i++));
       continue;
     }
     if (char == ',') {
@@ -324,6 +364,16 @@ class _Parser {
           _index++;
           return _CallNode(token.text, args);
         }
+        if (_current.type == _TokenType.lbracket) {
+          _index++;
+          final index = parseExpression();
+          if (_current.type != _TokenType.rbracket) {
+            throw FormatException(
+                'Expected "]" after index', source, _current.position);
+          }
+          _index++;
+          return _IndexNode(token.text, index);
+        }
         return _IdentifierNode(token.text);
 
       case _TokenType.lparen:
@@ -337,6 +387,8 @@ class _Parser {
 
       case _TokenType.operator:
       case _TokenType.rparen:
+      case _TokenType.lbracket:
+      case _TokenType.rbracket:
       case _TokenType.comma:
       case _TokenType.end:
         throw FormatException(
@@ -377,16 +429,65 @@ class _IdentifierNode extends _Node {
   void collectReferences(Set<String> into) => into.add(name);
 }
 
+/// Element access, `name[index]`.
+///
+/// The index is an expression rather than a literal because the definition
+/// writes things like `{ outputPin[nCylinders - 1] }`. It is evaluated first,
+/// then the resolver is asked for the composed name `outputPin[3]` - which
+/// keeps the resolver interface a plain name lookup.
+class _IndexNode extends _Node {
+  const _IndexNode(this.name, this.index);
+  final String name;
+  final _Node index;
+
+  @override
+  double? evaluate(double? Function(String) resolve) {
+    final at = index.evaluate(resolve);
+    if (at == null) return null;
+    return resolve(composeIndexedName(name, at.round()));
+  }
+
+  @override
+  void collectReferences(Set<String> into) {
+    into.add(name);
+    index.collectReferences(into);
+  }
+}
+
 class _CallNode extends _Node {
   const _CallNode(this.name, this.arguments);
   final String name;
   final List<_Node> arguments;
 
   @override
-  double? evaluate(double? Function(String) resolve) => null;
+  double? evaluate(double? Function(String) resolve) {
+    // `arrayValue(array.boardHasRTC, pinLayout)` is element access written as
+    // a call: the `array.` prefix names a constant and the second argument
+    // indexes it. Speeduino's Data Logging menu gates every one of its entries
+    // on this, so without it that whole menu would read as unavailable.
+    final target = _arrayValueTarget();
+    if (target != null) {
+      final at = arguments[1].evaluate(resolve);
+      if (at == null) return null;
+      return resolve(composeIndexedName(target, at.round()));
+    }
+    return null;
+  }
+
+  String? _arrayValueTarget() {
+    if (name != 'arrayValue' || arguments.length != 2) return null;
+    final first = arguments[0];
+    if (first is! _IdentifierNode) return null;
+    const prefix = 'array.';
+    return first.name.startsWith(prefix)
+        ? first.name.substring(prefix.length)
+        : first.name;
+  }
 
   @override
   void collectReferences(Set<String> into) {
+    final target = _arrayValueTarget();
+    if (target != null) into.add(target);
     for (final argument in arguments) {
       argument.collectReferences(into);
     }

@@ -58,6 +58,13 @@ final tuneProvider = AsyncNotifierProvider<TuneController, TuneState?>(
   TuneController.new,
 );
 
+/// The shared value resolver for the loaded tune.
+final tuneResolverProvider = Provider<TuneValueResolver?>((ref) {
+  // Depend on the tune so this refreshes as edits land.
+  ref.watch(tuneProvider);
+  return ref.read(tuneProvider.notifier).resolver;
+});
+
 /// The tune as it was last read from the ECU, or last burned to it.
 ///
 /// Editing is compared against this so the editor can show what this session
@@ -71,9 +78,17 @@ final tuneBaselineProvider = Provider<TuneState?>((ref) {
 class TuneController extends AsyncNotifier<TuneState?> {
   TuneLoadProgress? _progress;
   TuneState? _baseline;
+  TuneValueResolver? _resolver;
 
   /// The tune as last synchronised with the ECU.
   TuneState? get baseline => _baseline;
+
+  /// A resolver shared across the screens reading this tune.
+  ///
+  /// Building one compiles every computed channel in the definition, which is
+  /// not something to redo on each frame of a dragged slider. Edits invalidate
+  /// its cache instead of replacing it.
+  TuneValueResolver? get resolver => _resolver;
 
   /// Progress of the current read, or `null` when not loading.
   TuneLoadProgress? get progress => _progress;
@@ -105,6 +120,7 @@ class TuneController extends AsyncNotifier<TuneState?> {
     _progress = null;
     // Everything from here on is compared against what the ECU actually holds.
     _baseline = tune.copy();
+    _resolver = TuneValueResolver(tune);
     return tune;
   }
 
@@ -117,7 +133,11 @@ class TuneController extends AsyncNotifier<TuneState?> {
   /// Signals that the tune changed, so dependents rebuild.
   void notifyEdited() {
     final tune = state.valueOrNull;
-    if (tune != null) state = AsyncValue.data(tune);
+    if (tune == null) return;
+    // A setting just changed, and other settings' scales, bounds and
+    // visibility conditions may be expressed in terms of it.
+    _resolver?.invalidate();
+    state = AsyncValue.data(tune);
   }
 
   /// Writes, verifies and burns every page with unsaved changes.

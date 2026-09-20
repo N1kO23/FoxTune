@@ -374,15 +374,14 @@ page = 2
   group('unmodelled sections', () {
     test('are retained verbatim rather than dropped', () {
       final doc = parse('''
-[Menu]
-   menuDialog = main
-      subMenu = engineProtection, "Engine Protection"
+[FrontPage]
+   gauge1 = tachometer
 [Constants]
 page = 1
   a = scalar, U08, 0, "", 1, 0
 ''');
-      expect(doc.rawSections.containsKey('Menu'), isTrue);
-      expect(doc.rawSections['Menu']!.lines, hasLength(2));
+      expect(doc.rawSections.containsKey('FrontPage'), isTrue);
+      expect(doc.rawSections['FrontPage']!.lines, hasLength(1));
       expect(doc.rawSections.containsKey('Constants'), isFalse);
     });
   });

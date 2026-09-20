@@ -83,15 +83,82 @@ class TuneState {
   }
 
   /// An independent copy, for snapshots and diffing.
-  TuneState copy() => TuneState._(
-        definition,
-        [for (final p in _pages) Uint8List.fromList(p)],
-      );
+  TuneState copy() {
+    final clone = TuneState._(
+      definition,
+      [for (final p in _pages) Uint8List.fromList(p)],
+    );
+    for (final entry in _host.entries) {
+      clone._host[entry.key] = List.of(entry.value);
+    }
+    return clone;
+  }
 
   /// Locates a field by name across all pages.
   ({int page, IniField field})? locate(String name) {
     final hit = definition.constants.findField(name);
     return hit == null ? null : (page: hit.page.number, field: hit.field);
+  }
+
+  // --- Host-side variables -------------------------------------------------
+
+  /// Values for `[PcVariables]` entries, seeded from their factory defaults.
+  final Map<String, List<double>> _host = {};
+
+  /// Whether [name] is a host-side variable rather than a page constant.
+  ///
+  /// These live on the tuning computer, not on the ECU: gauge warning
+  /// thresholds and the selector that picks which programmable output a
+  /// dialog is editing. They are settings a tuner changes, so they need
+  /// somewhere to live - but nothing about them is ever burned.
+  bool isHostVariable(String name) {
+    for (final variable in definition.pcVariables) {
+      if (variable.name == name) return true;
+    }
+    return false;
+  }
+
+  /// Reads a host-side variable, or `null` if the definition declares none.
+  double? readHost(String name, [int index = 0]) {
+    final slot = _hostSlot(name);
+    if (slot == null || index < 0 || index >= slot.length) return null;
+    return slot[index];
+  }
+
+  /// Writes a host-side variable.
+  ///
+  /// Nothing is marked dirty, because there is nothing to send: a change here
+  /// never reaches the ECU.
+  void writeHost(String name, double value, [int index = 0]) {
+    final slot = _hostSlot(name);
+    if (slot == null) {
+      throw ArgumentError('$name is not a host-side variable');
+    }
+    if (index < 0 || index >= slot.length) {
+      throw RangeError('Writing $name[$index] would fall outside its length');
+    }
+    slot[index] = value;
+  }
+
+  List<double>? _hostSlot(String name) {
+    final existing = _host[name];
+    if (existing != null) return existing;
+
+    IniField? declared;
+    for (final variable in definition.pcVariables) {
+      if (variable.name == name) {
+        declared = variable;
+        break;
+      }
+    }
+    if (declared == null) return null;
+
+    final length = declared is IniArrayField ? declared.length : 1;
+    final defaults = definition.defaultValues[name];
+    return _host[name] = [
+      for (var i = 0; i < length; i++)
+        if (defaults != null && i < defaults.length) defaults[i] else 0.0,
+    ];
   }
 
   // --- Raw element access --------------------------------------------------
@@ -155,6 +222,28 @@ class TuneState {
         view.setFloat32(at, clamped.toDouble(), Endian.little);
     }
     _dirtyPages.add(page);
+  }
+
+  // --- Bitfield access -----------------------------------------------------
+
+  /// Reads the value packed into [field]'s bits.
+  int? readBits(int page, IniBitsField field) {
+    final raw = readRaw(page, field);
+    if (raw == null) return null;
+    final width = field.highBit - field.lowBit + 1;
+    return (raw >> field.lowBit) & ((1 << width) - 1);
+  }
+
+  /// Writes [value] into [field]'s bits, leaving the rest of the byte alone.
+  ///
+  /// Several unrelated settings are packed into one byte - injector layout and
+  /// injector pairing share one - so a bitfield write that does not merge
+  /// would silently reset whatever else lives there.
+  void writeBits(int page, IniBitsField field, int value) {
+    final current = readRaw(page, field) ?? 0;
+    final width = field.highBit - field.lowBit + 1;
+    final mask = ((1 << width) - 1) << field.lowBit;
+    writeRaw(page, field, (current & ~mask) | ((value << field.lowBit) & mask));
   }
 
   /// Clamps [value] into the representable range of [type].

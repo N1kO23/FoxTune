@@ -5,12 +5,19 @@ import 'model/fields.dart';
 import 'model/sections.dart';
 import 'preprocessor.dart';
 import 'tokenizer.dart';
+import 'ui_sections.dart';
 
 /// Parses a TunerStudio ECU definition into an [IniDocument].
 ///
-/// Scope is deliberately the *data model* - what the bytes mean - rather than
-/// TunerStudio's UI layout language. `[Menu]`, `[UserDefined]` and similar are
-/// retained verbatim in [IniDocument.rawSections] but not interpreted.
+/// Two things are read: the *data model* - what the bytes mean - and the
+/// *screens* the definition describes in `[Menu]` and `[UserDefined]`. The
+/// screens matter because they are the only description of trigger setup,
+/// engine constants, warmup enrichment and the rest that exists anywhere;
+/// generating them is what keeps FoxTune tracking a firmware release rather
+/// than needing hundreds of dialogs hand-maintained. Sections describing parts
+/// of TunerStudio's own UI that FoxTune does not reproduce - `[FrontPage]`,
+/// `[GaugeConfigurations]` - are retained verbatim in
+/// [IniDocument.rawSections] instead.
 ///
 /// Pass [defined] to select build-configuration branches. Option names from
 /// `[SettingGroups]` double as preprocessor symbols, so
@@ -31,6 +38,10 @@ class IniParser {
     'TableEditor',
     'CurveEditor',
     'Datalog',
+    'Menu',
+    'UserDefined',
+    'SettingContextHelp',
+    'ConstantsExtensions',
   };
 
   /// Parses [source], the full text of a `.ini` file.
@@ -67,6 +78,13 @@ class IniParser {
     final tables = <_TableBuilder>[];
     final curves = <_CurveBuilder>[];
     final rawSections = <String, List<String>>{};
+
+    // Screens
+    final menuCollector = MenuCollector();
+    final dialogCollector = DialogCollector();
+    final settingHelp = <String, String>{};
+    final defaultValues = <String, List<double>>{};
+    final requiresPowerCycle = <String>{};
 
     var section = '';
 
@@ -173,6 +191,19 @@ class IniParser {
 
         case 'CurveEditor':
           _parseCurveLine(key, value, curves, line);
+
+        case 'Menu':
+          menuCollector.add(key, value);
+
+        case 'UserDefined':
+          dialogCollector.add(key, value);
+
+        case 'SettingContextHelp':
+          settingHelp[key] = unquote(value);
+
+        case 'ConstantsExtensions':
+          _parseConstantsExtension(
+              key, value, defaultValues, requiresPowerCycle);
       }
     }
 
@@ -204,6 +235,11 @@ class IniParser {
           entry.key: IniRawSection(name: entry.key, lines: entry.value),
       },
       definedSymbols: preprocessor.symbols,
+      menus: menuCollector.menus,
+      dialogs: dialogCollector.dialogs,
+      settingHelp: settingHelp,
+      defaultValues: defaultValues,
+      requiresPowerCycle: requiresPowerCycle,
     );
   }
 
@@ -440,6 +476,42 @@ class IniParser {
       if (target != null) return List<String>.of(target);
     }
     return [unquote(trimmed)];
+  }
+
+  // --- ConstantsExtensions -------------------------------------------------
+
+  /// Parses `defaultValue = name, v [v ...]` and `requiresPowerCycle = name`.
+  ///
+  /// The factory values are the only values a `[PcVariables]` entry ever gets,
+  /// since those live on the host rather than on a page. Speeduino's
+  /// board-capability tables - "does this board have a real-time clock" - are
+  /// PC variables, and menu entries are gated on them.
+  static void _parseConstantsExtension(
+    String key,
+    String value,
+    Map<String, List<double>> defaultValues,
+    Set<String> requiresPowerCycle,
+  ) {
+    switch (key) {
+      case 'defaultValue':
+        final tokens = splitTopLevel(value);
+        if (tokens.length < 2) return;
+        final name = tokens[0].trim();
+        if (name.isEmpty) return;
+        final numbers = <double>[];
+        for (final token in tokens.skip(1)) {
+          for (final part in token.trim().split(RegExp(r'\s+'))) {
+            if (part.isEmpty) continue;
+            final parsed = double.tryParse(unquote(part));
+            if (parsed != null) numbers.add(parsed);
+          }
+        }
+        if (numbers.isNotEmpty) defaultValues[name] = numbers;
+
+      case 'requiresPowerCycle':
+        final name = splitTopLevel(value).firstOrNull?.trim();
+        if (name != null && name.isNotEmpty) requiresPowerCycle.add(name);
+    }
   }
 
   // --- Datalog -------------------------------------------------------------

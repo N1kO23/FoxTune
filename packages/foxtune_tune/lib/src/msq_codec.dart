@@ -269,12 +269,8 @@ abstract final class MsqCodec {
           if (numeric == null) return false;
           index = numeric;
         }
-        final current = tune.readRaw(page, field) ?? 0;
-        final width = field.highBit - field.lowBit + 1;
-        final mask = ((1 << width) - 1) << field.lowBit;
         // Preserve the neighbouring bits packed into the same byte.
-        final merged = (current & ~mask) | ((index << field.lowBit) & mask);
-        tune.writeRaw(page, field, merged);
+        tune.writeBits(page, field, index);
         return true;
 
       case IniScalarField():

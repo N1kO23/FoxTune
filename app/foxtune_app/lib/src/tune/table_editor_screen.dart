@@ -6,6 +6,7 @@ import 'package:foxtune_tune/foxtune_tune.dart';
 import '../connection/connection_state.dart';
 import '../dashboard/dashboard_controller.dart';
 import '../dashboard/gauge_status.dart';
+import 'burn_actions.dart';
 import 'msq_actions.dart';
 import 'table_file_actions.dart';
 import 'cursor_readout.dart';
@@ -22,9 +23,19 @@ final selectedTableProvider = StateProvider<String?>((ref) => null);
 /// default state of this screen - even connected to a running engine - cannot
 /// change anything.
 class TableEditorScreen extends ConsumerStatefulWidget {
-  const TableEditorScreen({super.key, required this.connection});
+  const TableEditorScreen({
+    super.key,
+    required this.connection,
+    this.initialSurface = false,
+  });
 
   final EcuConnected connection;
+
+  /// Whether to open with the 3D surface already shown.
+  ///
+  /// The definition's "3D Tuning Maps" menu points at the same tables as the
+  /// tuning menus, differing only in which view is wanted.
+  final bool initialSurface;
 
   @override
   ConsumerState<TableEditorScreen> createState() => _TableEditorScreenState();
@@ -32,7 +43,7 @@ class TableEditorScreen extends ConsumerStatefulWidget {
 
 class _TableEditorScreenState extends ConsumerState<TableEditorScreen> {
   CellSelection _selection = const CellSelection.single(0, 0);
-  bool _showSurface = false;
+  late bool _showSurface = widget.initialSurface;
 
   @override
   Widget build(BuildContext context) {
@@ -313,7 +324,7 @@ class _Toolbar extends ConsumerWidget {
             ),
           FilledButton.icon(
             onPressed: permission.allowed && tune.isDirty
-                ? () => _confirmBurn(context, ref, tune)
+                ? () => BurnActions.confirmAndBurn(context, ref, tune)
                 : null,
             icon: const Icon(Icons.save),
             label: const Text('Burn to ECU'),
@@ -366,74 +377,6 @@ class _Toolbar extends ConsumerWidget {
       ),
     );
   }
-
-  Future<void> _confirmBurn(
-    BuildContext context,
-    WidgetRef ref,
-    TuneState tune,
-  ) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) => _BurnDialog(pages: tune.dirtyPages.toList()..sort()),
-    );
-    if (confirmed != true || !context.mounted) return;
-
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      final results = await ref.read(tuneProvider.notifier).commitDirtyPages();
-      messenger.showSnackBar(
-        SnackBar(content: Text('Burned ${results.length} page(s) to EEPROM.')),
-      );
-    } on Object catch (error) {
-      messenger.showSnackBar(
-        SnackBar(
-          backgroundColor: StatusPalette.critical,
-          content: Text('$error'),
-          duration: const Duration(seconds: 8),
-        ),
-      );
-    }
-  }
-}
-
-/// Confirmation before anything is made permanent.
-class _BurnDialog extends StatelessWidget {
-  const _BurnDialog({required this.pages});
-  final List<int> pages;
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    icon: Icon(Icons.warning_amber_rounded, color: StatusPalette.warning),
-    title: const Text('Burn changes to the ECU?'),
-    content: Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Pages to be written: ${pages.join(", ")}'),
-        const SizedBox(height: 12),
-        const Text(
-          'Each page is written to RAM, verified against the ECU\'s own '
-          'CRC, and only burned to EEPROM if it matches. A restore point '
-          'is saved before the first write of this session.',
-        ),
-        const SizedBox(height: 12),
-        const Text(
-          'Do not burn while the engine is running unless you know the '
-          'change is safe.',
-        ),
-      ],
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.of(context).pop(false),
-        child: const Text('Cancel'),
-      ),
-      FilledButton(
-        onPressed: () => Navigator.of(context).pop(true),
-        child: const Text('Burn'),
-      ),
-    ],
-  );
 }
 
 /// Operations that apply to the current selection.

@@ -30,7 +30,7 @@ The core is **pure Dart with no Flutter dependency**:
 | `packages/foxtune_protocol`  | Speeduino serial codec, realtime decoding, and the ECU simulator   |
 | `packages/foxtune_tune`      | Tune state, table maths, `.msq` files, datalogging, the write path |
 | `packages/foxtune_transport` | Flutter `EcuLink` implementations (USB serial, USB OTG, TCP)       |
-| `app/foxtune_app`            | Flutter UI: gauges, table editor, 3D surface, logging              |
+| `app/foxtune_app`            | Flutter UI: gauges, table editor, 3D surface, settings, logging    |
 
 Those first three run under `dart test` with no ECU, no device and no display. Everything the
 codec does sits above the `EcuLink` byte pipe, so it can be driven by an in-memory fake.
@@ -57,14 +57,18 @@ added without disturbing anything above it.
 | **Connect**       | USB serial or TCP, with a signature check against the loaded definition                                                                            |
 | **Dashboard**     | Live gauges and status lamps, decoded from `[OutputChannels]` at ~30 Hz                                                                            |
 | **Tables**        | Editable grid with keyboard navigation, interpolate, smooth, scale                                                                                 |
+| **Settings**      | Trigger setup, engine constants, ASE, WUE and the rest - screens generated from the definition's `[Menu]` and `[UserDefined]`, not hand-written    |
+| **Curves**        | Editable point list and plot, with the live operating point marked                                                                                 |
 | **Live position** | The operating cell ringed, the four interpolation neighbours marked, and a dot at the exact interpolated point - in the grid and on the 3D surface |
 | **3D surface**    | Orbitable isometric mesh, no GL dependency                                                                                                         |
 | **Writing**       | Write to RAM, verify by the ECU's own page CRC, then burn                                                                                          |
 | **Tune files**    | `.msq` read and write, matched by name                                                                                                             |
 | **Logging**       | MegaLogViewer-compatible `.msl`, columns from `[Datalog]`                                                                                          |
 
-Not yet: curve editing, a settings screen (the temperature scale is fixed to Celsius in code),
-generated UI from the definition's `[Menu]`, and rusEFI support.
+Not yet: loading a user-supplied `.ini` at runtime (the definition has to be swapped in the app
+bundle and rebuilt), `commandButton` actions such as sensor calibration, TunerStudio's own
+built-in dialogs, the `string` PC variables used for auxiliary-channel aliases, and rusEFI
+support. The temperature scale is still fixed to Celsius in code.
 
 ## Building
 
@@ -168,6 +172,36 @@ it. An import of a _different_ shape is interpolated onto the destination's axes
 importing a 12×12 into a 16×16 is a normal thing to want; values outside the source's range
 hold at its edge rather than being extrapolated. Everything is clamped to what the definition
 permits, and nothing reaches the ECU until you burn.
+
+## Settings screens
+
+Trigger setup, engine constants, injector characteristics, warmup and afterstart enrichment -
+most of what a tune actually is, beyond its tables - are **generated from the definition**
+rather than written by hand. The shipped `speeduino.ini` declares 116 menu entries and 240
+dialogs holding around a thousand fields; hand-building those would be a week's work that went
+stale on the next firmware release.
+
+Each field's control comes from its own declaration: a bitfield becomes a drop-down of the
+option labels the definition lists, a scalar a numeric entry carrying its units and declared
+bounds. Bitfield writes merge, so changing the injector layout does not disturb the injector
+pairing packed into the same byte.
+
+The `{ ... }` conditions are what make a screen like Trigger Setup usable at all: choose a
+missing-tooth wheel and the tooth-count fields become editable, choose a distributor and they
+grey out. Those expressions are evaluated against the tune and, where they ask what the engine
+is doing right now, against the realtime feed. A condition that cannot be answered shows the
+field rather than hiding it - a screen that concealed its contents until the engine was running
+would be useless on the bench.
+
+Two things are deliberately left out. `commandButton` entries render disabled: they fire
+actions at the ECU, several of which start a calibration, and shipping an untested write path
+to hardware is not worth the completeness. TunerStudio's own `std_*` editors - the sensor
+calibration wizards and the SD card browser - live in TunerStudio rather than in the
+definition, so there is nothing here to generate a screen from.
+
+Gauge limits and a few similar values are `[PcVariables]`: they live on the tuning computer
+rather than on the ECU, are seeded from the definition's factory values, and are marked as such
+in the UI. They are not burned, and they do not yet persist between sessions.
 
 ## Tune files
 
