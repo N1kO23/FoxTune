@@ -121,9 +121,26 @@ void main() {
       };
     });
 
-    test('sends page, offset and count as little-endian pairs', () async {
+    test('sends the page identifier, then offset and count little-endian',
+        () async {
       await client.readPage(1, count: 4, blockingFactor: 251);
-      expect(ecu.received.single, [0x70, 0x01, 0x00, 0x00, 0x00, 0x04, 0x00]);
+      // 'p', then the two-byte page identifier - CAN id first, page second,
+      // which is NOT a little-endian page number - then offset and count,
+      // which are little-endian.
+      expect(ecu.received.single, [0x70, 0x00, 0x01, 0x00, 0x00, 0x04, 0x00]);
+    });
+
+    test('puts the CAN id in the identifier', () async {
+      final canClient = EcuClient(ecu.link, canId: 3);
+      addTearDown(canClient.close);
+      ecu.received.clear();
+
+      // The scripted ECU answers regardless of CAN id; this is about the
+      // bytes that go out.
+      await canClient.readPage(2, count: 1, blockingFactor: 251).catchError(
+            (_) => Uint8List(0),
+          );
+      expect(ecu.received.single.sublist(0, 3), [0x70, 0x03, 0x02]);
     });
 
     test('returns the page contents', () async {

@@ -117,7 +117,7 @@ class EcuClient {
           count - read < blockingFactor ? count - read : blockingFactor;
       final data = await _command([
         SpeeduinoCommand.pageRead,
-        ..._uint16le(page),
+        ..._pageIdentifier(page),
         ..._uint16le(offset + read),
         ..._uint16le(chunk),
       ]);
@@ -153,7 +153,7 @@ class EcuClient {
       final chunk = remaining < blockingFactor ? remaining : blockingFactor;
       await _command([
         SpeeduinoCommand.pageWrite,
-        ..._uint16le(page),
+        ..._pageIdentifier(page),
         ..._uint16le(offset + written),
         ..._uint16le(chunk),
         ...data.sublist(written, written + chunk),
@@ -168,7 +168,7 @@ class EcuClient {
   /// `B` on COMMS_COMPAT builds, which deliberately slow the EEPROM write.
   Future<void> burnPage(int page,
       {int burnCommand = SpeeduinoCommand.burn}) async {
-    await _command([burnCommand, ..._uint16le(page)]);
+    await _command([burnCommand, ..._pageIdentifier(page)]);
   }
 
   /// Asks the ECU for the CRC-32 of a whole page.
@@ -177,7 +177,8 @@ class EcuClient {
   /// write landed than re-reading and comparing, and it costs one short
   /// command instead of a full page transfer.
   Future<int> pageCrc(int page) async {
-    final data = await _command([SpeeduinoCommand.pageCrc, ..._uint16le(page)]);
+    final data =
+        await _command([SpeeduinoCommand.pageCrc, ..._pageIdentifier(page)]);
     if (data.length < 4) {
       throw EcuProtocolException(
           'Page CRC reply was ${data.length} bytes, expected 4');
@@ -307,6 +308,16 @@ class EcuClient {
   }
 
   static List<int> _uint16le(int value) => [value & 0xFF, (value >> 8) & 0xFF];
+
+  /// The two-byte page identifier the firmware expects.
+  ///
+  /// This is **not** a little-endian page number. The definition spells it out
+  /// as `pageIdentifier = "\$tsCanId\x01"` - the CAN id first, then the page -
+  /// and the firmware reads the page from `serialPayload[2]`, the second byte.
+  /// Sending a little-endian integer instead puts the page number in the CAN
+  /// id slot and leaves the page reading as zero, so every page request
+  /// silently returns page 0.
+  List<int> _pageIdentifier(int page) => [canId & 0xFF, page & 0xFF];
 
   static String _asciiOf(Uint8List bytes) {
     // The firmware pads some strings with NULs; trim them rather than letting

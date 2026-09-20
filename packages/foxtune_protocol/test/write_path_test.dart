@@ -63,12 +63,15 @@ void main() {
       expect(writes[1][5] | (writes[1][6] << 8), 37);
     });
 
-    test('sends page, offset and count little-endian', () async {
+    test('sends the page identifier, then offset and count little-endian',
+        () async {
       await client.writePage(1, data: [0xFF], offset: 2, blockingFactor: 251);
       final write =
           ecu.requests.firstWhere((r) => r[0] == SpeeduinoCommand.pageWrite);
+      // CAN id, then page - the firmware reads the page from byte 2, so this
+      // is not a little-endian page number.
       expect(
-          write.sublist(0, 7), [SpeeduinoCommand.pageWrite, 1, 0, 2, 0, 1, 0]);
+          write.sublist(0, 7), [SpeeduinoCommand.pageWrite, 0, 1, 2, 0, 1, 0]);
     });
 
     test('rejects an out-of-range page', () async {
@@ -118,6 +121,36 @@ void main() {
     test('rejects an out-of-range page', () async {
       await expectLater(
         client.burnPage(99),
+        throwsA(isA<EcuProtocolException>()),
+      );
+    });
+  });
+
+  group('page identifier', () {
+    test('a little-endian page number is rejected, not silently accepted',
+        () async {
+      // The regression: we sent the page as a little-endian integer, which
+      // puts it in the CAN id slot and leaves the firmware reading page 0.
+      // Realtime worked, so it looked fine - only the pages came back wrong.
+      // The simulator must refuse this, or it cannot catch a recurrence.
+      await expectLater(
+        // 'p', page 1 little-endian, offset 0, count 4.
+        client.send([SpeeduinoCommand.pageRead, 1, 0, 0, 0, 4, 0]),
+        throwsA(isA<EcuProtocolException>()),
+      );
+    });
+
+    test('the right identifier is accepted', () async {
+      // 'p', CAN id 0, page 1, offset 0, count 4.
+      final data =
+          await client.send([SpeeduinoCommand.pageRead, 0, 1, 0, 0, 4, 0]);
+      expect(data, hasLength(4));
+      expect(data, ecu.pages[0].sublist(0, 4));
+    });
+
+    test('a mismatched CAN id is refused', () async {
+      await expectLater(
+        client.send([SpeeduinoCommand.pageRead, 9, 1, 0, 0, 4, 0]),
         throwsA(isA<EcuProtocolException>()),
       );
     });
