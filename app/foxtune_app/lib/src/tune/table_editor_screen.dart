@@ -23,19 +23,9 @@ final selectedTableProvider = StateProvider<String?>((ref) => null);
 /// default state of this screen - even connected to a running engine - cannot
 /// change anything.
 class TableEditorScreen extends ConsumerStatefulWidget {
-  const TableEditorScreen({
-    super.key,
-    required this.connection,
-    this.initialSurface = false,
-  });
+  const TableEditorScreen({super.key, required this.connection});
 
   final EcuConnected connection;
-
-  /// Whether to open with the 3D surface already shown.
-  ///
-  /// The definition's "3D Tuning Maps" menu points at the same tables as the
-  /// tuning menus, differing only in which view is wanted.
-  final bool initialSurface;
 
   @override
   ConsumerState<TableEditorScreen> createState() => _TableEditorScreenState();
@@ -43,7 +33,7 @@ class TableEditorScreen extends ConsumerStatefulWidget {
 
 class _TableEditorScreenState extends ConsumerState<TableEditorScreen> {
   CellSelection _selection = const CellSelection.single(0, 0);
-  late bool _showSurface = widget.initialSurface;
+  bool _showSurface = false;
 
   @override
   Widget build(BuildContext context) {

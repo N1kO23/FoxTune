@@ -7,6 +7,8 @@ import 'package:foxtune_app/src/dashboard/dashboard_controller.dart';
 import 'package:foxtune_app/src/settings/curve_editor.dart';
 import 'package:foxtune_app/src/settings/setting_field.dart';
 import 'package:foxtune_app/src/settings/settings_screen.dart';
+import 'package:foxtune_app/src/tune/surface_view.dart';
+import 'package:foxtune_app/src/tune/table_grid.dart';
 import 'package:foxtune_app/src/tune/tune_controller.dart';
 import 'package:foxtune_ini/foxtune_ini.dart';
 import 'package:foxtune_protocol/foxtune_protocol.dart';
@@ -267,6 +269,33 @@ void main() {
       final curve = CurveView.of(tune, doc.curveNamed('warmup_curve')!)!;
       expect(curve.yAt(0), 140);
       expect(tune.isDirty, isTrue);
+    });
+  });
+
+  group('3D maps', () {
+    testWidgets('a map entry opens the surface on its own', (tester) async {
+      // "3D Tuning Maps" points at a table's map id, which is the definition
+      // asking for the surface rather than the grid. Opening the grid editor
+      // with a strip of 3D above it would be answering a different question.
+      await pumpSettings(tester, open: 'veTable1Map');
+
+      await tester.tap(find.textContaining('in 3D'));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byType(SurfaceView), findsOneWidget);
+      expect(find.byType(TableGrid), findsNothing);
+    });
+
+    testWidgets('the grid is one tap away from the surface', (tester) async {
+      await pumpSettings(tester, open: 'veTable1Map');
+      await tester.tap(find.textContaining('in 3D'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Edit in grid'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(TableGrid), findsOneWidget);
     });
   });
 

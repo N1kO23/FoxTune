@@ -7,6 +7,7 @@ import '../connection/connection_state.dart';
 import '../dashboard/dashboard_controller.dart';
 import '../dashboard/gauge_status.dart';
 import '../tune/burn_actions.dart';
+import '../tune/surface_screen.dart';
 import '../tune/table_editor_screen.dart';
 import '../tune/tune_controller.dart';
 import 'curve_editor.dart';
@@ -375,17 +376,17 @@ class SettingDetail extends ConsumerWidget {
     void edited() => ref.read(tuneProvider.notifier).notifyEdited();
 
     void openTable(String tableId, {bool asSurface = false}) {
-      ref.read(selectedTableProvider.notifier).state = tableId;
+      final title = definition.tableNamed(tableId)?.title ?? tableId;
+      if (!asSurface) {
+        ref.read(selectedTableProvider.notifier).state = tableId;
+      }
       Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => Scaffold(
-            appBar: AppBar(
-              title: Text(definition.tableNamed(tableId)?.title ?? tableId),
-            ),
-            body: TableEditorScreen(
-              connection: connection,
-              initialSurface: asSurface,
-            ),
+            appBar: AppBar(title: Text(asSurface ? '$title - 3D' : title)),
+            body: asSurface
+                ? SurfaceScreen(connection: connection, tableId: tableId)
+                : TableEditorScreen(connection: connection),
           ),
         ),
       );

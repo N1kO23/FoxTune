@@ -193,6 +193,11 @@ is doing right now, against the realtime feed. A condition that cannot be answer
 field rather than hiding it - a screen that concealed its contents until the engine was running
 would be useless on the bench.
 
+The definition keeps two menus over the same tables: the tuning menus open a table's grid, and
+"3D Tuning Maps" opens its surface. That is a real distinction rather than a duplicate, so a map
+entry opens a full-window surface with no grid under it, and a button back to the grid for
+editing - there is no sane way to drag a value on an isometric mesh.
+
 Two things are deliberately left out. `commandButton` entries render disabled: they fire
 actions at the ECU, several of which start a calibration, and shipping an untested write path
 to hardware is not worth the completeness. TunerStudio's own `std_*` editors - the sensor
