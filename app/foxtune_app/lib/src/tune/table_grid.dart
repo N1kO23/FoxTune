@@ -93,6 +93,7 @@ class TableGrid extends StatefulWidget {
     this.cursor,
     this.preciseCursor,
     this.contributing = const {},
+    this.onEditAxis,
     this.editable = false,
   });
 
@@ -102,6 +103,13 @@ class TableGrid extends StatefulWidget {
 
   /// Called with a delta or replacement to apply to the current selection.
   final void Function(void Function(TableView view) edit) onEdit;
+
+  /// Called when an axis bin should be changed.
+  ///
+  /// Separate from [onEdit] because the axes are not part of the selection:
+  /// editing a bin moves where the whole column or row sits, rather than
+  /// changing a value inside it.
+  final void Function(void Function(TableView view) edit)? onEditAxis;
 
   /// The cell the engine is operating in, snapped to the nearest bins.
   final ({int row, int column})? cursor;
@@ -221,9 +229,22 @@ class _TableGridState extends State<TableGrid> {
                     Row(
                       children: [
                         _AxisLabel(
-                          text: _format(view.yAt(r), 0),
+                          text: _format(view.yAt(r), view.yDecimals),
                           width: _rowLabelWidth,
                           highlighted: widget.cursor?.row == r,
+                          onEdit: widget.editable
+                              ? () => _editAxis(
+                                  context,
+                                  title: 'Load bin',
+                                  units: view.yUnits,
+                                  current: view.yAt(r),
+                                  decimals: view.yDecimals,
+                                  bounds: view.yBounds,
+                                  apply: (value) => widget.onEditAxis?.call(
+                                    (v) => v.setYAt(r, value),
+                                  ),
+                                )
+                              : null,
                         ),
                         for (var c = 0; c < view.columns; c++)
                           _Cell(
@@ -241,14 +262,21 @@ class _TableGridState extends State<TableGrid> {
                               row: r,
                               column: c,
                             )),
-                            onTap: () => widget.onSelectionChanged(
-                              widget.selection.movedTo(
-                                r,
-                                c,
-                                extend:
-                                    HardwareKeyboard.instance.isShiftPressed,
-                              ),
-                            ),
+                            onTap: () {
+                              // The cell consumes the tap, so the grid's own
+                              // gesture detector never sees it - without this
+                              // the keyboard shortcuts stay dead after
+                              // clicking a cell.
+                              _focusNode.requestFocus();
+                              widget.onSelectionChanged(
+                                widget.selection.movedTo(
+                                  r,
+                                  c,
+                                  extend:
+                                      HardwareKeyboard.instance.isShiftPressed,
+                                ),
+                              );
+                            },
                           ),
                       ],
                     ),
@@ -266,9 +294,22 @@ class _TableGridState extends State<TableGrid> {
                       ),
                       for (var c = 0; c < view.columns; c++)
                         _AxisLabel(
-                          text: _format(view.xAt(c), 0),
+                          text: _format(view.xAt(c), view.xDecimals),
                           width: _columnWidth,
                           highlighted: widget.cursor?.column == c,
+                          onEdit: widget.editable
+                              ? () => _editAxis(
+                                  context,
+                                  title: '${view.xUnits} bin',
+                                  units: view.xUnits,
+                                  current: view.xAt(c),
+                                  decimals: view.xDecimals,
+                                  bounds: view.xBounds,
+                                  apply: (value) => widget.onEditAxis?.call(
+                                    (v) => v.setXAt(c, value),
+                                  ),
+                                )
+                              : null,
                         ),
                     ],
                   ),
@@ -297,6 +338,30 @@ class _TableGridState extends State<TableGrid> {
     );
   }
 
+  /// Prompts for a new axis bin value and applies it.
+  Future<void> _editAxis(
+    BuildContext context, {
+    required String title,
+    required String units,
+    required double? current,
+    required int decimals,
+    required ({double? low, double? high}) bounds,
+    required void Function(double value) apply,
+  }) async {
+    if (current == null) return;
+    final value = await showDialog<double>(
+      context: context,
+      builder: (_) => _AxisEditDialog(
+        title: title,
+        units: units,
+        current: current,
+        decimals: decimals,
+        bounds: bounds,
+      ),
+    );
+    if (value != null) apply(value);
+  }
+
   static double _fraction(double? value, double lo, double hi) {
     if (value == null || hi <= lo) return 0;
     return ((value - lo) / (hi - lo)).clamp(0.0, 1.0);
@@ -311,6 +376,7 @@ class _AxisLabel extends StatelessWidget {
     required this.text,
     required this.width,
     this.highlighted = false,
+    this.onEdit,
   });
 
   final String text;
@@ -319,25 +385,109 @@ class _AxisLabel extends StatelessWidget {
   /// Whether this label sits on the live cursor's row or column.
   final bool highlighted;
 
+  /// Opens the bin editor. Null when writing is not permitted.
+  final VoidCallback? onEdit;
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return SizedBox(
       width: width,
       height: 26,
-      child: Center(
-        child: Text(
-          text,
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-            // Marking the axes as well as the cell makes the operating point
-            // readable at a glance on a 16x16 grid, where a single ringed cell
-            // is easy to lose.
-            color: highlighted ? scheme.tertiary : scheme.onSurfaceVariant,
-            fontWeight: highlighted ? FontWeight.w700 : FontWeight.w400,
-            fontFeatures: const [FontFeature.tabularFigures()],
+      child: InkWell(
+        onTap: onEdit,
+        child: Center(
+          child: Text(
+            text,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              // Marking the axes as well as the cell makes the operating point
+              // readable at a glance on a 16x16 grid, where a single ringed
+              // cell is easy to lose.
+              color: highlighted ? scheme.tertiary : scheme.onSurfaceVariant,
+              fontWeight: highlighted ? FontWeight.w700 : FontWeight.w400,
+              fontFeatures: const [FontFeature.tabularFigures()],
+              // An editable bin is underlined, so it is discoverable without
+              // a tooltip and obviously inert when read-only.
+              decoration: onEdit == null ? null : TextDecoration.underline,
+              decorationStyle: TextDecorationStyle.dotted,
+            ),
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Prompts for a single axis bin value.
+class _AxisEditDialog extends StatefulWidget {
+  const _AxisEditDialog({
+    required this.title,
+    required this.units,
+    required this.current,
+    required this.decimals,
+    required this.bounds,
+  });
+
+  final String title;
+  final String units;
+  final double current;
+  final int decimals;
+  final ({double? low, double? high}) bounds;
+
+  @override
+  State<_AxisEditDialog> createState() => _AxisEditDialogState();
+}
+
+class _AxisEditDialogState extends State<_AxisEditDialog> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.current.toStringAsFixed(widget.decimals),
+  );
+  String? _error;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final value = double.tryParse(_controller.text.trim());
+    if (value == null) {
+      setState(() => _error = 'Not a number');
+      return;
+    }
+    Navigator.of(context).pop(value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final low = widget.bounds.low;
+    final high = widget.bounds.high;
+    final range = low == null || high == null
+        ? null
+        : '${low.toStringAsFixed(widget.decimals)} to '
+              '${high.toStringAsFixed(widget.decimals)}';
+
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        decoration: InputDecoration(
+          suffixText: widget.units,
+          errorText: _error,
+          helperText: range == null ? null : 'Permitted: $range',
+        ),
+        onSubmitted: (_) => _submit(),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(onPressed: _submit, child: const Text('Set')),
+      ],
     );
   }
 }

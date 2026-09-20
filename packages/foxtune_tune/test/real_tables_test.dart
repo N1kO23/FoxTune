@@ -141,6 +141,43 @@ page = 1
     expect(view.zUnits, isEmpty);
   });
 
+  test('the VE table matches how TunerStudio displays it', () {
+    // The decisive orientation check. A .msq holds each table in
+    // ascending-axis order, so reading the file directly gives an independent
+    // answer to what our view should show - independent of our own storage
+    // conventions, which import and export share and could be wrong together.
+    final tuneFile = File('/home/nullpointr/Speeduino/Speeduino base tune.msq');
+    if (!tuneFile.existsSync()) {
+      markTestSkipped('base tune not available');
+      return;
+    }
+
+    final tune = TuneState.empty(doc);
+    MsqCodec.decode(tuneFile.readAsStringSync(), tune,
+        requireSignatureMatch: false);
+    final view = TableView.of(tune, doc.tableNamed('veTable1Tbl')!)!;
+
+    // Pull veTable's rows straight out of the file.
+    final xml = tuneFile.readAsStringSync();
+    final start = xml.indexOf('name="veTable"');
+    final open = xml.indexOf('>', start) + 1;
+    final body = xml.substring(open, xml.indexOf('</constant>', open));
+    final fileRows = body
+        .split('\n')
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty)
+        .map((l) => l.split(RegExp(r'\s+')).map(double.parse).toList())
+        .toList();
+
+    expect(fileRows, hasLength(16));
+    for (var r = 0; r < 16; r++) {
+      final shown = [for (var c = 0; c < 16; c++) view.valueAt(r, c)];
+      expect(shown, fileRows[r],
+          reason: 'row $r differs from the tune file - the table is '
+              'transposed or mirrored');
+    }
+  });
+
   test('a fresh tune reports no live cursor cell as an error', () {
     // With all-zero axes the nearest-cell search must still return something
     // rather than throwing while the tune is still being read.

@@ -43,6 +43,7 @@ page = 1
 
 void main() {
   _alignmentTests();
+  _axisEditTests();
   _contributingTests();
   _overlayTests();
   _surfaceTests();
@@ -120,7 +121,7 @@ void main() {
       var edits = 0;
       await tester.pumpWidget(wrap(table.view, onEdit: (_) => edits++));
 
-      await tester.tap(find.text('10').first);
+      await tester.tap(find.text('50'));
       await tester.pump();
       await tester.sendKeyEvent(LogicalKeyboardKey.equal);
       await tester.pump();
@@ -146,7 +147,9 @@ void main() {
         ),
       );
 
-      await tester.tap(find.text('10').first);
+      // 50 is a cell value only; 10/20/30 are also Y-axis bins, and the axis
+      // labels are tappable once editing is enabled.
+      await tester.tap(find.text('50'));
       await tester.pump();
       await tester.sendKeyEvent(LogicalKeyboardKey.equal);
       await tester.pump();
@@ -612,6 +615,141 @@ void _contributingTests() {
       // 103 is the nearest cell; 104 only contributes. Both are marked, but
       // the dominant one must stay distinguishable.
       expect(borderOf(tester, '103'), isNot(borderOf(tester, '104')));
+    });
+  });
+}
+
+void _axisEditTests() {
+  group('axis bin editing', () {
+    Future<void> pump(
+      WidgetTester tester,
+      TableView view, {
+      required bool editable,
+      void Function(void Function(TableView) edit)? onEditAxis,
+    }) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TableGrid(
+              view: view,
+              selection: const CellSelection.single(0, 0),
+              editable: editable,
+              onSelectionChanged: (_) {},
+              onEdit: (_) {},
+              onEditAxis: onEditAxis,
+            ),
+          ),
+        ),
+      );
+    }
+
+    testWidgets('a bin opens an editor and applies the new value', (
+      tester,
+    ) async {
+      final table = buildWideTable();
+      await pump(
+        tester,
+        table.view,
+        editable: true,
+        onEditAxis: (edit) => edit(table.view),
+      );
+
+      // The 2000 rpm column bin.
+      await tester.tap(find.text('2000'));
+      await tester.pumpAndSettle();
+      expect(find.text('Set'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField), '2500');
+      await tester.tap(find.text('Set'));
+      await tester.pumpAndSettle();
+
+      expect(table.view.xAt(1), 2500);
+      expect(table.tune.isDirty, isTrue);
+    });
+
+    testWidgets('cancelling leaves the bin alone', (tester) async {
+      final table = buildWideTable();
+      await pump(
+        tester,
+        table.view,
+        editable: true,
+        onEditAxis: (edit) => edit(table.view),
+      );
+
+      await tester.tap(find.text('2000'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), '9999');
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(table.view.xAt(1), 2000);
+      expect(table.tune.isDirty, isFalse);
+    });
+
+    testWidgets('rejects text that is not a number', (tester) async {
+      final table = buildWideTable();
+      await pump(
+        tester,
+        table.view,
+        editable: true,
+        onEditAxis: (edit) => edit(table.view),
+      );
+
+      await tester.tap(find.text('2000'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'abc');
+      await tester.tap(find.text('Set'));
+      await tester.pumpAndSettle();
+
+      // The dialog stays open with an error rather than silently closing.
+      expect(find.text('Not a number'), findsOneWidget);
+      expect(table.view.xAt(1), 2000);
+    });
+
+    testWidgets('bins are inert when writing is not permitted', (tester) async {
+      final table = buildWideTable();
+      await pump(tester, table.view, editable: false);
+
+      await tester.tap(find.text('2000'));
+      await tester.pumpAndSettle();
+
+      // Read-only must offer no way in at all.
+      expect(find.text('Set'), findsNothing);
+      expect(table.tune.isDirty, isFalse);
+    });
+
+    testWidgets('clicking a cell arms the keyboard shortcuts', (tester) async {
+      // Regression: the cell consumed the tap, so the grid's own gesture
+      // detector never focused it and the shortcuts stayed dead.
+      final table = buildWideTable();
+      var edits = 0;
+      await tester.binding.setSurfaceSize(const Size(1200, 600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TableGrid(
+              view: table.view,
+              selection: const CellSelection.single(0, 0),
+              editable: true,
+              onSelectionChanged: (_) {},
+              onEdit: (apply) {
+                edits++;
+                apply(table.view);
+              },
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('101'));
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.equal);
+      await tester.pump();
+
+      expect(edits, 1);
     });
   });
 }

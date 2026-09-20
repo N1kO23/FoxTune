@@ -68,11 +68,13 @@ void main() {
       expect(view.valueAt(2, 2), 9);
     });
 
-    test('a descending X axis is detected and flipped', () {
-      // The firmware stores axes reversed; rather than assume which way, the
-      // view infers it from the fact that axis bins must increase.
+    test('a descending X axis flips the bins but not the columns', () {
+      // The firmware stores the X array descending while laying the value
+      // columns out ascending - `x[0]` is X-Max but `value[..][0]` is X-Min.
+      // Mirroring the columns to match the array transposes the table, which
+      // on a VE map means fuelling the top of the rev range with idle numbers.
       final tune = tuneWith(
-        z: [3, 2, 1, 6, 5, 4, 9, 8, 7],
+        z: [1, 2, 3, 4, 5, 6, 7, 8, 9],
         x: [30, 20, 10],
         y: [5, 10, 15],
       );
@@ -81,7 +83,7 @@ void main() {
       expect(view.xReversed, isTrue);
       expect(view.xAt(0), 1000, reason: 'column 0 must be the lowest X');
       expect(view.xAt(2), 3000);
-      // Values follow the axes, so the flip applies to them too.
+      // Columns are read straight through, unlike the axis array.
       expect(view.valueAt(0, 0), 1);
       expect(view.valueAt(0, 2), 3);
     });
@@ -102,8 +104,9 @@ void main() {
     });
 
     test('both axes reversed still presents canonically', () {
+      // Rows follow the Y array; columns do not follow the X array.
       final tune = tuneWith(
-        z: [9, 8, 7, 6, 5, 4, 3, 2, 1],
+        z: [7, 8, 9, 4, 5, 6, 1, 2, 3],
         x: [30, 20, 10],
         y: [15, 10, 5],
       );
@@ -111,13 +114,13 @@ void main() {
 
       expect(view.xReversed, isTrue);
       expect(view.yReversed, isTrue);
-      expect(view.valueAt(0, 0), 1);
-      expect(view.valueAt(2, 2), 9);
+      expect(view.valueAt(0, 0), 1, reason: 'lowest X, lowest Y');
+      expect(view.valueAt(2, 2), 9, reason: 'highest X, highest Y');
     });
 
     test('writes go back to the right stored cell when reversed', () {
       final tune = tuneWith(
-        z: [3, 2, 1, 6, 5, 4, 9, 8, 7],
+        z: [1, 2, 3, 4, 5, 6, 7, 8, 9],
         x: [30, 20, 10],
         y: [5, 10, 15],
       );
@@ -125,11 +128,12 @@ void main() {
 
       view.setValueAt(0, 0, 42);
 
-      // Logical (0,0) is the lowest X, which is stored last in the row.
+      // Column 0 is the lowest X and is stored first, despite the X array
+      // running the other way.
       expect(view.valueAt(0, 0), 42);
       final z = tune.locate('zTable')!;
-      expect(tune.readRaw(z.page, z.field, 2), 42);
-      expect(tune.readRaw(z.page, z.field, 0), 3, reason: 'other cells intact');
+      expect(tune.readRaw(z.page, z.field, 0), 42);
+      expect(tune.readRaw(z.page, z.field, 2), 3, reason: 'other cells intact');
     });
   });
 
@@ -262,6 +266,86 @@ void main() {
       expect(view.cellFor(2100, 21), (row: 1, column: 1));
       expect(view.cellFor(900, 9), (row: 0, column: 0));
       expect(view.cellFor(99999, 99999), (row: 2, column: 2));
+    });
+  });
+
+  group('axis editing', () {
+    late TuneState tune;
+    late TableView view;
+
+    setUp(() {
+      tune = tuneWith(
+        z: List.filled(9, 0),
+        x: [10, 20, 30],
+        y: [5, 10, 15],
+      );
+      view = viewOf(tune);
+    });
+
+    test('writes a bin back through its scale', () {
+      // rpmBins scales by 100, so 2500 must store as raw 25.
+      view.setXAt(1, 2500);
+      expect(view.xAt(1), 2500);
+
+      final field = tune.locate('xAxis')!;
+      expect(tune.readRaw(field.page, field.field, 1), 25);
+      expect(tune.dirtyPages, {1});
+    });
+
+    test('edits the Y axis too', () {
+      // yAxis scales by 2.
+      view.setYAt(2, 40);
+      expect(view.yAt(2), 40);
+    });
+
+    test('clamps to the bounds the definition declares', () {
+      // xAxis declares 100..25500.
+      view.setXAt(0, 999999);
+      expect(view.xAt(0), view.xBounds.high);
+
+      view.setXAt(0, -500);
+      expect(view.xAt(0), view.xBounds.low);
+    });
+
+    test('rounds to what the storage type can hold', () {
+      // Raw is U08 with scale 100, so 2540 cannot be represented exactly.
+      view.setXAt(1, 2540);
+      expect(view.xAt(1), 2500);
+    });
+
+    test('rejects a bin outside the table', () {
+      expect(() => view.setXAt(9, 1000), throwsRangeError);
+      expect(() => view.setYAt(-1, 10), throwsRangeError);
+    });
+
+    test('writes to the right stored slot when the axis is reversed', () {
+      final reversed = viewOf(tuneWith(
+        z: List.filled(9, 0),
+        x: [30, 20, 10],
+        y: [5, 10, 15],
+      ));
+      expect(reversed.xReversed, isTrue);
+
+      // Logical column 0 is the lowest X, stored last.
+      reversed.setXAt(0, 500);
+      expect(reversed.xAt(0), 500);
+      expect(reversed.xAt(2), 3000, reason: 'other bins untouched');
+    });
+
+    test('reports an axis that has stopped ascending', () {
+      expect(view.isXAxisAscending, isTrue);
+      // Editing passes through inconsistent states, so this is reported
+      // rather than prevented.
+      view.setXAt(0, 2500);
+      expect(view.isXAxisAscending, isFalse);
+
+      view.setXAt(0, 500);
+      expect(view.isXAxisAscending, isTrue);
+    });
+
+    test('exposes display precision from the definition', () {
+      expect(view.xDecimals, 0);
+      expect(view.yDecimals, 0);
     });
   });
 

@@ -55,9 +55,10 @@ class MsqException implements Exception {
 /// Conversion therefore runs through the same scaling the editor uses,
 /// including expression-based scales.
 ///
-/// Two-dimensional tables are written the way TunerStudio displays them, with
-/// the highest Y row first. [TableView] presents row 0 as the *lowest* Y, so
-/// rows are reversed on the way in and out.
+/// Two-dimensional tables are written in ascending-axis order, lowest Y first,
+/// which is what TunerStudio writes - not display order. Firmware storage has
+/// row 0 at Y-Max, so rows invert on the way in and out; columns do not, since
+/// both the file and storage run ascending-X.
 abstract final class MsqCodec {
   /// Namespace TunerStudio writes on the root element.
   static const String namespace = 'http://www.msefi.com/:msq';
@@ -151,7 +152,9 @@ abstract final class MsqCodec {
         out.writeln('<$elementName cols="$columns" digits="$digits" '
             'name="${_attr(field.name)}" rows="$rows"'
             '${field.units.isEmpty ? '' : ' units="${_attr(field.units)}"'}>');
-        // Highest Y row first, the way TunerStudio displays a table.
+        // Ascending-axis order, which is how TunerStudio writes arrays -
+        // lowest Y first, not display order. Storage runs the other way (row 0
+        // is Y-Max), hence the reverse iteration.
         for (var r = rows - 1; r >= 0; r--) {
           out.write('        ');
           for (var c = 0; c < columns; c++) {
@@ -301,7 +304,8 @@ abstract final class MsqCodec {
 
         for (var r = 0; r < rows; r++) {
           for (var c = 0; c < columns; c++) {
-            // The file's first row is the highest Y, so read it in reverse.
+            // The file is in ascending-axis order and storage is descending,
+            // so rows invert. Columns do not: both run ascending-X.
             final source = (rows - 1 - r) * columns + c;
             final index = field.isTable ? r * columns + c : r;
             final value = numbers[source]!;

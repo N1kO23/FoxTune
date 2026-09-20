@@ -7,13 +7,15 @@ import 'value_resolver.dart';
 ///
 /// ## Axis orientation
 ///
-/// The firmware stores table rows and axes reversed relative to how a tuner
-/// reads them, and its own documentation is ambiguous about the column order.
-/// Rather than hardcode a guess - a transposed VE table written to a running
-/// engine is exactly the kind of mistake that destroys hardware - orientation
-/// is **derived from the data**: axis bins must increase, so an axis that reads
-/// back descending tells us that axis is stored reversed, and the values are
-/// flipped to match.
+/// The firmware stores both axis arrays descending - `x[0]` is the highest RPM,
+/// `y[0]` the highest load - so which end is which is **derived from the
+/// data**: axis bins must increase, and an axis that reads back descending is
+/// stored reversed.
+///
+/// The value grid does not simply mirror both axes. Rows follow the Y array,
+/// but columns are stored in ascending-X order, opposite to the X array. That
+/// asymmetry is the firmware's, confirmed both by its own worked example and
+/// by comparing our output against a TunerStudio-written tune.
 ///
 /// This view always presents the canonical orientation: column 0 is the lowest
 /// X, row 0 is the lowest Y.
@@ -82,10 +84,15 @@ class TableView {
   final IniArrayField xField;
   final IniArrayField yField;
 
-  /// Whether the X axis is stored high-to-low.
+  /// Whether the X axis *array* is stored high-to-low.
+  ///
+  /// Applies to the bin values only. The table's value columns are stored in
+  /// ascending-X order regardless - see [_cellIndex].
   final bool xReversed;
 
-  /// Whether the Y axis is stored high-to-low.
+  /// Whether the Y axis array is stored high-to-low.
+  ///
+  /// Unlike X, the value rows do follow this.
   final bool yReversed;
 
   /// Number of columns (X positions).
@@ -131,6 +138,85 @@ class TableView {
     return raw * scale + translate;
   }
 
+  /// Sets the X axis bin at [column], in engineering units.
+  ///
+  /// Clamped to the bounds the definition declares for the axis field, then
+  /// stored through its scale and translate exactly as a cell value is.
+  void setXAt(int column, double value) {
+    if (column < 0 || column >= columns) {
+      throw RangeError('Column $column is outside 0..${columns - 1}');
+    }
+    _setAxisValue(
+      xField,
+      _storageIndex(column, columns, xReversed),
+      value,
+    );
+  }
+
+  /// Sets the Y axis bin at [row], in engineering units.
+  void setYAt(int row, double value) {
+    if (row < 0 || row >= rows) {
+      throw RangeError('Row $row is outside 0..${rows - 1}');
+    }
+    _setAxisValue(yField, _storageIndex(row, rows, yReversed), value);
+  }
+
+  void _setAxisValue(IniArrayField axis, int index, double value) {
+    final scale = resolver.valueOf(axis.scale) ?? 1;
+    final translate = resolver.valueOf(axis.translate) ?? 0;
+    final effective = scale == 0 ? 1.0 : scale;
+
+    var clamped = value;
+    final low = resolver.valueOf(axis.low);
+    final high = resolver.valueOf(axis.high);
+    if (low != null && clamped < low) clamped = low;
+    if (high != null && clamped > high) clamped = high;
+
+    tune.writeRaw(
+      page,
+      axis,
+      ((clamped - translate) / effective).round(),
+      index,
+    );
+  }
+
+  /// Decimal places for displaying X axis bins.
+  int get xDecimals => xField.digits ?? 0;
+
+  /// Decimal places for displaying Y axis bins.
+  int get yDecimals => yField.digits ?? 0;
+
+  /// Bounds the definition permits for X axis bins.
+  ({double? low, double? high}) get xBounds =>
+      (low: resolver.valueOf(xField.low), high: resolver.valueOf(xField.high));
+
+  /// Bounds the definition permits for Y axis bins.
+  ({double? low, double? high}) get yBounds =>
+      (low: resolver.valueOf(yField.low), high: resolver.valueOf(yField.high));
+
+  /// Whether the X axis still increases from left to right.
+  ///
+  /// The ECU interpolates on the assumption that bins ascend, and so does
+  /// [preciseCellFor]. Editing is not blocked when an axis stops ascending -
+  /// that would make it impossible to spread bins out, since every edit passes
+  /// through an inconsistent intermediate state - but callers should surface
+  /// it, because a tune in that state will not behave.
+  bool get isXAxisAscending => _isAscending(columns, xAt);
+
+  /// Whether the Y axis still increases from bottom to top.
+  bool get isYAxisAscending => _isAscending(rows, yAt);
+
+  bool _isAscending(int count, double? Function(int) axis) {
+    double? previous;
+    for (var i = 0; i < count; i++) {
+      final value = axis(i);
+      if (value == null) continue;
+      if (previous != null && value < previous) return false;
+      previous = value;
+    }
+    return true;
+  }
+
   /// Units label for the X axis.
   String get xUnits => _unitsOf(xField);
 
@@ -171,10 +257,18 @@ class TableView {
   // --- Cell access ---------------------------------------------------------
 
   int _cellIndex(int row, int column) {
+    // Rows follow the Y axis array, but columns do NOT follow the X axis
+    // array. The firmware stores both axis arrays descending, yet lays the
+    // values out with row 0 at Y-Max and column 0 at X-Min - its own worked
+    // example has `value[0][0]` holding the cell at (Y-Max, X-Min) while
+    // `x[0]` holds X-Max. Mirroring the columns to match the axis array
+    // transposes the table left-to-right, which on a VE table means fuelling
+    // the top of the rev range with idle numbers.
+    //
+    // Confirmed against a TunerStudio-written tune: with the columns mirrored,
+    // our display was the exact reverse of TunerStudio's for the same row.
     final storedRow = _storageIndex(row, rows, yReversed);
-    final storedColumn = _storageIndex(column, columns, xReversed);
-    // Values follow the axes, laid out row-major.
-    return storedRow * columns + storedColumn;
+    return storedRow * columns + column;
   }
 
   /// Value at [row], [column] in engineering units.

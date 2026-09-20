@@ -77,6 +77,11 @@ class _TableEditorScreenState extends ConsumerState<TableEditorScreen> {
               },
             ),
             const Divider(height: 1),
+            if (!view.isXAxisAscending || !view.isYAxisAscending)
+              _AxisOrderWarning(
+                xAscending: view.isXAxisAscending,
+                yAscending: view.isYAxisAscending,
+              ),
             CursorReadout(
               view: view,
               cursor: _cursorFor(view),
@@ -107,6 +112,10 @@ class _TableEditorScreenState extends ConsumerState<TableEditorScreen> {
                       contributing: _contributingFor(view),
                       onSelectionChanged: (s) => setState(() => _selection = s),
                       onEdit: (edit) {
+                        edit(view);
+                        ref.read(tuneProvider.notifier).notifyEdited();
+                      },
+                      onEditAxis: (edit) {
                         edit(view);
                         ref.read(tuneProvider.notifier).notifyEdited();
                       },
@@ -495,4 +504,49 @@ class _Action extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
       OutlinedButton(onPressed: enabled ? onPressed : null, child: Text(label));
+}
+
+/// Warns when an axis has stopped ascending.
+///
+/// The ECU interpolates on the assumption that bins increase, and so does the
+/// live position marker. Editing is not blocked - spreading bins out means
+/// passing through inconsistent intermediate states - so the condition is
+/// surfaced instead.
+class _AxisOrderWarning extends StatelessWidget {
+  const _AxisOrderWarning({required this.xAscending, required this.yAscending});
+
+  final bool xAscending;
+  final bool yAscending;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final axes = [
+      if (!xAscending) 'RPM',
+      if (!yAscending) 'load',
+    ].join(' and ');
+
+    return Container(
+      width: double.infinity,
+      color: StatusPalette.warning.withValues(alpha: 0.15),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Row(
+        children: [
+          Icon(
+            Icons.warning_amber_rounded,
+            size: 15,
+            color: StatusPalette.warning,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'The $axes axis is not increasing. The ECU expects axis values '
+              'to ascend; fix the order before burning.',
+              style: theme.textTheme.labelSmall,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
