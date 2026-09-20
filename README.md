@@ -156,6 +156,19 @@ would be blank for the entire log - a channel the ECU cannot report, or one whos
 condition is false, is left out and listed instead. Rows are flushed as they are recorded, so
 a log survives the session ending abruptly, which is when it matters most.
 
+## Table files
+
+Individual tables import and export as TunerStudio `.table` files - a
+`<tableData>` document holding one table's axes and values, as opposed to `.msq`, which
+carries a whole tune. Useful for moving a VE or spark map between tunes without touching
+anything else.
+
+An import whose shape matches is copied cell for cell, optionally bringing its axis bins with
+it. An import of a _different_ shape is interpolated onto the destination's axes, since
+importing a 12×12 into a 16×16 is a normal thing to want; values outside the source's range
+hold at its edge rather than being extrapolated. Everything is clamped to what the definition
+permits, and nothing reaches the ECU until you burn.
+
 ## Tune files
 
 FoxTune reads and writes TunerStudio `.msq` files. Values are matched **by name**, not by

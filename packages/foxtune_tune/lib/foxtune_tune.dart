@@ -13,6 +13,7 @@ library;
 export 'src/log_recorder.dart';
 export 'src/msl_writer.dart';
 export 'src/msq_codec.dart';
+export 'src/table_file.dart';
 export 'src/table_view.dart';
 export 'src/tune_state.dart';
 export 'src/tune_writer.dart';

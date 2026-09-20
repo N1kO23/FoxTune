@@ -7,6 +7,7 @@ import '../connection/connection_state.dart';
 import '../dashboard/dashboard_controller.dart';
 import '../dashboard/gauge_status.dart';
 import 'msq_actions.dart';
+import 'table_file_actions.dart';
 import 'cursor_readout.dart';
 import 'surface_view.dart';
 import 'table_grid.dart';
@@ -65,6 +66,7 @@ class _TableEditorScreenState extends ConsumerState<TableEditorScreen> {
           children: [
             _Toolbar(
               tables: tables,
+              view: view,
               selectedId: table.id,
               permission: permission,
               tune: tune,
@@ -218,6 +220,7 @@ class _ErrorPane extends StatelessWidget {
 class _Toolbar extends ConsumerWidget {
   const _Toolbar({
     required this.tables,
+    required this.view,
     required this.selectedId,
     required this.permission,
     required this.tune,
@@ -227,6 +230,10 @@ class _Toolbar extends ConsumerWidget {
   });
 
   final List<IniTable> tables;
+
+  /// The table currently open, for the per-table file actions.
+  final TableView view;
+
   final String selectedId;
   final WritePermission permission;
   final TuneState tune;
@@ -335,6 +342,16 @@ class _Toolbar extends ConsumerWidget {
                 leadingIcon: const Icon(Icons.save_alt),
                 onPressed: () => MsqActions.save(context, ref, tune),
                 child: const Text('Save tune as .msq'),
+              ),
+              MenuItemButton(
+                leadingIcon: const Icon(Icons.grid_on_outlined),
+                onPressed: () => TableFileActions.export(context, ref, view),
+                child: const Text('Export this table'),
+              ),
+              MenuItemButton(
+                leadingIcon: const Icon(Icons.grid_4x4),
+                onPressed: () => TableFileActions.import(context, ref, view),
+                child: const Text('Import into this table'),
               ),
               MenuItemButton(
                 leadingIcon: const Icon(Icons.file_open_outlined),

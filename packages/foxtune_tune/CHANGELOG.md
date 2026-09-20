@@ -23,3 +23,7 @@ Tune state, table editing and the guarded write path.
   with columns, labels and formats taken from the definition's `[Datalog]`
   section. Absent readings are left blank rather than written as zero, and
   channels that could never produce a value are excluded and reported.
+- `TableFileCodec`: TunerStudio `.table` single-table import and export, with
+  bilinear resampling when the source and destination shapes differ. Values are
+  written with enough precision to round-trip, which the definition's display
+  `digits` alone does not always guarantee.

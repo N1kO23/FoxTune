@@ -183,6 +183,18 @@ class TableView {
     );
   }
 
+  /// Smallest change a table value can represent, in engineering units.
+  ///
+  /// The storage step, as opposed to the display precision - used when a value
+  /// has to be written out without losing anything.
+  double get zStep => _zScale.abs();
+
+  /// Smallest change an X axis bin can represent.
+  double get xStep => (resolver.valueOf(xField.scale) ?? 1).abs();
+
+  /// Smallest change a Y axis bin can represent.
+  double get yStep => (resolver.valueOf(yField.scale) ?? 1).abs();
+
   /// Decimal places for displaying X axis bins.
   int get xDecimals => xField.digits ?? 0;
 

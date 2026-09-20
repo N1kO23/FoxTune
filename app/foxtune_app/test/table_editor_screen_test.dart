@@ -233,6 +233,20 @@ void main() {
     });
   });
 
+  group('per-table file menu', () {
+    testWidgets('offers export and import for the open table', (tester) async {
+      await pumpEditor(tester);
+
+      await tester.tap(find.byIcon(Icons.folder_outlined));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Export this table'), findsOneWidget);
+      expect(find.text('Import into this table'), findsOneWidget);
+      // The whole-tune actions stay alongside them.
+      expect(find.text('Save tune as .msq'), findsOneWidget);
+    });
+  });
+
   group('live cell indicator', () {
     testWidgets('says so when there is no live data', (tester) async {
       await pumpEditor(tester);
