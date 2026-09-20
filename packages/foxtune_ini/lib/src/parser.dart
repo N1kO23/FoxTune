@@ -1,3 +1,4 @@
+import 'analyze_section.dart';
 import 'data_type.dart';
 import 'ini_exception.dart';
 import 'model/document.dart';
@@ -42,6 +43,7 @@ class IniParser {
     'UserDefined',
     'SettingContextHelp',
     'ConstantsExtensions',
+    'VeAnalyze',
   };
 
   /// Parses [source], the full text of a `.ini` file.
@@ -82,6 +84,7 @@ class IniParser {
     // Screens
     final menuCollector = MenuCollector();
     final dialogCollector = DialogCollector();
+    final analyzeCollector = AnalyzeCollector();
     final settingHelp = <String, String>{};
     final defaultValues = <String, List<double>>{};
     final requiresPowerCycle = <String>{};
@@ -198,6 +201,9 @@ class IniParser {
         case 'UserDefined':
           dialogCollector.add(key, value);
 
+        case 'VeAnalyze':
+          analyzeCollector.add(key, value);
+
         case 'SettingContextHelp':
           settingHelp[key] = unquote(value);
 
@@ -237,6 +243,7 @@ class IniParser {
       definedSymbols: preprocessor.symbols,
       menus: menuCollector.menus,
       dialogs: dialogCollector.dialogs,
+      veAnalyze: analyzeCollector.result,
       settingHelp: settingHelp,
       defaultValues: defaultValues,
       requiresPowerCycle: requiresPowerCycle,

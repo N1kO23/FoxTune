@@ -453,6 +453,77 @@ void main() {
           reason: 'unbound: $unbound');
     });
 
+    test('describes VE autotuning, per build configuration', () {
+      // The definition declares one `veAnalyzeMap` per `#if LAMBDA` branch.
+      // Reading the wrong one would tune the VE table against a target
+      // fourteen times off, because AFR and lambda differ by `stoich`.
+      final afrBuild = parse(defined: {'CELSIUS'}).veAnalyze!;
+      expect(afrBuild.table, 'veTable1Tbl');
+      expect(afrBuild.targetTable, 'afrTable1Tbl');
+      expect(afrBuild.measuredChannel, 'afr');
+      expect(afrBuild.measuresLambda, isFalse);
+      expect(afrBuild.egoCorrectionChannel, 'egoCorrection');
+
+      final lambdaBuild = parse(defined: {'CELSIUS', 'LAMBDA'}).veAnalyze!;
+      expect(lambdaBuild.targetTable, 'lambdaTable1Tbl');
+      expect(lambdaBuild.measuredChannel, 'lambda');
+      expect(lambdaBuild.measuresLambda, isTrue);
+    });
+
+    test('reads the autotune filters, thresholds and all', () {
+      final metric = parse(defined: {'CELSIUS'}).veAnalyze!;
+
+      expect(metric.standardFilters.map((f) => f.id), [
+        'std_xAxisMin',
+        'std_xAxisMax',
+        'std_yAxisMin',
+        'std_yAxisMax',
+        'std_DeadLambda',
+        'std_Custom',
+      ]);
+
+      final clt = metric.filters.firstWhere((f) => f.id == 'minCltFilter');
+      expect(clt.label, 'Minimum CLT');
+      expect(clt.channel, 'coolant');
+      expect(clt.operator, IniFilterOperator.lessThan);
+      expect(clt.value, 71);
+
+      // The same filter carries the Fahrenheit threshold in an imperial build,
+      // which is the whole reason it is read from the file.
+      final imperial = parse().veAnalyze!;
+      expect(
+        imperial.filters.firstWhere((f) => f.id == 'minCltFilter').value,
+        160,
+      );
+
+      // A status-flag filter is a bitmask test, not a comparison.
+      final accel = metric.filters.firstWhere((f) => f.id == 'accelFilter');
+      expect(accel.operator, IniFilterOperator.bitmask);
+      expect(accel.value, 16);
+      // The trailing boolean is recorded but never acted on.
+      expect(accel.flag, isFalse);
+      expect(clt.flag, isTrue);
+    });
+
+    test('every autotune filter names a channel that exists', () {
+      // A filter over a channel the ECU does not report can never fire, which
+      // would silently remove a guard on what reaches the fuel table.
+      for (final config in const <Set<String>>[
+        {'CELSIUS'},
+        {'CELSIUS', 'LAMBDA'},
+        {},
+      ]) {
+        final doc = parse(defined: config);
+        final channels = doc.outputChannels.allNames;
+        for (final filter in doc.veAnalyze!.channelFilters) {
+          expect(channels, contains(filter.channel),
+              reason: '${filter.id} in $config');
+        }
+        expect(channels, contains(doc.veAnalyze!.measuredChannel));
+        expect(channels, contains(doc.veAnalyze!.egoCorrectionChannel));
+      }
+    });
+
     test('reads per-constant help text', () {
       final help = parse().settingHelp;
       expect(help.length, greaterThan(300));

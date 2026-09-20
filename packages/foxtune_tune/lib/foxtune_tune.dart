@@ -10,6 +10,8 @@
 /// Pure Dart.
 library;
 
+export 'src/autotune/autotune_settings.dart';
+export 'src/autotune/ve_autotuner.dart';
 export 'src/curve_view.dart';
 export 'src/log_recorder.dart';
 export 'src/msl_writer.dart';

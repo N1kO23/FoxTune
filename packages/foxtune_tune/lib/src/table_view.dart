@@ -465,6 +465,63 @@ class TableView {
     return (row: row, column: column);
   }
 
+  /// The table's value at ([x], [y]), interpolated as the ECU would.
+  ///
+  /// Not the same as reading the nearest cell. A target table is consulted at
+  /// the operating point, and its axis bins need not line up with the table
+  /// being tuned against it - Speeduino's AFR target table has its own
+  /// `rpmBinsAFR` and `loadBinsAFR`, at a different resolution from the VE
+  /// table's. Reading it by cell index would compare against the wrong target.
+  double? interpolatedAt(double x, double y) {
+    final weights = weightsAt(x, y);
+    if (weights.isEmpty) return null;
+
+    var total = 0.0;
+    var sum = 0.0;
+    for (final entry in weights) {
+      final value = valueAt(entry.row, entry.column);
+      if (value == null) return null;
+      sum += value * entry.weight;
+      total += entry.weight;
+    }
+    return total == 0 ? null : sum / total;
+  }
+
+  /// How much each surrounding cell contributes at ([x], [y]).
+  ///
+  /// The bilinear weights the ECU interpolates with, summing to 1. At an edge
+  /// the bracket collapses and the weights merge onto fewer cells rather than
+  /// being lost, so the total still comes to 1.
+  List<({int row, int column, double weight})> weightsAt(double x, double y) {
+    final at = preciseCellFor(x, y);
+    if (at == null) return const [];
+
+    final r0 = at.row.floor().clamp(0, rows - 1);
+    final c0 = at.column.floor().clamp(0, columns - 1);
+    final r1 = (r0 + 1).clamp(0, rows - 1);
+    final c1 = (c0 + 1).clamp(0, columns - 1);
+    final fr = (at.row - r0).clamp(0.0, 1.0);
+    final fc = (at.column - c0).clamp(0.0, 1.0);
+
+    // Merged by cell, because at an edge r1 == r0 and two corners coincide.
+    final merged = <({int row, int column}), double>{};
+    void add(int row, int column, double weight) {
+      if (weight <= 0) return;
+      merged[(row: row, column: column)] =
+          (merged[(row: row, column: column)] ?? 0) + weight;
+    }
+
+    add(r0, c0, (1 - fr) * (1 - fc));
+    add(r0, c1, (1 - fr) * fc);
+    add(r1, c0, fr * (1 - fc));
+    add(r1, c1, fr * fc);
+
+    return [
+      for (final entry in merged.entries)
+        (row: entry.key.row, column: entry.key.column, weight: entry.value),
+    ];
+  }
+
   /// The cells whose values determine the interpolated output at a position.
   ///
   /// The ECU interpolates between the four cells bracketing the operating

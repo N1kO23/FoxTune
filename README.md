@@ -28,7 +28,7 @@ The core is **pure Dart with no Flutter dependency**:
 | ---------------------------- | ------------------------------------------------------------------ |
 | `packages/foxtune_ini`       | TunerStudio `.ini` parser, preprocessor and expression evaluator   |
 | `packages/foxtune_protocol`  | Speeduino serial codec, realtime decoding, and the ECU simulator   |
-| `packages/foxtune_tune`      | Tune state, table maths, `.msq` files, datalogging, the write path |
+| `packages/foxtune_tune`      | Tune state, table and curve maths, autotuning, `.msq`, datalogging |
 | `packages/foxtune_transport` | Flutter `EcuLink` implementations (USB serial, USB OTG, TCP)       |
 | `app/foxtune_app`            | Flutter UI: gauges, table editor, 3D surface, settings, logging    |
 
@@ -59,6 +59,7 @@ added without disturbing anything above it.
 | **Tables**        | Editable grid with keyboard navigation, interpolate, smooth, scale                                                                                 |
 | **Settings**      | Trigger setup, engine constants, ASE, WUE and the rest - screens generated from the definition's `[Menu]` and `[UserDefined]`, not hand-written    |
 | **Curves**        | Editable point list and plot, with the live operating point marked                                                                                 |
+| **Autotune**      | VE table tuned against the AFR/lambda target from live wideband data, filtered by the definition's own `[VeAnalyze]` rules                         |
 | **Live position** | The operating cell ringed, the four interpolation neighbours marked, and a dot at the exact interpolated point - in the grid and on the 3D surface |
 | **3D surface**    | Orbitable isometric mesh, no GL dependency                                                                                                         |
 | **Writing**       | Write to RAM, verify by the ECU's own page CRC, then burn                                                                                          |
@@ -66,9 +67,10 @@ added without disturbing anything above it.
 | **Logging**       | MegaLogViewer-compatible `.msl`, columns from `[Datalog]`                                                                                          |
 
 Not yet: loading a user-supplied `.ini` at runtime (the definition has to be swapped in the app
-bundle and rebuilt), `commandButton` actions such as sensor calibration, TunerStudio's own
-built-in dialogs, the `string` PC variables used for auxiliary-channel aliases, and rusEFI
-support. The temperature scale is still fixed to Celsius in code.
+bundle and rebuilt), replaying a recorded `.msl` log into the autotuner, warmup autotuning,
+`commandButton` actions such as sensor calibration, TunerStudio's own built-in dialogs, the
+`string` PC variables used for auxiliary-channel aliases, and rusEFI support. The temperature
+scale is still fixed to Celsius in code.
 
 ## Building
 
@@ -208,6 +210,41 @@ Gauge limits and a few similar values are `[PcVariables]`: they live on the tuni
 rather than on the ECU, are seeded from the definition's factory values, and are marked as such
 in the UI. They are not burned, and they do not yet persist between sessions.
 
+## Autotuning
+
+The VE table can be tuned from live wideband data: compare what the engine actually ran against
+the AFR (or lambda) target table at the operating point, and move the cells that are wrong.
+
+The arithmetic is the easy half. Nearly all of the work is deciding when a reading is telling
+the truth about the steady state of the fuel table rather than about something else the engine
+was doing - and the definition already says. `[VeAnalyze]` names the table to tune, the target,
+the measured channel and the closed-loop trim channel, all of which swap between AFR and lambda
+with the build, plus the filters: minimum coolant temperature, the acceleration-enrichment and
+afterstart flags, the overrun, and the table's own axis limits. Those come from the file rather
+than from guesswork, so they follow a firmware release.
+
+One filter is FoxTune's own. Exhaust gas takes time to reach the sensor, so a reading describes
+combustion that already happened; a sample taken mid-transition would be credited to whichever
+cell the engine has moved into. The operating point must hold still for a settling time before
+anything counts.
+
+Each accepted sample yields a correction ratio - `(measured ÷ target) × (closed-loop trim ÷
+100)`, so a trim already adding fuel is read as the table being low rather than tuned against -
+spread over the four cells the ECU interpolates between. A cell moves once it has enough
+evidence, by a bounded step, and never further from where it started than the session limit.
+Corrections are written as a percentage of the cell's starting value, so repeated rounding
+cannot walk a cell away. After each application the cell's evidence is cleared, so the next
+correction is judged against the fuelling the engine now has: a loop, not a ramp.
+
+Two refusals are absolute. A narrowband O2 sensor reports only rich or lean of stoichiometric
+while publishing on the same channel as a wideband, so tuning on it would produce a table that
+is confidently wrong everywhere the engine is not meant to run at stoich - autotuning will not
+arm. And it needs the same write permission as any other edit.
+
+**Autotuning never touches the ECU.** Corrections land in the loaded tune and show as ordinary
+red/blue changed cells; the ECU changes only when you burn, through the same
+write-verify-CRC-burn path as a hand edit.
+
 ## Tune files
 
 FoxTune reads and writes TunerStudio `.msq` files. Values are matched **by name**, not by
@@ -240,6 +277,9 @@ has to _earn_:
 4. **Verified before it is permanent.** Each page is written to RAM, then the ECU is asked for
    that page's own CRC-32. Only on a match is it burned to EEPROM. RAM can be rewritten; a
    corrupt page burned to EEPROM is what strands someone at the roadside.
+5. **Bounded when automatic.** Autotuning moves a cell by a small step at a time and never
+   further from where it started than the session limit, refuses to run on a sensor that cannot
+   measure what it needs, and still cannot reach the ECU without a burn.
 
 ## License
 

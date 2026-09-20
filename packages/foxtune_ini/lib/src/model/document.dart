@@ -1,3 +1,4 @@
+import 'analyze.dart';
 import 'dialogs.dart';
 import 'fields.dart';
 import 'menus.dart';
@@ -101,6 +102,7 @@ class IniDocument {
     this.settingHelp = const {},
     this.defaultValues = const {},
     this.requiresPowerCycle = const {},
+    this.veAnalyze,
   });
 
   /// Signature and version information.
@@ -155,6 +157,12 @@ class IniDocument {
 
   /// Constants whose change only takes effect after the ECU is power-cycled.
   final Set<String> requiresPowerCycle;
+
+  /// How to autotune the VE table, from `[VeAnalyze]`.
+  ///
+  /// Null when the definition describes no autotuning, which is the honest
+  /// answer for a firmware that has no wideband story.
+  final IniVeAnalyze? veAnalyze;
 
   /// Looks up a dialog by its identifier.
   IniDialog? dialogNamed(String id) {

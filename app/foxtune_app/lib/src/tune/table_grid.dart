@@ -129,6 +129,7 @@ class TableGrid extends StatefulWidget {
     this.preciseCursor,
     this.contributing = const {},
     this.changes = const {},
+    this.coverage,
     this.onEditAxis,
     this.editable = false,
   });
@@ -159,6 +160,15 @@ class TableGrid extends StatefulWidget {
 
   /// Cells changed since the tune was last synchronised with the ECU.
   final Map<({int row, int column}), CellChange> changes;
+
+  /// How much data each cell holds, from 0 to 1, shading the grid in place of
+  /// the usual value magnitude.
+  ///
+  /// Autotuning lives or dies on coverage: a table is only as tuned as the
+  /// cells the engine actually visited, and the gaps are what a tuner needs
+  /// to go and drive. Reusing the cell shading rather than adding a second
+  /// mechanism keeps one sequential scale on screen at a time.
+  final Map<({int row, int column}), double>? coverage;
 
   /// The engine's exact position as continuous indices, for the overlay.
   ///
@@ -353,7 +363,10 @@ class _TableGridState extends State<TableGrid> {
                           _Cell(
                             value: values[r][c],
                             decimals: view.zDecimals,
-                            fraction: _fraction(values[r][c], lo, hi),
+                            fraction: widget.coverage != null
+                                ? (widget.coverage![(row: r, column: c)] ?? 0)
+                                      .clamp(0.0, 1.0)
+                                : _fraction(values[r][c], lo, hi),
                             selected: widget.selection.contains(r, c),
                             isFocus:
                                 widget.selection.focusRow == r &&

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:foxtune_transport/foxtune_transport.dart';
 
+import '../autotune/autotune_screen.dart';
 import '../dashboard/dashboard_screen.dart';
 import '../settings/settings_screen.dart';
 import '../tune/table_editor_screen.dart';
@@ -467,6 +468,7 @@ class _ConnectedShellState extends State<_ConnectedShell> {
       DashboardScreen(connection: widget.connection),
       TableEditorScreen(connection: widget.connection),
       SettingsScreen(connection: widget.connection),
+      AutotuneScreen(connection: widget.connection),
     ];
 
     return Column(
@@ -495,6 +497,11 @@ class _ConnectedShellState extends State<_ConnectedShell> {
               icon: Icon(Icons.tune_outlined),
               selectedIcon: Icon(Icons.tune),
               label: 'Settings',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.auto_graph_outlined),
+              selectedIcon: Icon(Icons.auto_graph),
+              label: 'Autotune',
             ),
           ],
         ),
