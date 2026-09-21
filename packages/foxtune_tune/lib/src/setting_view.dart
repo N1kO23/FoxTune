@@ -137,11 +137,21 @@ class SettingView {
     return options[at];
   }
 
+  /// Whether [index] is a real option rather than an `INVALID` placeholder.
+  ///
+  /// Placeholders are not only padding at the end. `nCylinders` lists
+  /// `INVALID` for 0 and 7, and `egoAlgorithm` has one between "Simple" and
+  /// "PID", because the definition keeps each label at the raw value the
+  /// firmware stores. Those values mean nothing to the firmware.
+  bool isSelectable(int index) =>
+      index >= 0 && index < options.length && options[index] != 'INVALID';
+
   /// Selects the option at [selection].
   ///
   /// Out-of-range selections are rejected rather than clamped: unlike a
   /// numeric setting, the nearest valid option is not a sensible substitute
-  /// for the one asked for.
+  /// for the one asked for. So is an `INVALID` placeholder - see
+  /// [isSelectable].
   void setOptionIndex(int selection) {
     final bits = field;
     if (bits is! IniBitsField) {
@@ -150,6 +160,10 @@ class SettingView {
     if (selection < 0 || selection >= options.length) {
       throw RangeError('Option $selection is outside 0..${options.length - 1} '
           'for $name');
+    }
+    if (!isSelectable(selection)) {
+      throw ArgumentError.value(
+          selection, 'selection', '$name has no real option at $selection');
     }
     final at = page;
     if (at == null) {

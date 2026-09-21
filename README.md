@@ -234,11 +234,24 @@ The definition keeps two menus over the same tables: the tuning menus open a tab
 entry opens a full-window surface with no grid under it, and a button back to the grid for
 editing - there is no sane way to drag a value on an isometric mesh.
 
-Two things are deliberately left out. `commandButton` entries render disabled: they fire
+One panel is built by hand. A dialog line like `panel = std_injection` tells TunerStudio to draw
+one of its **own** built-in panels there, and the definition says nothing about what is inside.
+Speeduino's Engine Constants embeds `std_injection`, which is the only place nine core settings
+can be edited at all: required fuel, fuel load source, squirts per engine cycle, injector
+staging, engine stroke, number of cylinders and injectors, injector port type and engine type.
+FoxTune draws that panel itself, from the same controls as a generated dialog - so bounds, option
+labels and help text still come from the definition. **Squirts per engine cycle** is offered as a
+choice of counts that divide the cylinder count evenly, because the firmware stores it the other
+way up (`divider`, cylinders per squirt, used as `nSquirts = nCylinders / divider` in integer
+arithmetic). A test fails if a dialog embeds a built-in panel FoxTune neither draws nor has
+deliberately left out.
+
+Some things are deliberately left out. `commandButton` entries render disabled: they fire
 actions at the ECU, several of which start a calibration, and shipping an untested write path
-to hardware is not worth the completeness. TunerStudio's own `std_*` editors - the sensor
-calibration wizards and the SD card browser - live in TunerStudio rather than in the
-definition, so there is nothing here to generate a screen from.
+to hardware is not worth the completeness. The same goes for the real-time clock panel
+(`std_ms3Rtc`), whose one job is sending the ECU a new time. TunerStudio's own menu-level editors
+- the sensor calibration wizards and the SD card browser - live in TunerStudio rather than in
+the definition, so there is nothing here to generate a screen from.
 
 Gauge limits and a few similar values are `[PcVariables]`: they live on the tuning computer
 rather than on the ECU, are seeded from the definition's factory values, and are marked as such

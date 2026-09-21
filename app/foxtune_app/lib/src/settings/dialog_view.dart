@@ -3,6 +3,7 @@ import 'package:foxtune_ini/foxtune_ini.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
 
 import '../dashboard/stat_tile.dart' show FlagLamp;
+import 'builtin_panels.dart';
 import 'curve_editor.dart';
 import 'setting_field.dart';
 import 'settings_scope.dart';
@@ -198,6 +199,18 @@ class DialogView extends StatelessWidget {
         return _tableLink(context, table.id, asSurface: true);
 
       case IniTargetKind.builtIn:
+        final built = BuiltInPanels.build(
+          panel.target,
+          scope: scope,
+          editable: editable,
+          onEdit: onEdit,
+        );
+        if (built != null) return built;
+        final reason = BuiltInPanels.unsupported[panel.target];
+        return reason == null
+            ? _unsupported(context, panel.target)
+            : _explained(context, reason);
+
       case IniTargetKind.unknown:
         return _unsupported(context, panel.target);
     }
@@ -345,6 +358,33 @@ class DialogView extends StatelessWidget {
   /// Strips the simple HTML the definition uses in its help prose.
   static String _plain(String text) =>
       text.replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n').trim();
+
+  /// Something left out on purpose, with the reason why.
+  Widget _explained(BuildContext context, String reason) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.block,
+            size: 15,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              reason,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _elsewhere(BuildContext context, String what) {
     final theme = Theme.of(context);

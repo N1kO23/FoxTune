@@ -182,12 +182,22 @@ class _EnumControl extends StatelessWidget {
   Widget build(BuildContext context) {
     final options = setting.options;
     final selected = setting.optionIndex;
+    // Placeholders keep each label at the raw value the firmware stores, so
+    // they are skipped here without renumbering what is left.
+    final offered = [
+      for (var i = 0; i < options.length; i++)
+        if (setting.isSelectable(i)) i,
+    ];
 
     return DropdownButtonFormField<int>(
-      initialValue:
-          selected != null && selected >= 0 && selected < options.length
-          ? selected
-          : null,
+      // A form field reads its initial value once. Keyed on the stored value,
+      // it follows a change made elsewhere - a loaded tune, a preset - instead
+      // of carrying on showing the old choice.
+      key: ValueKey(selected),
+      // A stored placeholder - an empty tune's cylinder count is 0, which is
+      // INVALID - shows as no choice yet, rather than as a choice to keep.
+      initialValue: offered.contains(selected) ? selected : null,
+      hint: const Text('Choose...'),
       isDense: true,
       isExpanded: true,
       decoration: const InputDecoration(
@@ -195,7 +205,7 @@ class _EnumControl extends StatelessWidget {
         contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       ),
       items: [
-        for (var i = 0; i < options.length; i++)
+        for (final i in offered)
           DropdownMenuItem(
             value: i,
             child: Text(options[i], overflow: TextOverflow.ellipsis),

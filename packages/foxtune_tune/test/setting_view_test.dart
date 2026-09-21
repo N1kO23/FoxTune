@@ -109,6 +109,31 @@ void main() {
       expect(() => pairing.setOptionIndex(2), throwsRangeError);
     });
 
+    test('refuses a placeholder in the middle of the list', () {
+      // `inj4CylPairing` pads its end; a real definition also pads the middle
+      // - nCylinders lists INVALID for 0 and 7 - and neither is a value the
+      // firmware understands.
+      final tune = TuneState.empty(IniParser().parse('''
+[MegaTune]
+signature = "t 1"
+[Constants]
+endianness = little
+nPages = 1
+pageSize = 4
+page = 1
+  nCylinders = bits, U08, 0, [0:3], "INVALID", "1", "2", "3", "4", "5", "6", "INVALID", "8"
+'''));
+      final cylinders = SettingView.of(tune, 'nCylinders')!;
+
+      expect(cylinders.isSelectable(0), isFalse);
+      expect(cylinders.isSelectable(7), isFalse);
+      expect(cylinders.isSelectable(8), isTrue);
+      expect(() => cylinders.setOptionIndex(7), throwsArgumentError);
+
+      cylinders.setOptionIndex(4);
+      expect(cylinders.optionLabel, '4');
+    });
+
     test('leaves the neighbouring setting in the same byte alone', () {
       view('inj4CylPairing').setOptionIndex(1);
       view('injLayout').setOptionIndex(3);
