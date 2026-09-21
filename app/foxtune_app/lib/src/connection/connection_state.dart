@@ -2,6 +2,8 @@ import 'package:foxtune_ini/foxtune_ini.dart';
 import 'package:foxtune_protocol/foxtune_protocol.dart';
 import 'package:foxtune_transport/foxtune_transport.dart';
 
+import '../definitions/definition_library.dart';
+
 /// How a connected ECU's signature compares with the loaded definition.
 enum SignatureStatus {
   /// The ECU reports exactly what the definition expects.
@@ -27,8 +29,12 @@ class EcuDisconnected extends EcuConnectionState {
 }
 
 class EcuConnecting extends EcuConnectionState {
-  const EcuConnecting(this.port);
+  const EcuConnecting(this.port, {this.stage});
   final EcuPort port;
+
+  /// What is happening now, where it is worth saying - fetching a definition
+  /// can take a few seconds on a slow connection.
+  final String? stage;
 }
 
 class EcuConnected extends EcuConnectionState {
@@ -38,6 +44,8 @@ class EcuConnected extends EcuConnectionState {
     required this.signatureStatus,
     required this.expectedSignature,
     this.definition,
+    this.definitionSource,
+    this.definitionProblem,
   });
 
   final EcuPort port;
@@ -48,6 +56,12 @@ class EcuConnected extends EcuConnectionState {
   final String? expectedSignature;
 
   final IniDocument? definition;
+
+  /// Where [definition] came from.
+  final DefinitionSource? definitionSource;
+
+  /// Why no definition for this exact firmware was found, when none was.
+  final String? definitionProblem;
 
   /// Whether the loaded definition is confirmed to describe this ECU.
   ///

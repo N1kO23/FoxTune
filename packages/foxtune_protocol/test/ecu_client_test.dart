@@ -69,6 +69,9 @@ class ScriptedEcu {
   }
 }
 
+/// A reply as text, for tests that only need some command to send.
+Future<String> text(Future<List<int>> reply) async => ascii.decode(await reply);
+
 void main() {
   late ScriptedEcu ecu;
   late EcuClient client;
@@ -84,30 +87,50 @@ void main() {
   });
 
   group('handshake', () {
-    setUp(() {
-      ecu.handlers[0x53] = (_) => ascii.encode('speeduino 202504-dev');
-      ecu.handlers[0x51] = (_) => ascii.encode('Speeduino 2025.04');
-    });
+    test('asks a Speeduino for its signature with Q', () async {
+      // As the firmware answers: `S` is the display string, `Q` the signature
+      // the definition is checked against.
+      ecu.handlers[0x53] = (_) => ascii.encode('Speeduino 2025.04-dev');
+      ecu.handlers[0x51] = (_) => ascii.encode('speeduino 202504-dev');
 
-    test('reads the signature', () async {
-      expect(await client.readSignature(), 'speeduino 202504-dev');
-      expect(ecu.received.single, [0x53]);
-    });
-
-    test('reads the version', () async {
-      expect(await client.queryVersion(), 'Speeduino 2025.04');
-    });
-
-    test('identify() returns both strings', () async {
       final id = await client.identify();
       expect(id.signature, 'speeduino 202504-dev');
-      expect(id.version, 'Speeduino 2025.04');
+      expect(id.version, 'Speeduino 2025.04-dev');
+      expect(id.family, EcuFamily.speeduino);
+      expect(ecu.received, [
+        [0x53],
+        [0x51],
+      ]);
+    });
+
+    test('takes a rusEFI signature from S, and never sends Q', () async {
+      ecu.handlers[0x53] =
+          (_) => ascii.encode('rusEFI master.2026.09.21.uaefi.419928595');
+      ecu.handlers[0x56] = (_) => ascii.encode('rusEFI 2026.09.21');
+
+      final id = await client.identify();
+      expect(id.signature, 'rusEFI master.2026.09.21.uaefi.419928595');
+      expect(id.version, 'rusEFI 2026.09.21');
+      expect(id.family, EcuFamily.rusefi);
+      expect(ecu.received, [
+        [0x53],
+        [0x56],
+      ]);
+    });
+
+    test('still identifies a rusEFI that does not answer V', () async {
+      ecu.handlers[0x53] = (_) => ascii.encode('rusEFI master.2024.01.01.x.1');
+
+      final id = await client.identify();
+      expect(id.family, EcuFamily.rusefi);
+      expect(id.version, id.signature);
     });
 
     test('trims NUL padding the firmware adds', () async {
-      ecu.handlers[0x53] =
+      ecu.handlers[0x53] = (_) => ascii.encode('Speeduino 2025.04-dev');
+      ecu.handlers[0x51] =
           (_) => [...ascii.encode('speeduino 202504-dev'), 0, 0, 0, 0];
-      expect(await client.readSignature(), 'speeduino 202504-dev');
+      expect((await client.identify()).signature, 'speeduino 202504-dev');
     });
   });
 
@@ -223,7 +246,7 @@ void main() {
     test('times out when no reply arrives', () {
       ecu.silent.add(0x53);
       expect(
-        client.readSignature(),
+        text(client.send(const [0x53])),
         throwsA(isA<EcuProtocolException>()
             .having((e) => e.response, 'response', SerialResponse.timeout)),
       );
@@ -234,7 +257,7 @@ void main() {
       ecu.rawOverride = (EcuFrame.encode([0x00, 0x41, 0x42])..last ^= 0xFF);
 
       await expectLater(
-        client.readSignature(),
+        text(client.send(const [0x53])),
         throwsA(isA<EcuProtocolException>()),
       );
     });
@@ -243,7 +266,7 @@ void main() {
       ecu.handlers[0x53] = (_) => ascii.encode('speeduino 202504-dev');
       ecu.busyBefore[0x53] = 2;
 
-      expect(await client.readSignature(), 'speeduino 202504-dev');
+      expect(await text(client.send(const [0x53])), 'speeduino 202504-dev');
       // Two busy replies plus the successful attempt.
       expect(ecu.received, hasLength(3));
     });
@@ -256,7 +279,7 @@ void main() {
       ecu.busyBefore[0x53] = 99;
 
       await expectLater(
-        impatient.readSignature(),
+        text(impatient.send(const [0x53])),
         throwsA(isA<EcuProtocolException>()
             .having((e) => e.response, 'response', SerialResponse.busy)),
       );
@@ -269,19 +292,20 @@ void main() {
       ecu.handlers[0x53] = (_) => ascii.encode('speeduino 202504-dev');
       await ecu.link.close();
 
-      await expectLater(
-          client.readSignature(), throwsA(isA<EcuProtocolException>()));
+      await expectLater(text(client.send(const [0x53])),
+          throwsA(isA<EcuProtocolException>()));
 
       // The next command must fail promptly too, not hang.
       await expectLater(
-        client.queryVersion().timeout(const Duration(seconds: 1)),
+        text(client.send(const [0x51])).timeout(const Duration(seconds: 1)),
         throwsA(isA<EcuProtocolException>()),
       );
     });
 
     test('rejects use after close', () async {
       await client.close();
-      expect(client.readSignature(), throwsA(isA<EcuProtocolException>()));
+      expect(text(client.send(const [0x53])),
+          throwsA(isA<EcuProtocolException>()));
     });
   });
 
@@ -292,8 +316,8 @@ void main() {
       ecu.handlers[0x70] = (payload) => [0xFF];
 
       final results = await Future.wait([
-        client.readSignature(),
-        client.queryVersion(),
+        text(client.send(const [0x53])),
+        text(client.send(const [0x51])),
         client.readPage(1, count: 1, blockingFactor: 251),
       ]);
 

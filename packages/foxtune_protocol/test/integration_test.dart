@@ -1,6 +1,8 @@
 @TestOn('vm')
 library;
 
+import 'dart:convert';
+
 import 'package:foxtune_protocol/foxtune_protocol.dart';
 import 'package:foxtune_protocol/io.dart';
 import 'package:foxtune_protocol/testing.dart';
@@ -9,6 +11,10 @@ import 'package:test/test.dart';
 /// End-to-end tests: a real [EcuClient] talking to a simulated Speeduino over a
 /// real socket. Nothing is stubbed between them, so the envelope, CRC, chunking
 /// and command encoding all have to be right for these to pass.
+/// The signature, by the command Speeduino answers it to.
+Future<String> signature(EcuClient client) async =>
+    ascii.decode(await client.send([SpeeduinoCommand.query]));
+
 void main() {
   late FakeSpeeduino ecu;
   late SocketEcuLink link;
@@ -77,26 +83,46 @@ void main() {
     );
   });
 
+  test('an ECU that goes away fails commands rather than crashing', () async {
+    // Commands sent as the ECU stops, before the link has noticed. The reset
+    // case - a write failing through the socket's `done` - is pinned down
+    // deterministically in socket_link_test.dart.
+    expect(await signature(client), 'speeduino 202504-dev');
+    final stopping = ecu.stop();
+    final outcomes = await Future.wait([
+      for (var i = 0; i < 10; i++)
+        client.send([SpeeduinoCommand.query]).then<Object>((_) => 'answered',
+            onError: (Object e) => e),
+    ]);
+    await stopping;
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+
+    // Any that went unanswered failed as protocol errors, not crashes.
+    for (final outcome in outcomes) {
+      expect(outcome, anyOf('answered', isA<EcuProtocolException>()));
+    }
+    expect(link.isOpen, isFalse);
+  });
+
   test('recovers after a corrupted response', () async {
     ecu.corruptNextResponse = true;
 
     // The corrupted reply must not be accepted; the command times out.
-    await expectLater(
-        client.readSignature(), throwsA(isA<EcuProtocolException>()));
+    await expectLater(signature(client), throwsA(isA<EcuProtocolException>()));
 
     // The link must still be usable afterwards.
-    expect(await client.readSignature(), 'speeduino 202504-dev');
+    expect(await signature(client), 'speeduino 202504-dev');
   });
 
   test('retries through busy replies', () async {
     ecu.busyRepliesRemaining = 2;
-    expect(await client.readSignature(), 'speeduino 202504-dev');
+    expect(await signature(client), 'speeduino 202504-dev');
   });
 
   test('serialises concurrent commands over one socket', () async {
     final results = await Future.wait([
-      client.readSignature(),
-      client.queryVersion(),
+      signature(client),
+      signature(client),
       client.readPage(1, count: 128, blockingFactor: 251),
       client.readRealtime(count: 139),
     ]);

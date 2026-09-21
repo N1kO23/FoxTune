@@ -144,6 +144,13 @@ void main() {
     });
   });
 
+  test('reads a lone = as equality, as definitions write it', () {
+    // rusEFI: `{hasIgnitionVoltage && isEtbEnabled && calibrationMode = 0}`.
+    expect(eval('mode = 0', {'mode': 0}), 1);
+    expect(eval('mode = 0', {'mode': 2}), 0);
+    expect(eval('a && mode = 0', {'a': 1, 'mode': 0}), 1);
+  });
+
   group('bitwise', () {
     test('tests a flag bit the way the SD-card indicators do', () {
       // `{ sd_status & 4 }` - true while the card is ready.

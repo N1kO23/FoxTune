@@ -2,13 +2,16 @@
 
 Open source ECU tuning software for open source ECUs.
 
-FoxTune targets [Speeduino](https://speeduino.com/) first, with rusEFI and MegaSquirt as later
-goals. It runs on Linux, Windows, macOS and Android from a single Flutter codebase.
+FoxTune tunes [Speeduino](https://speeduino.com/) and [rusEFI](https://rusefi.com/), with
+MegaSquirt a later goal. It runs on Linux, Windows, macOS and Android from a single Flutter
+codebase.
 
 > **Status: works; the write path is unproven on hardware.** Everything below is implemented
 > and tested against a protocol-accurate simulator. Connecting and the live dashboard have been
 > used against a real Speeduino. Burning, the settings screens, autotuning and USB OTG on
-> Android have not yet, so treat those as unverified - see [Safety](#safety).
+> Android have not yet, so treat those as unverified - see [Safety](#safety). rusEFI has been
+> read, edited, verified and burned against rusEFI's own simulator - the real firmware, built
+> for a PC - but not yet against a rusEFI board.
 
 ## Why
 
@@ -19,16 +22,17 @@ the car, without a laptop.
 
 ## Design
 
-FoxTune reads the ECU's **TunerStudio `.ini` definition** to learn page layout, scaling and
-realtime data structure, rather than hardcoding them. That is what lets it survive firmware
-updates and, eventually, speak to rusEFI - which ships INI files in the same format.
+FoxTune reads the ECU's **TunerStudio `.ini` definition** to learn page layout, scaling,
+realtime data structure and even the commands that address them, rather than hardcoding them.
+That is what lets it survive firmware updates and speak to both Speeduino and rusEFI, which ship
+definitions in the same format.
 
 The core is **pure Dart with no Flutter dependency**:
 
 | Package                      | Role                                                               |
 | ---------------------------- | ------------------------------------------------------------------ |
 | `packages/foxtune_ini`       | TunerStudio `.ini` parser, preprocessor and expression evaluator   |
-| `packages/foxtune_protocol`  | Speeduino serial codec, realtime decoding, and the ECU simulator   |
+| `packages/foxtune_protocol`  | Serial codec, realtime decoding, simulated Speeduino and rusEFI    |
 | `packages/foxtune_tune`      | Tune state, table and curve maths, autotuning, `.msq`, datalogging |
 | `packages/foxtune_transport` | Flutter `EcuLink` implementations (USB serial, USB OTG, TCP)       |
 | `app/foxtune_app`            | Flutter UI: gauges, table editor, 3D surface, settings, logging    |
@@ -62,7 +66,7 @@ added without disturbing anything above it.
 
 |                   |                                                                                                                                                    |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Connect**       | USB serial or TCP, with a signature check against the loaded definition                                                                            |
+| **Connect**       | Speeduino and rusEFI over USB serial or TCP; the exact firmware's definition found, downloaded or chosen, and checked                              |
 | **Dashboard**     | Pages of dials, bars, readouts, lamps and time graphs you arrange, from any gauge or live channel; limits follow Gauge Limits or your own          |
 | **Tables**        | Editable grid with keyboard navigation, interpolate, smooth, scale                                                                                 |
 | **Settings**      | Trigger setup, engine constants, ASE, WUE and the rest - screens generated from the definition's `[Menu]` and `[UserDefined]`, not hand-written    |
@@ -74,11 +78,10 @@ added without disturbing anything above it.
 | **Tune files**    | `.msq` read and write, matched by name                                                                                                             |
 | **Logging**       | MegaLogViewer-compatible `.msl`, columns from `[Datalog]`                                                                                          |
 
-Not yet: loading a user-supplied `.ini` at runtime (the definition has to be swapped in the app
-bundle and rebuilt), replaying a recorded `.msl` log into the autotuner, warmup autotuning,
-`commandButton` actions such as sensor calibration, TunerStudio's own built-in dialogs, the
-`string` PC variables used for auxiliary-channel aliases, and rusEFI support. The temperature
-scale is still fixed to Celsius in code.
+Not yet: autotuning on rusEFI, rusEFI's bench tests, Lua and trigger loggers, replaying a
+recorded `.msl` log into the autotuner, warmup autotuning, `commandButton` actions such as sensor
+calibration, TunerStudio's own built-in dialogs, and the `string` PC variables used for
+auxiliary-channel aliases. The temperature scale is still fixed to Celsius in code.
 
 ## Building
 
@@ -110,7 +113,9 @@ cd packages/foxtune_tune
 dart run bin/fake_ecu.dart --msq /path/to/your-tune.msq
 ```
 
-Then connect from the app with **Network ECU** → `127.0.0.1:2000`. It drives a plausible
+Then connect from the app with **Network ECU** → `127.0.0.1:2000`. Pass a rusEFI definition
+with `--ini` and it is a simulated rusEFI instead, on port 29001, with canned fuelling - the
+tune-driven engine described below is Speeduino's. It drives a plausible
 running engine into the realtime block - idle, a pull to redline, a cruise, then a
 closed-throttle overrun - so gauges move, the live table cursor travels across cells, and the
 warning thresholds are actually reached. `--static` disables it; `--ini PATH` uses a different
@@ -172,6 +177,51 @@ Two byte orders apply at once, and confusing them produces frames the ECU silent
 The length counts the payload only; the four CRC bytes sit outside it, and the CRC covers the
 payload only. That means a corrupted length prefix is undetectable, so the decoder bounds it and
 resynchronises rather than stalling.
+
+## rusEFI
+
+rusEFI speaks the same TunerStudio protocol and ships its definitions in the same format, so
+most of FoxTune works on it unchanged: its dashboard is built from its own front page, its
+settings screens and tables are generated from its own menus. What differs is handled by
+reading the definition more completely rather than by rusEFI-specific code.
+
+**Finding the definition.** rusEFI generates a definition for every board and every build, and
+its signature ends in a hash of the settings layout - so it has to be the exact one. On
+connecting, FoxTune looks in order for:
+
+1. the Speeduino definition it ships with;
+2. one kept on this device from an earlier connection;
+3. for rusEFI, the one rusEFI publishes for that build, at a rusefi.com address spelled out by
+   the signature;
+4. failing those, a file you choose - from the firmware bundle for your board, the drive a
+   rusEFI ECU mounts over USB (`rusefi.ini.zip`), or a firmware you built yourself.
+
+A downloaded or chosen definition must match the ECU's signature exactly, and is kept so it is
+not asked for again. A Speeduino on a release other than the shipped one works the same way:
+choose its definition and it is kept.
+
+**Commands from the definition.** Page reads, writes, burns, CRC checks and live data are sent
+as the definition's own templates - `R%2i%2o%2c` for a rusEFI page read, `p%2i%2o%2c` for a
+Speeduino's - with pages addressed by the bytes its `pageIdentifier` gives. rusEFI's live data is
+larger than one transfer and is read in pieces; its two working-memory pages declare no burn
+command and are never burned. It stores hundreds of settings and most live channels as 32-bit
+floats, which are kept as floats throughout - a lambda of 0.98 reads 0.98.
+
+**The handshake.** Both firmwares answer `S`, with different things: rusEFI with its
+signature, Speeduino with its display string. So FoxTune sends `S` first and follows up with
+`V` (rusEFI's version) or `Q` (Speeduino's signature). Getting this right also fixed a Speeduino
+bug: FoxTune used to take the reply to `S` as the signature, so a real Speeduino - which
+answers `Q` with it - always reported a definition mismatch, and writing stayed disabled. The
+simulated Speeduino had copied the mistake, which is why no test caught it.
+
+**How far it has been tested.** Against rusEFI's own simulator, built from rusEFI master of
+2026-09-21: identified; definition downloaded from rusefi.com and matched; all five pages read
+(27 KB) and each confirmed by the ECU's own CRC; live data decoded; a VE cell edited, written,
+verified, burned, read back after reconnecting, and restored. The simulator answers every
+request about 40 ms late, whoever asks, so live data from it runs at about 7 samples a second;
+that is the simulator, not the link. Not yet: a rusEFI board, autotuning (its `[VeAnalyze]`
+rules have not been checked, so it is not offered), and rusEFI's bench tests, Lua and trigger
+loggers.
 
 ## Computed channels
 

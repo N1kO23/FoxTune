@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:foxtune_protocol/foxtune_protocol.dart' show EcuFamily;
 import 'package:foxtune_tune/foxtune_tune.dart';
 
 import '../connection/connection_state.dart';
@@ -31,6 +32,17 @@ class AutotuneScreen extends ConsumerWidget {
       error: (error, _) => _Message(text: '$error'),
       data: (tune) {
         if (tune == null) return const _Message(text: 'No tune loaded.');
+        // rusEFI's definition describes autotuning too, but its filters and
+        // channels have only been checked against Speeduino's. Offering it
+        // unchecked would mean correcting a fuel table on trust.
+        if (connection.identification.family != EcuFamily.speeduino) {
+          return const _Message(
+            text:
+                'Autotune is not yet available for this ECU. It has been '
+                'built and checked against Speeduino; rusEFI support is to '
+                'follow.',
+          );
+        }
         if (connection.definition?.veAnalyze == null) {
           return const _Message(
             text: 'This definition does not describe VE autotuning.',

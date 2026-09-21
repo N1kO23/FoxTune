@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:foxtune_protocol/foxtune_protocol.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -170,7 +169,6 @@ class TuneController extends AsyncNotifier<TuneState?> {
       tune: tune,
       permission: ref.read(writePermissionProvider),
       blockingFactor: definition.constants.blockingFactor!,
-      burnCommand: _burnCommandFor(definition.constants.burnCommands),
       onSnapshot: _saveSnapshot,
     );
 
@@ -179,16 +177,6 @@ class TuneController extends AsyncNotifier<TuneState?> {
     _baseline = tune.copy();
     notifyEdited();
     return results;
-  }
-
-  /// Picks the burn command variant the definition declares.
-  ///
-  /// COMMS_COMPAT builds use `B`, which deliberately slows the EEPROM write.
-  static int _burnCommandFor(List<String> templates) {
-    final first = templates.isEmpty ? '' : templates.first;
-    return first.startsWith('B')
-        ? SpeeduinoCommand.burnCompat
-        : SpeeduinoCommand.burn;
   }
 
   /// Writes a restore point before the session's first write.

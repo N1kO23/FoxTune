@@ -126,6 +126,58 @@ The one layer this cannot exercise is the desktop serial driver itself: libseria
 pseudo-terminals, so a `socat` loopback is not a usable stand-in for a real port. That layer
 needs real hardware or a tty0tty-style kernel module.
 
+### A simulated rusEFI
+
+Give `fake_ecu` a rusEFI definition and it serves a rusEFI - rusEFI's commands, page addressing
+and live-data layout - on port 29001:
+
+```sh
+cd packages/foxtune_tune
+dart run bin/fake_ecu.dart --ini ../foxtune_ini/test/fixtures/rusefi_uaefi.ini
+```
+
+Connect with **Network ECU** → `127.0.0.1:29001`. FoxTune will look for the definition on
+rusefi.com; for the vendored fixture it finds it, and for any other it asks you for the file.
+
+### rusEFI's own simulator
+
+rusEFI builds its real firmware for a PC too, answering on TCP port 29001. It is not in rusEFI's
+releases, so it is built from source. This worked on Gentoo against rusEFI master of 2026-09-21:
+
+```sh
+git clone --depth 1 https://github.com/rusefi/rusefi.git
+cd rusefi
+git submodule update --init --depth 1 \
+    firmware/ChibiOS firmware/ChibiOS-Contrib firmware/libfirmware \
+    firmware/ext/uzlib firmware/ext/lua firmware/controllers/lua/luaaa \
+    firmware/ext/magic_enum firmware/controllers/can/wideband_firmware \
+    firmware/ext/openblt
+cd simulator
+make -j"$(nproc)"
+./build/rusefi_simulator        # no argument: runs until stopped
+```
+
+What the build needs beyond `make`:
+
+- **A GCC that builds 32-bit code.** The simulator compiles with `-m32`. Gentoo's default
+  amd64 profiles are multilib, so this works out of the box; elsewhere it is usually a
+  `gcc-multilib`/`g++-multilib` package. `echo 'int main(){}' | g++ -m32 -x c++ - -o /dev/null`
+  says whether you have it.
+- **A JDK.** The build runs Gradle to generate code from rusEFI's configuration.
+- **mtools** (`sys-fs/mtools`), plus `zip`, `7z`, `xxd` and `mkfs.fat`. The build packs the
+  definition into the image an ECU shows as a USB drive, even for the simulator, and fails with
+  `mcopy: command not found` without mtools. Building mtools from GNU's source into a private
+  prefix and putting its `bin` on `PATH` for the `make` is enough if you would rather not
+  install it.
+
+Then connect FoxTune with **Network ECU** → `127.0.0.1:29001`. The simulator runs the
+f407-discovery configuration; if rusEFI has published the definition for that build, FoxTune
+downloads it, and otherwise asks for the file - the build writes it to
+`firmware/tunerstudio/generated/rusefi_f407-discovery.ini`.
+
+The simulator answers every request about 40 ms late, whoever sends it, so live data from it
+runs at about 7 samples a second. A board over USB does not have this limit.
+
 ## Android
 
 > The Android build is pinned to **Gradle 8.14.5 / AGP 8.11.1**. Do not bump it without

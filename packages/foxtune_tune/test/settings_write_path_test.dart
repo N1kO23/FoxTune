@@ -58,7 +58,6 @@ void main() {
       tune: tune,
       permission: const WritePermission.granted(),
       blockingFactor: 251,
-      burnCommand: SpeeduinoCommand.burn,
     );
     return writer.commitDirtyPages();
   }
@@ -132,7 +131,6 @@ void main() {
       tune: tune,
       permission: const WritePermission.refused('Read-only for the test.'),
       blockingFactor: 251,
-      burnCommand: SpeeduinoCommand.burn,
     );
 
     await expectLater(

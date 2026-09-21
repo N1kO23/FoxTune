@@ -192,6 +192,8 @@ final class IniDialogIndicator extends IniDialogItem {
     this.offForeground,
     this.onBackground,
     this.onForeground,
+    this.offLabelIsTemplate = false,
+    this.onLabelIsTemplate = false,
     super.enableCondition,
     super.visibleCondition,
   });
@@ -204,6 +206,16 @@ final class IniDialogIndicator extends IniDialogItem {
 
   /// Text shown while the expression is true.
   final String onLabel;
+
+  /// Whether [offLabel] is written in braces: text with live lookups in it,
+  /// such as `{ Ignition out 1: bitStringValue(outputDiagErrorList,
+  /// ignitorDiagnostic1) }`, rather than plain text. rusEFI writes its
+  /// diagnostic lamps this way, so the lamp says what is wrong, not just
+  /// that something is.
+  final bool offLabelIsTemplate;
+
+  /// Whether [onLabel] is a template. See [offLabelIsTemplate].
+  final bool onLabelIsTemplate;
 
   /// Colour names as the definition writes them, e.g. `green`, `black`.
   final String? offBackground;

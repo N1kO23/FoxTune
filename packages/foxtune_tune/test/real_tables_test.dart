@@ -110,7 +110,7 @@ void main() {
     final tune = TuneState.empty(doc);
     final algorithm = tune.locate('algorithm')!;
     // Select TPS as the load source; the axis label must follow.
-    final current = tune.readRaw(algorithm.page, algorithm.field)!;
+    final current = tune.readRaw(algorithm.page, algorithm.field)!.toInt();
     final field = algorithm.field as IniBitsField;
     final mask =
         ((1 << (field.highBit - field.lowBit + 1)) - 1) << field.lowBit;

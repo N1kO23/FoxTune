@@ -173,7 +173,7 @@ class CurveView {
     tune.writeRaw(
       page,
       field,
-      ((clamped - _translateOf(field)) / _scaleOf(field)).round(),
+      (clamped - _translateOf(field)) / _scaleOf(field),
       _storageIndex(point),
     );
   }
@@ -193,10 +193,10 @@ class CurveView {
   int get yDecimals => yField.digits ?? 0;
 
   /// Smallest change an X bin can represent.
-  double get xStep => _scaleOf(xField).abs();
+  double get xStep => TuneState.stepOf(xField, _scaleOf(xField));
 
   /// Smallest change a Y value can represent.
-  double get yStep => _scaleOf(yField).abs();
+  double get yStep => TuneState.stepOf(yField, _scaleOf(yField));
 
   /// Bounds the definition permits for X bins.
   ({double? low, double? high}) get xBounds =>

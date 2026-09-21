@@ -28,3 +28,54 @@ String? evaluateLabel(
   final label = options.labelFor(index.toInt());
   return label == null || label == 'INVALID' ? null : label;
 }
+
+/// Renders a label written as a template: text with `bitStringValue(...)`
+/// lookups in it, as a braced indicator label is.
+///
+/// `Ignition out 1: bitStringValue(outputDiagErrorList, ignitorDiagnostic1)`
+/// becomes "Ignition out 1: Open Load". A lookup that cannot be resolved yet -
+/// before the first sample arrives - becomes an ellipsis rather than leaving
+/// the call's source in a label.
+String evaluateLabelTemplate(
+  String template, {
+  required IniDocument definition,
+  required double? Function(String name) resolve,
+}) =>
+    template
+        .replaceAllMapped(
+          RegExp(r'bitStringValue\(\s*\w+\s*,\s*\w+\s*\)'),
+          (match) =>
+              evaluateLabel(
+                match.group(0)!,
+                definition: definition,
+                resolve: resolve,
+              ) ??
+              '...',
+        )
+        .trim();
+
+/// What [indicator] says in its [on] or off state, with any lookups in its
+/// label resolved through [resolve].
+String indicatorLabel(
+  IniDialogIndicator indicator, {
+  required bool on,
+  required IniDocument definition,
+  required double? Function(String name) resolve,
+}) {
+  final text = on ? indicator.onLabel : indicator.offLabel;
+  final template =
+      on ? indicator.onLabelIsTemplate : indicator.offLabelIsTemplate;
+  return template
+      ? evaluateLabelTemplate(text, definition: definition, resolve: resolve)
+      : text;
+}
+
+/// [indicator]'s label with no live data behind it, for lists and titles:
+/// lookups become an ellipsis rather than showing their source.
+String indicatorLabelText(IniDialogIndicator indicator, {required bool on}) {
+  final text = on ? indicator.onLabel : indicator.offLabel;
+  final template =
+      on ? indicator.onLabelIsTemplate : indicator.offLabelIsTemplate;
+  if (!template) return text;
+  return text.replaceAll(RegExp(r'bitStringValue\([^)]*\)'), '...').trim();
+}

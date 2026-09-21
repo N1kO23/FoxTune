@@ -78,7 +78,10 @@ class IniMenu {
   /// hide an entry from them.
   List<IniMenuItem> get leaves => [
         for (final item in items)
-          if (!item.isSeparator) ...item.isGroup ? item.children : [item],
+          if (!item.isSeparator)
+            for (final leaf in item.isGroup ? item.children : [item])
+              // A group can hold separators too - rusEFI's do.
+              if (!leaf.isSeparator) leaf,
       ];
 
   @override

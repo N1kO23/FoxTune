@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:foxtune_ini/foxtune_ini.dart';
+import 'package:foxtune_tune/foxtune_tune.dart';
 
 import 'gauge_catalog.dart';
 import 'gauge_status.dart';
@@ -107,8 +108,8 @@ class _SourcePickerState extends State<_SourcePicker> {
       ))
         ListTile(
           leading: const Icon(Icons.circle_outlined, size: 18),
-          title: Text(indicator.onLabel),
-          subtitle: Text(indicator.offLabel),
+          title: Text(indicatorLabelText(indicator, on: true)),
+          subtitle: Text(indicatorLabelText(indicator, on: false)),
           onTap: () =>
               Navigator.of(context)
                   .pop((gauge: null, indicator: indicator.expression)),
@@ -303,7 +304,9 @@ class _GaugeOptions extends ConsumerWidget {
       children
         ..add(
           Text(
-            indicator?.onLabel ?? placement.indicator ?? 'Indicator',
+            indicator == null
+                ? placement.indicator ?? 'Indicator'
+                : indicatorLabelText(indicator, on: true),
             style: theme.textTheme.titleMedium,
           ),
         )

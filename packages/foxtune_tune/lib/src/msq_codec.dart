@@ -118,10 +118,8 @@ abstract final class MsqCodec {
   ) {
     switch (field) {
       case IniBitsField():
-        final raw = tune.readRaw(page, field);
-        if (raw == null) return;
-        final width = field.highBit - field.lowBit + 1;
-        final value = (raw >> field.lowBit) & ((1 << width) - 1);
+        final value = tune.readBits(page, field);
+        if (value == null) return;
         final label = field.labelFor(value);
         // Bits are stored as the quoted option label, not as a number.
         final text = label == null ? '"$value"' : '"$label"';
@@ -279,7 +277,7 @@ abstract final class MsqCodec {
         final scale = resolver.valueOf(field.scale);
         final translate = resolver.valueOf(field.translate);
         if (scale == null || translate == null || scale == 0) return false;
-        tune.writeRaw(page, field, ((value - translate) / scale).round());
+        tune.writeRaw(page, field, (value - translate) / scale);
         return true;
 
       case IniArrayField():
@@ -305,8 +303,7 @@ abstract final class MsqCodec {
             final source = (rows - 1 - r) * columns + c;
             final index = field.isTable ? r * columns + c : r;
             final value = numbers[source]!;
-            tune.writeRaw(
-                page, field, ((value - translate) / scale).round(), index);
+            tune.writeRaw(page, field, (value - translate) / scale, index);
           }
         }
         return true;

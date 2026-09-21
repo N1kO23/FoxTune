@@ -6,6 +6,7 @@
 /// no hardware attached.
 library;
 
+export 'src/command_set.dart';
 export 'src/crc32.dart';
 export 'src/ecu_client.dart';
 export 'src/ecu_link.dart';

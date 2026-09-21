@@ -266,7 +266,12 @@ class DialogView extends StatelessWidget {
       child: Align(
         alignment: Alignment.centerLeft,
         child: FlagLamp(
-          label: on ?? false ? lamp.onLabel : lamp.offLabel,
+          label: indicatorLabel(
+            lamp,
+            on: on ?? false,
+            definition: scope.definition,
+            resolve: scope.resolve,
+          ),
           on: on,
         ),
       ),

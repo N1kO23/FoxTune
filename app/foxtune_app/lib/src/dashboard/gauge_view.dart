@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:foxtune_tune/foxtune_tune.dart';
 
 import 'bar_gauge.dart';
 import 'gauge_catalog.dart';
@@ -56,7 +57,12 @@ class GaugeView extends StatelessWidget {
         }
         final on = catalog.isOn(indicator);
         return FlagLamp(
-          label: on ?? false ? indicator.onLabel : indicator.offLabel,
+          label: indicatorLabel(
+            indicator,
+            on: on ?? false,
+            definition: catalog.definition,
+            resolve: catalog.resolveLive,
+          ),
           on: on,
           onColor: GaugeCatalog.colorFor(indicator.onBackground),
           expand: true,

@@ -141,7 +141,7 @@ class RealtimeSnapshot {
 
     switch (field) {
       case IniBitsField(:final lowBit, :final highBit, :final type):
-        final word = _readRaw(offset, type);
+        final word = _readRaw(offset, type)?.toInt();
         if (word == null) return null;
         final width = highBit - lowBit + 1;
         final mask = (1 << width) - 1;
@@ -163,7 +163,7 @@ class RealtimeSnapshot {
   }
 
   /// The unscaled value of [name] straight from the block.
-  int? rawValue(String name) {
+  num? rawValue(String name) {
     final field = _definition.channelNamed(name);
     final offset = field?.offset;
     if (field == null || offset == null) return null;
@@ -201,7 +201,9 @@ class RealtimeSnapshot {
     }
   }
 
-  int? _readRaw(int offset, IniDataType type) {
+  /// A whole number for the integer types; the float itself, unrounded, for
+  /// `F32` - rusEFI sends lambda, AFR and most of its channels as floats.
+  num? _readRaw(int offset, IniDataType type) {
     if (offset < 0 || offset + type.bytes > block.length) return null;
     final view = ByteData.sublistView(block);
     // Payload data is little-endian, unlike the frame envelope.
@@ -212,7 +214,7 @@ class RealtimeSnapshot {
       IniDataType.s16 => view.getInt16(offset, Endian.little),
       IniDataType.u32 => view.getUint32(offset, Endian.little),
       IniDataType.s32 => view.getInt32(offset, Endian.little),
-      IniDataType.f32 => view.getFloat32(offset, Endian.little).round(),
+      IniDataType.f32 => view.getFloat32(offset, Endian.little),
     };
   }
 

@@ -108,7 +108,7 @@ class _Token {
 
 const _operators = <String>[
   '<<', '>>', '<=', '>=', '==', '!=', '&&', '||', //
-  '+', '-', '*', '/', '%', '<', '>', '!', '?', ':', '&', '|', '^',
+  '+', '-', '*', '/', '%', '<', '>', '!', '?', ':', '&', '|', '^', '=',
 ];
 
 List<_Token> _tokenize(String source) {
@@ -284,7 +284,10 @@ class _Parser {
   _Node _parseEquality() {
     var left = _parseComparison();
     while (true) {
-      if (_matchOperator('==')) {
+      // A lone `=` is equality too. Expressions never assign, so it cannot
+      // mean anything else, and definitions do write it: rusEFI gates its
+      // ETB autotune button on `calibrationMode = 0`.
+      if (_matchOperator('==') || _matchOperator('=')) {
         left = _BinaryNode('==', left, _parseComparison());
       } else if (_matchOperator('!=')) {
         left = _BinaryNode('!=', left, _parseComparison());

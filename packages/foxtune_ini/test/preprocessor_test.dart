@@ -188,6 +188,16 @@ c = 3
 '''));
       expect(result.lines.map((l) => l.number), [1, 5]);
     });
+
+    test('reads a # followed by a space as a comment heading', () {
+      // rusEFI heads blocks of its definition this way.
+      expect(emitted('a = 1\n# Digital outputs\n#\nb = 2'), ['a = 1', 'b = 2']);
+    });
+
+    test('still rejects a directive it does not know', () {
+      expect(() => IniPreprocessor().run(lines('#pragma once')),
+          throwsA(isA<Exception>()));
+    });
   });
 
   group('malformed input', () {

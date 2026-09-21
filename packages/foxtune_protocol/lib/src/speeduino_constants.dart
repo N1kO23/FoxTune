@@ -1,12 +1,10 @@
 /// Wire-level constants for the Speeduino serial protocol.
 ///
-/// Command letters below are transcribed from the command *templates* in the
-/// shipped `speeduino.ini` (`pageReadCommand`, `pageValueWrite`, `burnCommand`,
-/// `ochGetCommand`, ...). Anything that varies between firmware builds - page
-/// count, page sizes, blocking factor, the signature string, which burn variant
-/// applies - is deliberately NOT hardcoded here. Those come from the loaded
-/// `.ini`, because baking them in is what breaks a tuner on every firmware
-/// update.
+/// The client does not build commands from these: it renders them from the
+/// loaded definition's templates, through `EcuCommandSet`, so the same code
+/// talks to rusEFI. The letters here are Speeduino's, transcribed from its
+/// shipped `speeduino.ini` and firmware, and serve the fake Speeduino and the
+/// tests that check what goes on the wire.
 library;
 
 /// Standard link settings: 115200 8N1, no flow control.
@@ -21,12 +19,13 @@ const bool kSpeeduinoLittleEndian = true;
 /// little-endian page id, offset and count respectively. `\$tsCanId` is
 /// substituted with the configured CAN id.
 abstract final class SpeeduinoCommand {
-  /// Query firmware version. The .ini's `queryCommand`.
+  /// Returns the signature, e.g. "speeduino 202504-dev" - what the loaded
+  /// definition's `signature` is compared with. The .ini's `queryCommand`.
   static const int query = 0x51; // 'Q'
 
-  /// Return the signature string, e.g. "speeduino 202504-dev".
-  /// The .ini's `versionInfo`.
-  static const int signature = 0x53; // 'S'
+  /// Returns the display string, e.g. "Speeduino 2025.04-dev". The .ini's
+  /// `versionInfo`, shown to the user and compared with nothing.
+  static const int version = 0x53; // 'S'
 
   /// Test whether an ECU is present on this port.
   static const int testComms = 0x43; // 'C'

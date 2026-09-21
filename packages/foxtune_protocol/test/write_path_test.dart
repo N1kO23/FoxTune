@@ -107,9 +107,20 @@ void main() {
       expect(ecu.ramDirty, isEmpty);
     });
 
-    test('accepts the COMMS_COMPAT variant', () async {
-      await client.burnPage(2, burnCommand: SpeeduinoCommand.burnCompat);
+    test('sends the burn command the definition declares', () async {
+      // COMMS_COMPAT builds declare `B%2i` rather than `b%2i`.
+      client.commands = EcuCommandSet(burnCommands: List.filled(15, 'B%2i'));
+      expect(await client.burnPage(2), isTrue);
       expect(ecu.burnedPages, contains(2));
+      expect(ecu.requests.last.first, SpeeduinoCommand.burnCompat);
+    });
+
+    test('burns nothing for a page with no burn command', () async {
+      // rusEFI's working-memory pages declare an empty one.
+      client.commands = EcuCommandSet(burnCommands: ['b%2i', '']);
+      final sent = ecu.requests.length;
+      expect(await client.burnPage(2), isFalse);
+      expect(ecu.requests, hasLength(sent));
     });
 
     test('treats burnOk as success rather than an error', () async {

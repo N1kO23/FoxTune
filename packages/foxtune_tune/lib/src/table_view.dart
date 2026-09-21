@@ -109,8 +109,8 @@ class TableView {
   String get title => table.title;
 
   bool _storedDescending(IniArrayField axis, int length) {
-    int? first;
-    int? last;
+    num? first;
+    num? last;
     for (var i = 0; i < length; i++) {
       final value = tune.readRaw(page, axis, i);
       if (value == null) continue;
@@ -176,25 +176,22 @@ class TableView {
     if (low != null && clamped < low) clamped = low;
     if (high != null && clamped > high) clamped = high;
 
-    tune.writeRaw(
-      page,
-      axis,
-      ((clamped - translate) / effective).round(),
-      index,
-    );
+    tune.writeRaw(page, axis, (clamped - translate) / effective, index);
   }
 
   /// Smallest change a table value can represent, in engineering units.
   ///
   /// The storage step, as opposed to the display precision - used when a value
   /// has to be written out without losing anything.
-  double get zStep => _zScale.abs();
+  double get zStep => TuneState.stepOf(zField, _zScale);
 
   /// Smallest change an X axis bin can represent.
-  double get xStep => (resolver.valueOf(xField.scale) ?? 1).abs();
+  double get xStep =>
+      TuneState.stepOf(xField, resolver.valueOf(xField.scale) ?? 1);
 
   /// Smallest change a Y axis bin can represent.
-  double get yStep => (resolver.valueOf(yField.scale) ?? 1).abs();
+  double get yStep =>
+      TuneState.stepOf(yField, resolver.valueOf(yField.scale) ?? 1);
 
   /// Decimal places for displaying X axis bins.
   int get xDecimals => xField.digits ?? 0;
@@ -290,7 +287,7 @@ class TableView {
   }
 
   /// Raw stored value at [row], [column].
-  int? rawAt(int row, int column) => _inBounds(row, column)
+  num? rawAt(int row, int column) => _inBounds(row, column)
       ? tune.readRaw(page, zField, _cellIndex(row, column))
       : null;
 
@@ -305,8 +302,12 @@ class TableView {
           '${rows}x$columns');
     }
     final clamped = clampToBounds(value);
-    final raw = ((clamped - _zTranslate) / _zScale).round();
-    tune.writeRaw(page, zField, raw, _cellIndex(row, column));
+    tune.writeRaw(
+      page,
+      zField,
+      (clamped - _zTranslate) / _zScale,
+      _cellIndex(row, column),
+    );
   }
 
   bool _inBounds(int row, int column) =>

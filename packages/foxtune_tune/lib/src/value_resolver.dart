@@ -105,7 +105,7 @@ class TuneValueResolver {
   /// several constants declare `scale = {fuelLoadRes}` or similar, and a
   /// literal-only reading silently reports them as unavailable - which on a
   /// settings screen is a field that shows nothing.
-  double? _scaled(int? raw, IniScalarValue scale, IniScalarValue translate) {
+  double? _scaled(num? raw, IniScalarValue scale, IniScalarValue translate) {
     if (raw == null) return null;
     final s = valueOf(scale);
     final t = valueOf(translate);

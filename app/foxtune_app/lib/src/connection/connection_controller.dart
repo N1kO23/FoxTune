@@ -5,6 +5,8 @@ import 'package:foxtune_protocol/foxtune_protocol.dart';
 import 'package:foxtune_transport/foxtune_transport.dart';
 
 import '../dashboard/gauge_status.dart';
+import '../definitions/definition_library.dart';
+import '../storage/json_store.dart';
 import 'connection_state.dart';
 
 /// The platform's serial transport.
@@ -22,7 +24,7 @@ final temperatureUnitProvider = StateProvider<TemperatureUnit>(
   (ref) => TemperatureUnit.celsius,
 );
 
-/// The bundled ECU definition.
+/// The Speeduino definition FoxTune ships with.
 ///
 /// Parsing ~6000 lines takes long enough to be worth keeping off the build
 /// path, so this is a future the UI awaits once.
@@ -30,6 +32,30 @@ final definitionProvider = FutureProvider<IniDocument>((ref) async {
   final source = await rootBundle.loadString('assets/speeduino.ini');
   final unit = ref.watch(temperatureUnitProvider);
   return IniParser(defined: unit.iniSymbols).parse(source);
+});
+
+/// How a definition is downloaded. Replaced in tests.
+final definitionFetcherProvider = Provider<DefinitionFetcher>(
+  (ref) => fetchDefinitionOverHttp,
+);
+
+/// Where the connected ECU's definition is found.
+final definitionLibraryProvider = Provider<DefinitionLibrary>((ref) {
+  final unit = ref.watch(temperatureUnitProvider);
+  return DefinitionLibrary(
+    bundled: () => ref.read(definitionProvider.future),
+    storage: () async {
+      try {
+        return await ref.read(appStorageDirectoryProvider.future);
+      } on Object {
+        // Without storage nothing is kept between sessions, but a definition
+        // can still be found for this one.
+        return null;
+      }
+    },
+    fetch: ref.watch(definitionFetcherProvider),
+    symbols: unit.iniSymbols,
+  );
 });
 
 /// Serial ports currently attached.
@@ -86,27 +112,107 @@ class ConnectionController extends Notifier<EcuConnectionState> {
 
       final identification = await client.identify();
 
-      // The definition may still be parsing; connecting should not block on it,
-      // but the comparison needs it.
-      final definition = await ref.read(definitionProvider.future);
-      final expected = definition.identity.signature;
-      final status = expected == null
-          ? SignatureStatus.unknown
-          : definition.matchesSignature(identification.signature)
-          ? SignatureStatus.matched
-          : SignatureStatus.mismatched;
-
-      state = EcuConnected(
-        port: port,
-        identification: identification,
-        signatureStatus: status,
-        expectedSignature: expected,
-        definition: definition,
+      state = EcuConnecting(
+        port,
+        stage: 'Finding the definition for ${identification.signature}...',
+      );
+      final library = ref.read(definitionLibraryProvider);
+      state = await _connected(
+        port,
+        identification,
+        await library.find(identification),
+        library,
       );
     } on Object catch (error) {
       await _teardown();
       state = EcuConnectionFailed(_describe(error), port: port);
     }
+  }
+
+  /// The connected state for what the definition lookup found.
+  Future<EcuConnected> _connected(
+    EcuPort port,
+    EcuIdentification identification,
+    DefinitionLookup lookup,
+    DefinitionLibrary library,
+  ) async {
+    switch (lookup) {
+      case DefinitionFound(:final definition, :final source):
+        _client?.useDefinition(definition);
+        return EcuConnected(
+          port: port,
+          identification: identification,
+          signatureStatus: SignatureStatus.matched,
+          expectedSignature: definition.identity.signature,
+          definition: definition,
+          definitionSource: source,
+        );
+
+      case DefinitionMissing(:final reason)
+          when identification.family == EcuFamily.speeduino:
+        // A Speeduino on another release still reads mostly right through the
+        // shipped definition - enough to see what it is doing - but page
+        // offsets may have moved, so writing stays off until the right
+        // definition is chosen.
+        final bundled = await library.bundled();
+        _client?.useDefinition(bundled);
+        return EcuConnected(
+          port: port,
+          identification: identification,
+          signatureStatus: SignatureStatus.mismatched,
+          expectedSignature: bundled.identity.signature,
+          definition: bundled,
+          definitionSource: DefinitionSource.bundled,
+          definitionProblem: reason,
+        );
+
+      case DefinitionMissing(:final reason):
+        // Nothing FoxTune has describes this ECU. Staying connected lets the
+        // user choose the file without starting over.
+        return EcuConnected(
+          port: port,
+          identification: identification,
+          signatureStatus: SignatureStatus.unknown,
+          expectedSignature: null,
+          definitionProblem: reason,
+        );
+    }
+  }
+
+  /// Uses [source], a definition the user chose, for the connected ECU.
+  ///
+  /// Throws [DefinitionMismatchException] if it is for different firmware;
+  /// the connection is left as it was.
+  Future<void> adoptDefinition(String source) async {
+    final current = state;
+    if (current is! EcuConnected) return;
+    final library = ref.read(definitionLibraryProvider);
+    final definition = await library.adopt(
+      source,
+      signature: current.identification.signature,
+    );
+    state = await _connected(
+      current.port,
+      current.identification,
+      DefinitionFound(definition, DefinitionSource.picked),
+      library,
+    );
+  }
+
+  /// Looks for the connected ECU's definition again - after going online,
+  /// say.
+  Future<void> retryDefinition() async {
+    final current = state;
+    if (current is! EcuConnected) return;
+    final library = ref.read(definitionLibraryProvider);
+    final lookup = await library.find(current.identification);
+    if (state != current) return;
+    state = await _connected(
+      current.port,
+      current.identification,
+      lookup,
+      library,
+    );
   }
 
   /// Connects again to the ECU last tried, by the same route.

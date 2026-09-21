@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:foxtune_ini/foxtune_ini.dart';
@@ -201,10 +202,15 @@ class TuneState {
 
   // --- Raw element access --------------------------------------------------
 
-  /// Reads the raw integer at [index] within [field] on [page].
+  /// Reads the stored value at [index] within [field] on [page], before any
+  /// scale or translate is applied.
+  ///
+  /// A whole number for the integer types, and the float itself for `F32` -
+  /// unrounded. rusEFI keeps lambda targets, injector flow and much else as
+  /// floats; rounding them here would make a 0.98 lambda target read as 1.
   ///
   /// [index] is the element index for arrays and ignored for scalars.
-  int? readRaw(int page, IniField field, [int index = 0]) {
+  num? readRaw(int page, IniField field, [int index = 0]) {
     final offset = field.offset;
     if (offset == null) return null;
     final bytes = _pages[page - 1];
@@ -220,15 +226,18 @@ class TuneState {
       IniDataType.s16 => view.getInt16(at, Endian.little),
       IniDataType.u32 => view.getUint32(at, Endian.little),
       IniDataType.s32 => view.getInt32(at, Endian.little),
-      IniDataType.f32 => view.getFloat32(at, Endian.little).round(),
+      IniDataType.f32 => view.getFloat32(at, Endian.little),
     };
   }
 
-  /// Writes a raw integer, clamped to what the storage type can hold.
+  /// Writes a stored value, before scale and translate.
   ///
-  /// Clamping here is the last line of defence against a value that would wrap
-  /// around - 256 becoming 0 in a U08 would turn a rich cell into a lean one.
-  void writeRaw(int page, IniField field, int value, [int index = 0]) {
+  /// Integer types are rounded to the nearest whole number and clamped to what
+  /// the type can hold. Clamping here is the last line of defence against a
+  /// value that would wrap around - 256 becoming 0 in a U08 would turn a rich
+  /// cell into a lean one. `F32` stores [value] as it is, limited only to what
+  /// a float can represent.
+  void writeRaw(int page, IniField field, num value, [int index = 0]) {
     final offset = field.offset;
     if (offset == null) {
       throw ArgumentError('Field ${field.name} has no offset and cannot be '
@@ -241,8 +250,21 @@ class TuneState {
           'page $page');
     }
 
-    final clamped = clampToType(value, field.type);
     final view = ByteData.sublistView(bytes);
+    if (field.type.isFloat) {
+      if (value.isNaN) {
+        throw ArgumentError('Writing ${field.name}[$index]: not a number');
+      }
+      view.setFloat32(
+        at,
+        value.toDouble().clamp(-_maxFloat32, _maxFloat32),
+        Endian.little,
+      );
+      _dirtyPages.add(page);
+      return;
+    }
+
+    final clamped = clampToType(value.round(), field.type);
     switch (field.type) {
       case IniDataType.u08:
         view.setUint8(at, clamped);
@@ -257,16 +279,19 @@ class TuneState {
       case IniDataType.s32:
         view.setInt32(at, clamped, Endian.little);
       case IniDataType.f32:
-        view.setFloat32(at, clamped.toDouble(), Endian.little);
+        throw StateError('unreachable: floats are written above');
     }
     _dirtyPages.add(page);
   }
+
+  /// The largest finite value a 32-bit float holds.
+  static const _maxFloat32 = 3.4028234663852886e38;
 
   // --- Bitfield access -----------------------------------------------------
 
   /// Reads the value packed into [field]'s bits.
   int? readBits(int page, IniBitsField field) {
-    final raw = readRaw(page, field);
+    final raw = readRaw(page, field)?.toInt();
     if (raw == null) return null;
     final width = field.highBit - field.lowBit + 1;
     return (raw >> field.lowBit) & ((1 << width) - 1);
@@ -278,13 +303,29 @@ class TuneState {
   /// injector pairing share one - so a bitfield write that does not merge
   /// would silently reset whatever else lives there.
   void writeBits(int page, IniBitsField field, int value) {
-    final current = readRaw(page, field) ?? 0;
+    final current = readRaw(page, field)?.toInt() ?? 0;
     final width = field.highBit - field.lowBit + 1;
     final mask = ((1 << width) - 1) << field.lowBit;
     writeRaw(page, field, (current & ~mask) | ((value << field.lowBit) & mask));
   }
 
   /// Clamps [value] into the representable range of [type].
+  /// The smallest change [field] can store, in engineering units, given its
+  /// resolved [scale].
+  ///
+  /// For an integer type that is one count of the scale. A float has no such
+  /// step, so the precision the definition shows it at stands in for one: a
+  /// field declared with 2 digits steps by 0.01.
+  static double stepOf(IniField field, double scale) {
+    if (!field.type.isFloat) return scale.abs();
+    final digits = switch (field) {
+      IniScalarField(:final digits) => digits,
+      IniArrayField(:final digits) => digits,
+      IniBitsField() => null,
+    };
+    return math.pow(10, -(digits ?? 3)).toDouble();
+  }
+
   static int clampToType(int value, IniDataType type) {
     final (int lo, int hi) = switch (type) {
       IniDataType.u08 => (0, 255),

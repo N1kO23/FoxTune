@@ -4,4 +4,6 @@
 library;
 
 export 'src/testing/engine_simulation.dart';
+export 'src/testing/fake_rusefi.dart';
 export 'src/testing/fake_speeduino.dart';
+export 'src/testing/fake_ts_ecu.dart';

@@ -17,6 +17,19 @@ class SocketEcuLink implements EcuLink {
       onError: _controller.addError,
       onDone: () => unawaited(close()),
     );
+    // A write to a peer that has gone - a bridge that dropped off the WiFi, a
+    // simulator that was stopped - fails through `done`, not through the
+    // stream. Unwatched, that failure escapes as an unhandled error; watched,
+    // it fails the command in flight and ends the link like any other loss.
+    unawaited(
+      _socket.done.then<void>(
+        (_) {},
+        onError: (Object error, StackTrace stack) {
+          if (_open) _controller.addError(error, stack);
+          unawaited(close());
+        },
+      ),
+    );
   }
 
   /// Connects to an ECU bridge at [host]:[port].

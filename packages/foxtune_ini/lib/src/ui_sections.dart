@@ -495,15 +495,30 @@ IniDialogIndicator? parseIndicator(String value) {
   final expression = braceContents(atoms.first);
   if (expression.isEmpty) return null;
 
-  final args = _Arguments.of(atoms.skip(1));
+  // The two labels come next, by position. Either may be written in braces -
+  // a template with live lookups in it - so they are taken before the
+  // arguments are sorted, or a braced label would be read as a condition.
+  ({String text, bool template}) label(int index) {
+    if (index >= atoms.length) return (text: '', template: false);
+    final atom = atoms[index];
+    return isBraceGroup(atom)
+        ? (text: braceContents(atom), template: true)
+        : (text: unquote(atom), template: false);
+  }
+
+  final off = label(1);
+  final on = label(2);
+  final args = _Arguments.of(atoms.skip(3));
   return IniDialogIndicator(
     expression: expression,
-    offLabel: args.value(0) ?? '',
-    onLabel: args.value(1) ?? '',
-    offBackground: args.value(2),
-    offForeground: args.value(3),
-    onBackground: args.value(4),
-    onForeground: args.value(5),
+    offLabel: off.text,
+    onLabel: on.text,
+    offLabelIsTemplate: off.template,
+    onLabelIsTemplate: on.template,
+    offBackground: args.value(0),
+    offForeground: args.value(1),
+    onBackground: args.value(2),
+    onForeground: args.value(3),
     enableCondition: args.enable,
     visibleCondition: args.visible,
   );

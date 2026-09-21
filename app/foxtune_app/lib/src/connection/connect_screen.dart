@@ -2,11 +2,13 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:foxtune_protocol/foxtune_protocol.dart' show EcuFamily;
 import 'package:foxtune_transport/foxtune_transport.dart';
 
 import '../autotune/autotune_screen.dart';
 import '../dashboard/dashboard_screen.dart';
 import '../dashboard/gauge_status.dart';
+import '../definitions/choose_definition.dart';
 import '../settings/settings_screen.dart';
 import '../tune/msq_actions.dart';
 import '../tune/recovered_edits.dart';
@@ -67,10 +69,12 @@ class ConnectScreen extends ConsumerWidget {
       ),
       body: SafeArea(
         child: switch (connection) {
-          EcuConnecting(:final port) => _Busy(
+          EcuConnecting(:final port, :final stage) => _Busy(
             message:
+                stage ??
                 'FOX1: Commencing operation. Connecting to ${port.label}...',
           ),
+          EcuConnected(definition: null) => _NeedsDefinition(state: connection),
           EcuConnected() => _ConnectedShell(connection: connection),
           EcuConnectionFailed() => _WithRecoveredEdits(
             child: _FailedView(state: connection),
@@ -311,7 +315,111 @@ class _SignatureCard extends StatelessWidget {
                   Text(title, style: theme.textTheme.titleMedium),
                   const SizedBox(height: 4),
                   Text(detail, style: theme.textTheme.bodySmall),
+                  if (state.signatureStatus != SignatureStatus.matched) ...[
+                    const SizedBox(height: 8),
+                    const _DefinitionActions(),
+                  ],
                 ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Choosing the definition file, and - for rusEFI - looking for it again.
+class _DefinitionActions extends ConsumerWidget {
+  const _DefinitionActions();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final connection = ref.watch(connectionProvider);
+    final rusEfi =
+        connection is EcuConnected &&
+        connection.identification.family == EcuFamily.rusefi;
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        FilledButton.tonalIcon(
+          onPressed: () => chooseDefinition(context, ref),
+          icon: const Icon(Icons.file_open_outlined),
+          label: const Text('Choose the definition file'),
+        ),
+        if (rusEfi)
+          OutlinedButton.icon(
+            onPressed: () =>
+                ref.read(connectionProvider.notifier).retryDefinition(),
+            icon: const Icon(Icons.refresh),
+            label: const Text('Download again'),
+          ),
+      ],
+    );
+  }
+}
+
+/// Connected, but with nothing that describes this ECU.
+///
+/// Without a definition the bytes mean nothing - not a gauge, not a setting -
+/// so rather than tabs full of empty screens this says what was tried and
+/// what can be done about it.
+class _NeedsDefinition extends ConsumerWidget {
+  const _NeedsDefinition({required this.state});
+  final EcuConnected state;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final rusEfi = state.identification.family == EcuFamily.rusefi;
+    final where = rusEfi
+        ? 'rusEFI generates one for every board and build. It is in the '
+              'firmware bundle for your board, zipped on the drive a rusEFI '
+              'ECU mounts over USB (rusefi.ini.zip), or among the generated '
+              'files if you built the firmware yourself.'
+        : 'It comes with the firmware.';
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.all(24),
+          children: [
+            Icon(
+              Icons.description_outlined,
+              size: 48,
+              color: theme.colorScheme.primary,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'This ECU needs its definition',
+              style: theme.textTheme.titleLarge,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            SelectableText(
+              state.identification.signature,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              '${state.definitionProblem ?? 'No definition was found.'}'
+              '\n\n$where Once chosen it is kept, and not asked for again.',
+              style: theme.textTheme.bodyMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            const Center(child: _DefinitionActions()),
+            const SizedBox(height: 12),
+            Center(
+              child: TextButton.icon(
+                onPressed: () => confirmDisconnect(context, ref),
+                icon: const Icon(Icons.link_off),
+                label: const Text('Disconnect'),
               ),
             ),
           ],
@@ -598,7 +706,10 @@ class _AddressDialogState extends State<_AddressDialog> {
       autofocus: true,
       decoration: const InputDecoration(
         labelText: 'Address',
-        helperText: 'host or host:port (default port 2000)',
+        helperText:
+            'host or host:port - 2000 by default; the rusEFI simulator '
+            'listens on 29001',
+        helperMaxLines: 2,
       ),
       onSubmitted: (_) => _submit(),
     ),

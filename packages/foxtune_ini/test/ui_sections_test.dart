@@ -240,6 +240,23 @@ void main() {
       expect(lamp.onBackground, 'red');
     });
 
+    test('reads braced indicator labels as templates', () {
+      // rusEFI's diagnostic lamps say what is wrong through a live lookup.
+      final lamp = parse('''
+[UserDefined]
+    dialog = d, "D"
+        indicator = { diag > 1 }, { Out 1: bitStringValue(errs, diag) }, { Out 1: bitStringValue(errs, diag)}, green, black, red, black, { shown }
+''').dialogs.single.items.single as IniDialogIndicator;
+
+      expect(lamp.expression, 'diag > 1');
+      expect(lamp.offLabel, 'Out 1: bitStringValue(errs, diag)');
+      expect(lamp.offLabelIsTemplate, isTrue);
+      expect(lamp.onLabelIsTemplate, isTrue);
+      expect(lamp.onBackground, 'red');
+      // A trailing group is still a condition.
+      expect(lamp.enableCondition, 'shown');
+    });
+
     test('collects setting presets under their selector', () {
       final selector = parse('''
 [UserDefined]

@@ -20,7 +20,10 @@ class CommitResult {
   /// Whether the ECU's own CRC matched what we intended to store.
   final bool verified;
 
-  /// Whether the page was committed to EEPROM.
+  /// Whether the page was committed to permanent storage.
+  ///
+  /// `false` for a page the definition gives no burn command - working memory
+  /// that took effect when it was written.
   final bool burned;
 
   @override
@@ -38,7 +41,8 @@ class CommitResult {
 /// 3. Write to RAM.
 /// 4. Ask the ECU for the page's CRC and compare. A write that did not land
 ///    intact must never be burned.
-/// 5. Only then burn to EEPROM.
+/// 5. Only then burn to permanent storage - where the page has a burn
+///    command at all. The commands are the definition's, through the client.
 ///
 /// Verification before burning is the step that matters most: RAM can be
 /// re-written, but a corrupt page committed to EEPROM is what strands someone
@@ -48,8 +52,7 @@ class TuneWriter {
     required this.client,
     required this.tune,
     required this.permission,
-    required this.blockingFactor,
-    this.burnCommand = SpeeduinoCommand.burn,
+    this.blockingFactor,
     this.onSnapshot,
   });
 
@@ -59,11 +62,9 @@ class TuneWriter {
   /// Whether writes are allowed, and why not if they are refused.
   final WritePermission permission;
 
-  /// Maximum payload per transfer, from the definition.
-  final int blockingFactor;
-
-  /// Burn command variant the definition declares.
-  final int burnCommand;
+  /// Maximum payload per transfer. The client's commands carry the
+  /// definition's when this is left out.
+  final int? blockingFactor;
 
   /// Invoked once, before the first write of the session, with a copy of the
   /// tune as it was. Intended to persist a restore point.
@@ -105,14 +106,16 @@ class TuneWriter {
           '0x${expected.toRadixString(16)}. Nothing was burned.');
     }
 
-    await client.burnPage(page, burnCommand: burnCommand);
+    final burned = await client.burnPage(page);
+    // Clean either way: a page with no burn command is as committed as it
+    // gets once it has been written and verified.
     tune.markClean(page);
 
     return CommitResult(
       page: page,
       bytesWritten: bytes.length,
       verified: true,
-      burned: true,
+      burned: burned,
     );
   }
 
@@ -146,7 +149,7 @@ class TuneWriter {
   static Future<TuneState> readAll(
     EcuClient client, {
     required TuneState into,
-    required int blockingFactor,
+    int? blockingFactor,
     void Function(int page, int of)? onProgress,
   }) async {
     final sizes = into.definition.constants.pageSizes;

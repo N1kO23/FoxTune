@@ -61,6 +61,9 @@ class IniPreprocessor {
       if (text.isEmpty) continue;
 
       if (text.startsWith('#')) {
+        // A `#` with no directive word after it is a comment: rusEFI heads
+        // blocks of its definition with lines like `# Digital outputs`.
+        if (text.length == 1 || text.codeUnitAt(1) <= 0x20) continue;
         final directive = _directiveOf(text);
         switch (directive.name) {
           case 'if':

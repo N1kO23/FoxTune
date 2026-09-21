@@ -130,7 +130,9 @@ class IniParser {
       final value = assignment.value;
 
       switch (section) {
-        case 'MegaTune':
+        // Either section may carry the identity: Speeduino puts it under
+        // [MegaTune], rusEFI under [TunerStudio].
+        case 'MegaTune' || 'TunerStudio':
           switch (key) {
             case 'signature':
               signature = unquote(value);
@@ -140,10 +142,9 @@ class IniParser {
               versionInfo = unquote(value);
             case 'MTversion':
               mtVersion = unquote(value);
+            case 'iniSpecVersion':
+              iniSpecVersion = unquote(value);
           }
-
-        case 'TunerStudio':
-          if (key == 'iniSpecVersion') iniSpecVersion = unquote(value);
 
         case 'SettingGroups':
           _parseSettingGroup(key, value, settingGroups, line);
@@ -351,9 +352,15 @@ class IniParser {
     }
 
     var i = 2;
+    // rusEFI's generator writes a few fields with an empty argument before
+    // the offset - `i2c1_speed = bits, U08, , 4216, [0:2], ...` - which
+    // TunerStudio reads past.
+    while (i < tokens.length && tokens[i].trim().isEmpty) {
+      i++;
+    }
     int? offset;
-    // An offset is present only when position 2 is a bare integer, or the
-    // symbolic `lastOffset`.
+    // An offset is present only when the next argument is a bare integer, or
+    // the symbolic `lastOffset`.
     if (i < tokens.length) {
       final candidate = tokens[i].trim();
       if (!candidate.startsWith('[') && !candidate.startsWith('"')) {

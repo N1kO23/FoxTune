@@ -204,7 +204,7 @@ class SettingView {
       });
 
   /// Smallest change the storage can represent, in engineering units.
-  double get step => _scale.abs();
+  double get step => TuneState.stepOf(field, _scale);
 
   double get _scale {
     final scale = resolver.valueOf(switch (field) {
@@ -253,7 +253,7 @@ class SettingView {
       tune.writeHost(name, clamped, index);
       return;
     }
-    tune.writeRaw(at, field, ((clamped - _translate) / _scale).round(), index);
+    tune.writeRaw(at, field, (clamped - _translate) / _scale, index);
   }
 
   /// Clamps [candidate] into the definition's declared bounds.

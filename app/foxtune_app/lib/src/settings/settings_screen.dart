@@ -297,6 +297,14 @@ class _MenuList extends StatelessWidget {
         if (!scope.test(item.condition)) continue;
         final before = entries.length;
         for (final child in item.children) {
+          if (child.isSeparator) {
+            // A rule between the group's own entries, where there are any
+            // on both sides of it.
+            if (!searching && entries.length > before) {
+              entries.add(const Divider(height: 1, indent: 30));
+            }
+            continue;
+          }
           addLeaf(child, indent: 1);
         }
         if (entries.length > before && !searching) {
