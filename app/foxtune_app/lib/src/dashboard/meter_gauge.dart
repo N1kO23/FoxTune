@@ -9,19 +9,15 @@ import 'gauge_status.dart';
 /// Drawn rather than charted because the job is "ratio against a limit", read
 /// at a glance by angular position. The track is a single recessive arc and the
 /// value arc is one hue, so magnitude reads without a legend.
+///
+/// Its text is set in the same sizes as the rest of the dashboard - captions
+/// like a lamp's label, the value like a digital readout's - and kept inside
+/// the arc: a line too long for the space shrinks rather than running into it.
 class MeterGauge extends StatelessWidget {
-  const MeterGauge({
-    super.key,
-    required this.spec,
-    required this.value,
-    this.compact = false,
-  });
+  const MeterGauge({super.key, required this.spec, required this.value});
 
   final GaugeSpec spec;
   final double? value;
-
-  /// Tightens the layout for narrow screens.
-  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -29,6 +25,12 @@ class MeterGauge extends StatelessWidget {
     final scheme = theme.colorScheme;
     final status = spec.statusFor(value);
     final accent = StatusPalette.forStatus(status, scheme);
+    final caption = theme.textTheme.labelSmall?.copyWith(
+      color: scheme.onSurfaceVariant,
+    );
+
+    // One line of text, shrunk to the width it is given if it needs to be.
+    Widget line(Widget child) => FittedBox(fit: BoxFit.scaleDown, child: child);
 
     return Semantics(
       label:
@@ -51,45 +53,54 @@ class MeterGauge extends StatelessWidget {
             dangerColor: StatusPalette.critical,
             hasValue: value != null,
           ),
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  spec.label.toUpperCase(),
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                    letterSpacing: 1.1,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                // The value wears a text token, not the status colour; the arc
-                // and the badge carry the state.
-                Text(
-                  spec.format(value),
-                  style:
-                      (compact
-                              ? theme.textTheme.headlineSmall
-                              : theme.textTheme.displaySmall)
-                          ?.copyWith(
-                            fontFeatures: const [FontFeature.tabularFigures()],
-                            fontWeight: FontWeight.w600,
-                            color: scheme.onSurface,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              // The largest box that sits clear of the arc: its corners lie
+              // just inside the inner edge of the track.
+              final inner = _MeterPainter.innerRadius(
+                constraints.biggest.shortestSide,
+              );
+              final width = inner * 1.5;
+              return Center(
+                child: SizedBox(
+                  width: width,
+                  height: inner * 1.3,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: SizedBox(
+                      width: width,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          line(Text(spec.label, maxLines: 1, style: caption)),
+                          // The value wears a text token, not the status
+                          // colour; the arc and the badge carry the state.
+                          line(
+                            Text(
+                              spec.format(value),
+                              maxLines: 1,
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                fontFeatures: const [
+                                  FontFeature.tabularFigures(),
+                                ],
+                                fontWeight: FontWeight.w600,
+                                color: scheme.onSurface,
+                              ),
+                            ),
                           ),
-                ),
-                if (spec.units.isNotEmpty)
-                  Text(
-                    spec.units,
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
+                          if (spec.units.isNotEmpty)
+                            line(Text(spec.units, maxLines: 1, style: caption)),
+                          if (status.isAlarm) ...[
+                            const SizedBox(height: 2),
+                            line(AlarmBadge(status: status)),
+                          ],
+                        ],
+                      ),
                     ),
                   ),
-                if (status.isAlarm) ...[
-                  const SizedBox(height: 4),
-                  AlarmBadge(status: status),
-                ],
-              ],
-            ),
+                ),
+              );
+            },
           ),
         ),
       ),
@@ -150,12 +161,21 @@ class _MeterPainter extends CustomPainter {
   static const double _startAngle = math.pi * 0.75;
   static const double _sweepAngle = math.pi * 1.5;
 
+  static double _strokeFor(double side) => side * 0.085;
+
+  static double _radiusFor(double side) => (side - _strokeFor(side)) / 2 - 2;
+
+  /// How far from the centre the track's inner edge is, on a dial [side]
+  /// across: the room the text has.
+  static double innerRadius(double side) =>
+      _radiusFor(side) - _strokeFor(side) / 2;
+
   @override
   void paint(Canvas canvas, Size size) {
-    final stroke = size.shortestSide * 0.085;
+    final stroke = _strokeFor(size.shortestSide);
     final rect = Rect.fromCircle(
       center: size.center(Offset.zero),
-      radius: (size.shortestSide - stroke) / 2 - 2,
+      radius: _radiusFor(size.shortestSide),
     );
 
     final track = Paint()

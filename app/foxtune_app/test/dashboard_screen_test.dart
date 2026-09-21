@@ -130,7 +130,7 @@ void main() {
     // Only available because the computed-channel expression was evaluated.
     expect(find.text('90'), findsOneWidget);
     // The tachometer's own title and units, from the definition.
-    expect(find.text('ENGINE SPEED'), findsOneWidget);
+    expect(find.text('Engine Speed'), findsOneWidget);
     expect(find.text('RPM'), findsWidgets);
   });
 

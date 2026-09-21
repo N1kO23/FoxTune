@@ -89,12 +89,7 @@ class GaugeView extends StatelessWidget {
         final value = catalog.readingOf(ref!);
         return switch (placement.style) {
           GaugeStyle.dial => Center(
-            child: MeterGauge(
-              spec: spec,
-              value: value,
-              // The full-size value only fits a roomy dial.
-              compact: design.shortestSide < 160,
-            ),
+            child: MeterGauge(spec: spec, value: value),
           ),
           GaugeStyle.bar => BarGauge(spec: spec, value: value),
           // The tile sizes its own height; give it the width and let it
