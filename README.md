@@ -63,7 +63,7 @@ added without disturbing anything above it.
 |                   |                                                                                                                                                    |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Connect**       | USB serial or TCP, with a signature check against the loaded definition                                                                            |
-| **Dashboard**     | Live gauges and status lamps, decoded from `[OutputChannels]` at ~30 Hz                                                                            |
+| **Dashboard**     | Pages of dials, bars, readouts, lamps and time graphs you arrange yourself, from the definition's gauges; limits follow Gauge Limits           |
 | **Tables**        | Editable grid with keyboard navigation, interpolate, smooth, scale                                                                                 |
 | **Settings**      | Trigger setup, engine constants, ASE, WUE and the rest - screens generated from the definition's `[Menu]` and `[UserDefined]`, not hand-written    |
 | **Curves**        | Editable point list and plot, with the live operating point marked                                                                                 |
@@ -184,6 +184,29 @@ Fahrenheit would silently report the wrong number.
 Expressions that use functions FoxTune does not implement evaluate to `null`, and that
 propagates: a gauge reads as unavailable rather than showing a fabricated value.
 
+## Dashboard
+
+The dashboard is pages of gauges you arrange: tabs such as "Driving" or "Tuning", each a
+12-column grid you add gauges to, drag them around and resize them on. A page scales to the
+screen as a whole, so a layout made on a laptop keeps its shape on a phone - larger or smaller,
+never rearranged.
+
+Nothing about a gauge is typed into FoxTune. Which gauges exist, their ranges, their warning and
+danger points, their units and precision all come from the definition's
+`[GaugeConfigurations]`, and the first page starts as its `[FrontPage]` plus the AFR and a few
+readouts it leaves off. Where a limit is an expression it is evaluated each time the gauge is
+drawn - and the tachometer's are exactly the Gauge Limits settings (`{rpmwarn}`, `{rpmdang}`,
+`{rpmhigh}`), so the RPM gauge warns where the tuner said it should. Indicators are the front
+page's own, lit in the colours it gives them.
+
+Any numeric gauge can be a dial, a bar, a digital readout or a time graph. A time graph shows up
+to four channels as **lanes** sharing a time axis, each against its own scale, rather than lines
+overlaid on one plot: RPM runs to thousands and AFR to fifteen, and giving each line its own
+scale on a shared axis would make how high a line sits mean something different for every line.
+
+Layouts are saved per ECU family as they are edited. A gauge the current definition no longer
+has - from a different firmware - keeps its place and says so, rather than vanishing.
+
 ## Datalogging
 
 FoxTune records to MegaLogViewer-compatible `.msl` - a tab-separated file with the column
@@ -255,7 +278,8 @@ the definition, so there is nothing here to generate a screen from.
 
 Gauge limits and a few similar values are `[PcVariables]`: they live on the tuning computer
 rather than on the ECU, are seeded from the definition's factory values, and are marked as such
-in the UI. They are not burned, and they do not yet persist between sessions.
+in the UI. They are not burned; FoxTune keeps them on the device between sessions, per ECU family,
+so a firmware update does not reset them.
 
 ## Autotuning
 

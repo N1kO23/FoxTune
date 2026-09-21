@@ -7,6 +7,8 @@ import 'package:path_provider/path_provider.dart';
 
 import '../connection/connection_controller.dart';
 import '../connection/connection_state.dart';
+import '../storage/json_store.dart';
+import 'host_values.dart';
 
 /// Whether the user has deliberately enabled writing.
 ///
@@ -80,6 +82,9 @@ class TuneController extends AsyncNotifier<TuneState?> {
   TuneState? _baseline;
   TuneValueResolver? _resolver;
 
+  /// Host-side values as last saved, so a save happens only on a change.
+  Map<String, List<double>> _savedHost = const {};
+
   /// The tune as last synchronised with the ECU.
   TuneState? get baseline => _baseline;
 
@@ -118,6 +123,10 @@ class TuneController extends AsyncNotifier<TuneState?> {
       onProgress: (page, total) => _progress = TuneLoadProgress(page, total),
     );
     _progress = null;
+    // Gauge Limits and other host-side values live on this computer, not the
+    // ECU, so they come back from the last session rather than from the read.
+    _savedHost = await HostValues(ref.read(jsonStoreProvider))
+        .restoreInto(tune);
     // Everything from here on is compared against what the ECU actually holds.
     _baseline = tune.copy();
     _resolver = TuneValueResolver(tune);
@@ -137,6 +146,10 @@ class TuneController extends AsyncNotifier<TuneState?> {
     // A setting just changed, and other settings' scales, bounds and
     // visibility conditions may be expressed in terms of it.
     _resolver?.invalidate();
+    // If it was a host-side one - a Gauge Limit - it has to outlive the
+    // session. Nothing is written unless one actually changed.
+    _savedHost = HostValues(ref.read(jsonStoreProvider))
+        .saveIfChanged(tune, _savedHost);
     state = AsyncValue.data(tune);
   }
 

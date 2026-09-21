@@ -1,55 +1,279 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:foxtune_ini/foxtune_ini.dart';
 import 'package:foxtune_protocol/foxtune_protocol.dart';
 
-import '../connection/connection_controller.dart';
 import '../connection/connection_state.dart';
 import '../logging/record_button.dart';
 import '../tune/tune_controller.dart';
 import 'dashboard_controller.dart';
+import 'dashboard_editor.dart';
+import 'dashboard_grid.dart';
+import 'gauge_catalog.dart';
 import 'gauge_status.dart';
-import 'meter_gauge.dart';
-import 'stat_tile.dart';
+import 'layout/dashboard_layout.dart';
+import 'layout/layout_controller.dart';
+import 'sample_history.dart';
 
-/// The live gauge cluster.
+/// The live gauge cluster: pages of gauges the tuner arranges.
 ///
-/// Read-only by construction: nothing here can change the tune. That is what
-/// makes it safe to hand to someone with an engine running.
-class DashboardScreen extends ConsumerWidget {
+/// Read-only by construction: nothing here can change the tune. Arranging
+/// gauges changes only the layout, never a setting - which is what makes it
+/// safe to hand to someone with an engine running.
+///
+/// Which gauges exist, their ranges and their warning points all come from
+/// the definition's `[GaugeConfigurations]`; the first page starts as its
+/// `[FrontPage]`. Limits that are expressions - the tachometer's are the
+/// Gauge Limits settings - are evaluated each time a gauge is drawn, so they
+/// follow the tune.
+class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key, required this.connection});
 
   final EcuConnected connection;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final sample = ref.watch(realtimeProvider);
-    final monitor = ref.watch(realtimeMonitorProvider);
-    final snapshot = sample.valueOrNull;
+  ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
+}
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final narrow = constraints.maxWidth < 600;
-        return ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            _StatusBar(
-              connection: connection,
-              monitor: monitor,
-              hasData: snapshot != null,
-            ),
-            const SizedBox(height: 16),
-            if (snapshot == null)
-              const _WaitingForData()
-            else ...[
-              _MeterRow(snapshot: snapshot, narrow: narrow),
-              const SizedBox(height: 20),
-              _FlagRow(snapshot: snapshot),
-              const SizedBox(height: 20),
-              _TileGrid(snapshot: snapshot, width: constraints.maxWidth),
-            ],
-          ],
+class _DashboardScreenState extends ConsumerState<DashboardScreen> {
+  String? _pageId;
+  bool _editing = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final snapshot = ref.watch(realtimeProvider).valueOrNull;
+    final monitor = ref.watch(realtimeMonitorProvider);
+    final layout = ref.watch(dashboardLayoutProvider);
+    final definition = widget.connection.definition;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: _StatusBar(
+            connection: widget.connection,
+            monitor: monitor,
+            hasData: snapshot != null,
+          ),
+        ),
+        Expanded(
+          child: definition == null
+              ? const _Message(
+                  text:
+                      'No ECU definition is loaded, so there are no gauges '
+                      'to show.',
+                )
+              : layout.when(
+                  loading: () =>
+                      const Center(child: CircularProgressIndicator()),
+                  error: (error, _) => _Message(text: '$error'),
+                  data: (layout) {
+                    if (layout.pages.isEmpty) {
+                      return const _Message(text: 'No dashboard pages.');
+                    }
+                    final page =
+                        layout.pageById(_pageId ?? '') ?? layout.pages.first;
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _PageBar(
+                          pages: layout.pages,
+                          current: page,
+                          editing: _editing,
+                          definition: definition,
+                          onSelect: (id) => setState(() => _pageId = id),
+                          onToggleEditing: () =>
+                              setState(() => _editing = !_editing),
+                        ),
+                        if (snapshot == null) const _WaitingForData(),
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+                            child: DashboardPageView(
+                              page: page,
+                              editing: _editing,
+                              definition: definition,
+                              catalog: GaugeCatalog(
+                                definition: definition,
+                                resolver: ref.watch(tuneResolverProvider),
+                                realtime: snapshot,
+                              ),
+                              history: ref.watch(sampleHistoryProvider),
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Page tabs, and - while editing - adding gauges and managing pages.
+class _PageBar extends ConsumerWidget {
+  const _PageBar({
+    required this.pages,
+    required this.current,
+    required this.editing,
+    required this.definition,
+    required this.onSelect,
+    required this.onToggleEditing,
+  });
+
+  final List<DashboardPage> pages;
+  final DashboardPage current;
+  final bool editing;
+  final IniDocument definition;
+  final ValueChanged<String> onSelect;
+  final VoidCallback onToggleEditing;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final controller = ref.read(dashboardLayoutProvider.notifier);
+    final index = pages.indexWhere((p) => p.id == current.id);
+
+    Future<void> add() async {
+      final picked = await pickSource(context, definition: definition);
+      if (picked == null) return;
+      if (picked.indicator case final expression?) {
+        controller.addGauge(
+          current.id,
+          style: GaugeStyle.lamp,
+          indicator: expression,
         );
-      },
+      } else if (picked.gauge case final gauge?) {
+        controller.addGauge(
+          current.id,
+          style: GaugeStyle.dial,
+          gauges: [gauge],
+        );
+      }
+    }
+
+    Future<void> pageAction(String action) async {
+      switch (action) {
+        case 'rename':
+          final name = await askPageName(
+            context,
+            title: 'Rename page',
+            initial: current.name,
+          );
+          if (name != null) controller.renamePage(current.id, name);
+        case 'new':
+          final name = await askPageName(
+            context,
+            title: 'New page',
+            initial: 'Page ${pages.length + 1}',
+          );
+          if (name != null) onSelect(controller.addPage(name));
+        case 'left':
+          controller.movePage(current.id, -1);
+        case 'right':
+          controller.movePage(current.id, 1);
+        case 'reset':
+          if (!context.mounted) return;
+          if (await confirm(
+            context,
+            title: 'Reset "${current.name}"?',
+            message:
+                'Its gauges are replaced with the ECU definition\'s '
+                'default front page.',
+            action: 'Reset',
+          )) {
+            controller.resetPage(current.id);
+          }
+        case 'delete':
+          if (!context.mounted) return;
+          if (await confirm(
+            context,
+            title: 'Delete "${current.name}"?',
+            message: 'The page and its layout are removed.',
+            action: 'Delete',
+          )) {
+            final fallback = pages[index == 0 ? 1 : index - 1];
+            controller.deletePage(current.id);
+            onSelect(fallback.id);
+          }
+      }
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Row(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (final page in pages)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: ChoiceChip(
+                        label: Text(page.name),
+                        selected: page.id == current.id,
+                        onSelected: (_) => onSelect(page.id),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          if (editing) ...[
+            IconButton(
+              tooltip: 'Add a gauge',
+              onPressed: add,
+              icon: const Icon(Icons.add_circle_outline),
+            ),
+            PopupMenuButton<String>(
+              tooltip: 'Page',
+              onSelected: pageAction,
+              itemBuilder: (_) => [
+                const PopupMenuItem(
+                  value: 'rename',
+                  child: Text('Rename page'),
+                ),
+                const PopupMenuItem(value: 'new', child: Text('New page')),
+                PopupMenuItem(
+                  value: 'left',
+                  enabled: index > 0,
+                  child: const Text('Move left'),
+                ),
+                PopupMenuItem(
+                  value: 'right',
+                  enabled: index < pages.length - 1,
+                  child: const Text('Move right'),
+                ),
+                const PopupMenuItem(
+                  value: 'reset',
+                  child: Text('Reset to default'),
+                ),
+                PopupMenuItem(
+                  value: 'delete',
+                  enabled: pages.length > 1,
+                  child: const Text('Delete page'),
+                ),
+              ],
+            ),
+          ],
+          editing
+              ? FilledButton.tonalIcon(
+                  onPressed: onToggleEditing,
+                  icon: const Icon(Icons.check),
+                  label: const Text('Done'),
+                )
+              : IconButton(
+                  tooltip: 'Edit layout',
+                  onPressed: onToggleEditing,
+                  icon: const Icon(Icons.dashboard_customize_outlined),
+                ),
+        ],
+      ),
     );
   }
 }
@@ -58,14 +282,38 @@ class _WaitingForData extends StatelessWidget {
   const _WaitingForData();
 
   @override
-  Widget build(BuildContext context) => const Padding(
-    padding: EdgeInsets.symmetric(vertical: 64),
-    child: Column(
-      children: [
-        CircularProgressIndicator(),
-        SizedBox(height: 16),
-        Text('Waiting for the first realtime sample...'),
-      ],
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+      child: Row(
+        children: [
+          const SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            'Waiting for the first realtime sample...',
+            style: theme.textTheme.bodySmall,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Message extends StatelessWidget {
+  const _Message({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(32),
+      child: Text(text, textAlign: TextAlign.center),
     ),
   );
 }
@@ -152,79 +400,6 @@ class _StatusBar extends ConsumerWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-class _MeterRow extends ConsumerWidget {
-  const _MeterRow({required this.snapshot, required this.narrow});
-
-  final RealtimeSnapshot snapshot;
-  final bool narrow;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final meters = DefaultGauges.primary(ref.watch(temperatureUnitProvider));
-    return Wrap(
-      spacing: 16,
-      runSpacing: 16,
-      alignment: WrapAlignment.center,
-      children: [
-        for (final spec in meters)
-          SizedBox(
-            width: narrow ? 150 : 200,
-            child: MeterGauge(
-              spec: spec,
-              value: snapshot[spec.channel],
-              compact: narrow,
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-class _FlagRow extends StatelessWidget {
-  const _FlagRow({required this.snapshot});
-
-  final RealtimeSnapshot snapshot;
-
-  @override
-  Widget build(BuildContext context) => Wrap(
-    spacing: 8,
-    runSpacing: 8,
-    children: [
-      for (final flag in DefaultGauges.flags)
-        FlagLamp(label: flag.label, on: snapshot.flag(flag.channel)),
-    ],
-  );
-}
-
-class _TileGrid extends ConsumerWidget {
-  const _TileGrid({required this.snapshot, required this.width});
-
-  final RealtimeSnapshot snapshot;
-  final double width;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final tiles = DefaultGauges.secondary(ref.watch(temperatureUnitProvider));
-    // Roughly 160px per tile, at least two across even on a phone.
-    final columns = (width / 170).floor().clamp(2, 6);
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: tiles.length,
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: columns,
-        crossAxisSpacing: 10,
-        mainAxisSpacing: 10,
-        mainAxisExtent: 104,
-      ),
-      itemBuilder: (context, index) {
-        final spec = tiles[index];
-        return StatTile(spec: spec, value: snapshot[spec.channel]);
-      },
     );
   }
 }

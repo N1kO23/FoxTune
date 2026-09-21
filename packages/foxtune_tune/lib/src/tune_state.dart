@@ -140,6 +140,44 @@ class TuneState {
     slot[index] = value;
   }
 
+  /// Host-side values that differ from the definition's factory values.
+  ///
+  /// What needs saving between sessions: gauge warning points and the like,
+  /// which exist nowhere but on the tuning computer. Values still at their
+  /// factory setting are left out, so a later definition that changes a
+  /// default is not overruled by a copy of the old one.
+  Map<String, List<double>> hostOverrides() {
+    final overrides = <String, List<double>>{};
+    for (final entry in _host.entries) {
+      final defaults = definition.defaultValues[entry.key];
+      final values = entry.value;
+      for (var i = 0; i < values.length; i++) {
+        final factory =
+            defaults != null && i < defaults.length ? defaults[i] : 0.0;
+        if (values[i] != factory) {
+          overrides[entry.key] = List.of(values);
+          break;
+        }
+      }
+    }
+    return overrides;
+  }
+
+  /// Puts back host-side values saved from an earlier session.
+  ///
+  /// A name this definition no longer declares is skipped, and a list longer
+  /// than the variable is cut short: a saved file can outlive the firmware it
+  /// was written for, and it must not be able to reach past what exists now.
+  void restoreHost(Map<String, List<double>> values) {
+    for (final entry in values.entries) {
+      final slot = _hostSlot(entry.key);
+      if (slot == null) continue;
+      for (var i = 0; i < slot.length && i < entry.value.length; i++) {
+        slot[i] = entry.value[i];
+      }
+    }
+  }
+
   List<double>? _hostSlot(String name) {
     final existing = _host[name];
     if (existing != null) return existing;

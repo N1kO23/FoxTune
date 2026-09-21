@@ -1,5 +1,6 @@
 import 'package:foxtune_ini/foxtune_ini.dart';
 
+import 'label_expressions.dart';
 import 'tune_state.dart';
 import 'value_resolver.dart';
 
@@ -252,18 +253,12 @@ class TableView {
   String _unitsOf(IniArrayField field) {
     final units = field.units.trim();
     if (!units.startsWith('{') || !units.endsWith('}')) return units;
-
-    final source = units.substring(1, units.length - 1).trim();
-    final call = RegExp(r'^bitStringValue\(\s*(\w+)\s*,\s*(\w+)\s*\)$')
-        .firstMatch(source);
-    if (call == null) return '';
-
-    final options = tune.definition.findField(call.group(1)!);
-    final index = resolver.resolve(call.group(2)!);
-    if (options is! IniBitsField || index == null) return '';
-
-    final label = options.labelFor(index.toInt());
-    return label == null || label == 'INVALID' ? '' : label;
+    return evaluateLabel(
+          units.substring(1, units.length - 1),
+          definition: tune.definition,
+          resolve: resolver.resolve,
+        ) ??
+        '';
   }
 
   /// Decimal places for displaying table values.

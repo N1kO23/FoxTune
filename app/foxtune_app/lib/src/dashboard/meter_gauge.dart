@@ -86,7 +86,7 @@ class MeterGauge extends StatelessWidget {
                   ),
                 if (status.isAlarm) ...[
                   const SizedBox(height: 4),
-                  _AlarmBadge(status: status),
+                  AlarmBadge(status: status),
                 ],
               ],
             ),
@@ -98,8 +98,11 @@ class MeterGauge extends StatelessWidget {
 }
 
 /// Icon plus text, so an alarm is never signalled by colour alone.
-class _AlarmBadge extends StatelessWidget {
-  const _AlarmBadge({required this.status});
+///
+/// Shared by every gauge style, so a warning looks the same on a dial, a bar
+/// and a graph.
+class AlarmBadge extends StatelessWidget {
+  const AlarmBadge({super.key, required this.status});
   final GaugeStatus status;
 
   @override

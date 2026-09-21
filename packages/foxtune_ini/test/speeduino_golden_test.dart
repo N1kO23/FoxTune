@@ -4,6 +4,7 @@ library;
 import 'dart:io';
 
 import 'package:foxtune_ini/foxtune_ini.dart';
+import 'package:foxtune_ini/src/gauge_sections.dart';
 import 'package:test/test.dart';
 
 /// Golden tests against the real `speeduino.ini` shipped by the firmware.
@@ -267,8 +268,8 @@ void main() {
 
     test('retains unmodelled sections verbatim instead of dropping them', () {
       final raw = parse().rawSections;
-      expect(raw.keys, containsAll(['FrontPage', 'GaugeConfigurations']));
-      expect(raw['FrontPage']!.lines, isNotEmpty);
+      expect(raw.keys, containsAll(['LoggerDefinition', 'Tools']));
+      expect(raw['LoggerDefinition']!.lines, isNotEmpty);
     });
 
     test('builds the whole menu tree', () {
@@ -522,6 +523,129 @@ void main() {
         expect(channels, contains(doc.veAnalyze!.measuredChannel));
         expect(channels, contains(doc.veAnalyze!.egoCorrectionChannel));
       }
+    });
+
+    test('reads the gauges, grouped by category', () {
+      final doc = parse(defined: {'CELSIUS'});
+
+      expect(doc.gauges.length, greaterThan(90));
+      expect(
+        doc.gauges.map((g) => g.category).toSet(),
+        containsAll([
+          'Main',
+          'Sensor inputs',
+          'Auxiliary Input Channels',
+          'System Data',
+        ]),
+      );
+    });
+
+    test('keeps the tachometer tied to the Gauge Limits settings', () {
+      // Range and thresholds are the Gauge Limits PC variables. Reading them
+      // as literals - or at all before they are shown - would freeze the
+      // gauge at whatever they were when the file was parsed.
+      final tach = parse().gaugeNamed('tachometer')!;
+
+      expect(tach.channel, 'rpm');
+      expect(tach.title, 'Engine Speed');
+      expect(tach.lo, const IniLiteral(0));
+      expect(tach.hi, const IniExpression('rpmhigh'));
+      expect(tach.hiWarning, const IniExpression('rpmwarn'));
+      expect(tach.hiDanger, const IniExpression('rpmdang'));
+      expect(tach.loDanger, const IniLiteral(300));
+    });
+
+    test('reads the gauges the file writes loosely', () {
+      final doc = parse(defined: {'CELSIUS'});
+
+      // No commas between channel, title and units.
+      final system = doc.gaugeNamed('systemTempGauge')!;
+      expect(system.channel, 'systemTemp');
+      expect(system.title, 'System Temp');
+      expect(system.units, 'C');
+
+      // Units computed from another setting.
+      final idle = doc.gaugeNamed('idleLoadGauge')!;
+      expect(idle.hi, isA<IniExpression>());
+      expect(idle.unitsExpression, contains('bitStringValue'));
+
+      // A title computed from a user-set alias.
+      final aux = doc.gaugeNamed('AuxInGauge0')!;
+      expect(aux.title, isEmpty);
+      expect(aux.titleExpression, contains('AUXin00Alias'));
+      expect(aux.displayTitle, 'AuxInGauge0');
+    });
+
+    test('keeps a gauge whose line stops before its bands', () {
+      final gauge = GaugeCollector.parseGauge(
+        'short',
+        'rpm, "Short", "RPM", 0, 8000, 300',
+      )!;
+      expect(gauge.loDanger, const IniLiteral(300));
+      expect(gauge.loWarning, isNull);
+      expect(gauge.hiDanger, isNull);
+      expect(gauge.valueDigits, 0);
+    });
+
+    test('picks the temperature gauges for the build', () {
+      expect(parse(defined: {'CELSIUS'}).gaugeNamed('cltGauge')!.units, 'C');
+      expect(parse().gaugeNamed('cltGauge')!.units, 'F');
+    });
+
+    test('every gauge shows a channel the ECU reports', () {
+      for (final config in const <Set<String>>[
+        {},
+        {'CELSIUS'},
+        {'LAMBDA'}
+      ]) {
+        final doc = parse(defined: config);
+        final channels = doc.outputChannels.allNames;
+        final missing = [
+          for (final gauge in doc.gauges)
+            if (!channels.contains(gauge.channel)) gauge.name,
+        ];
+        expect(missing, isEmpty, reason: 'config $config');
+      }
+    });
+
+    test('reads the default front page', () {
+      final doc = parse(defined: {'CELSIUS'});
+      final page = doc.frontPage;
+
+      expect(page.gauges, [
+        'tachometer',
+        'throttleGauge',
+        'pulseWidthGauge',
+        'dutyCycleGauge',
+        'mapGauge',
+        'iatGauge',
+        'cltGauge',
+        'gammaEnrichGauge',
+      ]);
+      for (final name in page.gauges) {
+        expect(doc.gaugeNamed(name), isNotNull, reason: name);
+      }
+
+      expect(page.indicators.length, greaterThan(40));
+      final running = page.indicators.first;
+      expect(running.expression, 'running');
+      expect(running.onLabel, 'Running');
+      expect(running.onBackground, 'green');
+    });
+
+    test('every front-page indicator compiles, bitwise ones included', () {
+      // Four SD-card lamps test a flag bit with a single `&`.
+      final doc = parse(defined: {'CELSIUS'});
+      final broken = [
+        for (final indicator in doc.frontPage.indicators)
+          if (CompiledExpression.tryCompile(indicator.expression) == null)
+            indicator.expression,
+      ];
+      expect(broken, isEmpty);
+      expect(
+        doc.frontPage.indicators.where((i) => i.expression.contains('& ')),
+        isNotEmpty,
+      );
     });
 
     test('reads per-constant help text', () {

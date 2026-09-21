@@ -1,5 +1,6 @@
 import 'analyze_section.dart';
 import 'data_type.dart';
+import 'gauge_sections.dart';
 import 'ini_exception.dart';
 import 'model/document.dart';
 import 'model/fields.dart';
@@ -15,9 +16,10 @@ import 'ui_sections.dart';
 /// screens matter because they are the only description of trigger setup,
 /// engine constants, warmup enrichment and the rest that exists anywhere;
 /// generating them is what keeps FoxTune tracking a firmware release rather
-/// than needing hundreds of dialogs hand-maintained. Sections describing parts
-/// of TunerStudio's own UI that FoxTune does not reproduce - `[FrontPage]`,
-/// `[GaugeConfigurations]` - are retained verbatim in
+/// than needing hundreds of dialogs hand-maintained. The gauges and default
+/// dashboard in `[GaugeConfigurations]` and `[FrontPage]` are read for the same
+/// reason. Sections describing parts of TunerStudio's own UI that FoxTune does
+/// not reproduce - `[LoggerDefinition]`, `[Tools]` - are retained verbatim in
 /// [IniDocument.rawSections] instead.
 ///
 /// Pass [defined] to select build-configuration branches. Option names from
@@ -44,6 +46,8 @@ class IniParser {
     'SettingContextHelp',
     'ConstantsExtensions',
     'VeAnalyze',
+    'GaugeConfigurations',
+    'FrontPage',
   };
 
   /// Parses [source], the full text of a `.ini` file.
@@ -85,6 +89,8 @@ class IniParser {
     final menuCollector = MenuCollector();
     final dialogCollector = DialogCollector();
     final analyzeCollector = AnalyzeCollector();
+    final gaugeCollector = GaugeCollector();
+    final frontPageCollector = FrontPageCollector();
     final settingHelp = <String, String>{};
     final defaultValues = <String, List<double>>{};
     final requiresPowerCycle = <String>{};
@@ -204,6 +210,12 @@ class IniParser {
         case 'VeAnalyze':
           analyzeCollector.add(key, value);
 
+        case 'GaugeConfigurations':
+          gaugeCollector.add(key, value);
+
+        case 'FrontPage':
+          frontPageCollector.add(key, value);
+
         case 'SettingContextHelp':
           settingHelp[key] = unquote(value);
 
@@ -244,6 +256,8 @@ class IniParser {
       menus: menuCollector.menus,
       dialogs: dialogCollector.dialogs,
       veAnalyze: analyzeCollector.result,
+      gauges: gaugeCollector.gauges,
+      frontPage: frontPageCollector.frontPage,
       settingHelp: settingHelp,
       defaultValues: defaultValues,
       requiresPowerCycle: requiresPowerCycle,

@@ -417,26 +417,8 @@ class DialogCollector {
   }
 
   void _addIndicator(String value) {
-    final atoms = splitArguments(value);
-    if (atoms.isEmpty || !isBraceGroup(atoms.first)) return;
-
-    // The leading group is the lamp's own expression, not a condition on
-    // whether the lamp is shown, so it is taken before the generic reading.
-    final expression = braceContents(atoms.first);
-    if (expression.isEmpty) return;
-
-    final args = _Arguments.of(atoms.skip(1));
-    _add(IniDialogIndicator(
-      expression: expression,
-      offLabel: args.value(0) ?? '',
-      onLabel: args.value(1) ?? '',
-      offBackground: args.value(2),
-      offForeground: args.value(3),
-      onBackground: args.value(4),
-      onForeground: args.value(5),
-      enableCondition: args.enable,
-      visibleCondition: args.visible,
-    ));
+    final indicator = parseIndicator(value);
+    if (indicator != null) _add(indicator);
   }
 
   void _addLiveGraph(String value) {
@@ -499,4 +481,30 @@ class DialogCollector {
       IniSettingPreset(label: unquote(atoms.first), assignments: assignments),
     );
   }
+}
+
+/// Parses `{ expression }, "off label", "on label", colours...`.
+///
+/// Shared by dialogs and `[FrontPage]`, which declare indicators identically.
+/// The leading group is the lamp's own expression - not a condition on whether
+/// the lamp is shown - so it is taken before the generic argument reading.
+IniDialogIndicator? parseIndicator(String value) {
+  final atoms = splitArguments(value);
+  if (atoms.isEmpty || !isBraceGroup(atoms.first)) return null;
+
+  final expression = braceContents(atoms.first);
+  if (expression.isEmpty) return null;
+
+  final args = _Arguments.of(atoms.skip(1));
+  return IniDialogIndicator(
+    expression: expression,
+    offLabel: args.value(0) ?? '',
+    onLabel: args.value(1) ?? '',
+    offBackground: args.value(2),
+    offForeground: args.value(3),
+    onBackground: args.value(4),
+    onForeground: args.value(5),
+    enableCondition: args.enable,
+    visibleCondition: args.visible,
+  );
 }

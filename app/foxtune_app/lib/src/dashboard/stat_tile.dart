@@ -54,28 +54,36 @@ class StatTile extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 2),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.baseline,
-              textBaseline: TextBaseline.alphabetic,
-              children: [
-                Text(
-                  spec.format(value),
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                    fontWeight: FontWeight.w600,
-                    color: scheme.onSurface,
-                  ),
-                ),
-                if (spec.units.isNotEmpty) ...[
-                  const SizedBox(width: 3),
+            // Shrinks rather than overflows: a tile can be made narrow on a
+            // dashboard page, and a long reading with long units - "13.80
+            // volts" - must still show whole.
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
                   Text(
-                    spec.units,
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
+                    spec.format(value),
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                      fontWeight: FontWeight.w600,
+                      color: scheme.onSurface,
                     ),
                   ),
+                  if (spec.units.isNotEmpty) ...[
+                    const SizedBox(width: 3),
+                    Text(
+                      spec.units,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
             if (status.isAlarm)
               Text(
@@ -105,27 +113,35 @@ class StatTile extends StatelessWidget {
 
 /// An on/off indicator lamp for a status flag.
 class FlagLamp extends StatelessWidget {
-  const FlagLamp({super.key, required this.label, required this.on});
+  const FlagLamp({
+    super.key,
+    required this.label,
+    required this.on,
+    this.onColor,
+  });
 
   final String label;
   final bool? on;
+
+  /// The colour it lights in, where the definition names one. Defaults to the
+  /// palette's "good" green.
+  final Color? onColor;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final active = on ?? false;
+    final lit = onColor ?? StatusPalette.good;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
         color: active
-            ? StatusPalette.good.withValues(alpha: 0.14)
+            ? lit.withValues(alpha: 0.14)
             : scheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: active ? StatusPalette.good : scheme.outlineVariant,
-        ),
+        border: Border.all(color: active ? lit : scheme.outlineVariant),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -135,7 +151,7 @@ class FlagLamp extends StatelessWidget {
           Icon(
             active ? Icons.circle : Icons.circle_outlined,
             size: 9,
-            color: active ? StatusPalette.good : scheme.outline,
+            color: active ? lit : scheme.outline,
           ),
           const SizedBox(width: 6),
           Text(

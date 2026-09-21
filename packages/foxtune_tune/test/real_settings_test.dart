@@ -140,6 +140,41 @@ void main() {
     expect(tune.isDirty, isFalse);
   });
 
+  test('host-side values carry over to the next session', () {
+    // Gauge Limits are PC variables: nothing on the ECU holds them, so a new
+    // session starts from factory values unless they are saved and put back.
+    final first = TuneState.empty(doc);
+    SettingView.of(first, 'rpmwarn')!.setValue(6500);
+    SettingView.of(first, 'rpmdang')!.setValue(7200);
+
+    final saved = first.hostOverrides();
+    expect(saved.keys, containsAll(['rpmwarn', 'rpmdang']));
+
+    final next = TuneState.empty(doc)..restoreHost(saved);
+    expect(SettingView.of(next, 'rpmwarn')!.value, 6500);
+    expect(SettingView.of(next, 'rpmdang')!.value, 7200);
+  });
+
+  test('only values changed from the factory setting are saved', () {
+    final tune = TuneState.empty(doc);
+    // Reading seeds the value from its default without changing it.
+    SettingView.of(tune, 'rpmhigh')!.value;
+    expect(tune.hostOverrides(), isEmpty);
+
+    SettingView.of(tune, 'rpmhigh')!.setValue(9000);
+    expect(tune.hostOverrides().keys, ['rpmhigh']);
+  });
+
+  test('a saved value for a variable that no longer exists is ignored', () {
+    final tune = TuneState.empty(doc)
+      ..restoreHost({
+        'gone': [1, 2, 3],
+        'rpmwarn': [6100, 9999],
+      });
+
+    expect(SettingView.of(tune, 'rpmwarn')!.value, 6100);
+  });
+
   test('warmup enrichment reads as an editable curve', () {
     final tune = TuneState.empty(doc);
     final wue = CurveView.of(tune, doc.curveNamed('warmup_curve')!)!;
