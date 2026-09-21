@@ -177,8 +177,8 @@ class GaugeLimits {
     final highs = [?warnAbove, ?dangerAbove];
     if (lows.isNotEmpty && highs.isNotEmpty) {
       if (lows.reduce(math.max) >= highs.reduce(math.min)) {
-        return 'The low alarms must sit below the high ones, or every '
-            'reading would be an alarm.';
+        return 'The low alarms must sit below the high ones, with room '
+            'between them for a normal reading.';
       }
     }
     return null;

@@ -374,8 +374,8 @@ void main() {
 
       // Starts from what the definition says.
       expect(tester.widget<TextField>(field('From')).controller!.text, '7');
-      await tester.enterText(field('Warn at or above'), '15.5');
-      await tester.enterText(field('Danger at or above'), '');
+      await tester.enterText(field('Warn above'), '15.5');
+      await tester.enterText(field('Danger above'), '');
       await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
 
@@ -409,15 +409,12 @@ void main() {
       await startEditing(tester);
       await openLimits(tester);
 
-      await tester.enterText(field('Warn at or below'), '16');
-      await tester.enterText(field('Warn at or above'), '12');
+      await tester.enterText(field('Warn below'), '16');
+      await tester.enterText(field('Warn above'), '12');
       await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
 
-      expect(
-        find.textContaining('every reading would be an alarm'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('room between them'), findsOneWidget);
       expect(
         container(tester).read(dashboardLayoutProvider).value!.limits,
         isEmpty,

@@ -220,6 +220,12 @@ above 140 - so no reading is ever normal and warmup enrichment shows DANGER at 1
 where it sits on every warm engine. Its free-memory gauge does the same with its high bands
 reversed. Those gauges show without alarms until you set your own.
 
+A reading has to go past a limit to trip it; sitting on one is fine. And zero, on a gauge whose
+scale starts at zero, is never a low alarm: a closed throttle, the injectors off in fuel cut or a
+stopped engine is the thing at rest, not a reading sagging too low, though the definition's low
+limits would flag all three. A reading just above zero still alarms, and so does the bottom of a
+scale that does not start at zero - a coolant sensor reading -40 has usually lost its wire.
+
 Any numeric gauge can be a dial, a bar, a digital readout or a time graph. A time graph shows up
 to four channels as **lanes** sharing a time axis, each against its own scale, rather than lines
 overlaid on one plot: RPM runs to thousands and AFR to fifteen, and giving each line its own

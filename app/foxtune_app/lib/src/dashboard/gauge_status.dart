@@ -102,12 +102,31 @@ class GaugeSpec {
   final double? dangerBelow;
 
   /// Classifies [value] against the configured limits.
+  ///
+  /// A limit is a boundary, not part of the alarm: a reading has to go past
+  /// it. So a duty cycle whose danger point is 100% is not in danger at 100%,
+  /// and one whose warning starts above 0 is not warning at 0.
+  ///
+  /// And zero, on a scale that starts at zero, is never too low. It is the
+  /// thing at rest - throttle shut, injectors off in fuel cut, engine stopped
+  /// - which is not what a low alarm is for: that is a reading sagging towards
+  /// zero, like a pulse width shrinking into the injectors' dead time. The
+  /// definitions set low alarms without that distinction, so a closed throttle
+  /// warns and every overrun reads as danger. Only exactly zero is let off,
+  /// and only where the scale begins there: a coolant sensor reading the
+  /// bottom of its -40 scale, which is what a broken wire looks like, still
+  /// alarms.
   GaugeStatus statusFor(double? value) {
     if (value == null) return GaugeStatus.normal;
-    if (dangerAbove != null && value >= dangerAbove!) return GaugeStatus.danger;
-    if (dangerBelow != null && value <= dangerBelow!) return GaugeStatus.danger;
-    if (warnAbove != null && value >= warnAbove!) return GaugeStatus.warning;
-    if (warnBelow != null && value <= warnBelow!) return GaugeStatus.warning;
+    final atRest = value == 0 && min == 0;
+    if (dangerAbove != null && value > dangerAbove!) return GaugeStatus.danger;
+    if (!atRest && dangerBelow != null && value < dangerBelow!) {
+      return GaugeStatus.danger;
+    }
+    if (warnAbove != null && value > warnAbove!) return GaugeStatus.warning;
+    if (!atRest && warnBelow != null && value < warnBelow!) {
+      return GaugeStatus.warning;
+    }
     return GaugeStatus.normal;
   }
 

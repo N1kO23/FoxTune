@@ -210,13 +210,14 @@ class GaugeCatalog {
 
   /// The definition's alarm bands, or `null` where they contradict each other.
   ///
-  /// A reading is normal between the higher of the low bands and the lower of
-  /// the high ones. Where that span is empty, no reading at all is normal -
+  /// A reading is normal from the higher of the low bands to the lower of the
+  /// high ones. Where those meet or cross, one exact value at most is normal -
   /// which no gauge can mean. Speeduino's definition has exactly this on
   /// eight gauges, all copied from one line (`130, 140, 140, 150`): warmup
   /// enrichment reads DANGER at 100%, which is where it sits on every warm
-  /// engine, and the squirt count reads DANGER whatever it is. Its free-memory
-  /// gauge has the high bands the wrong way round and does the same.
+  /// engine, and the squirt count reads DANGER whatever it is but 140. Its
+  /// free-memory gauge has the high bands the wrong way round and does the
+  /// same.
   ///
   /// Guessing which half was meant would be inventing limits, so the whole set
   /// is dropped. The gauge shows plainly, and a tuner who wants alarms on it

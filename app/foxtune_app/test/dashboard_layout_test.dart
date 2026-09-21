@@ -441,7 +441,7 @@ void main() {
           warnAbove: 140,
           dangerAbove: 150,
         ).problem,
-        contains('every reading'),
+        contains('normal reading'),
       );
       expect(
         const GaugeLimits(

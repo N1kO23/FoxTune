@@ -64,6 +64,61 @@ void main() {
     expect(spec.label, 'AuxInGauge0');
   });
 
+  group('a limit is a boundary, not part of the alarm', () {
+    test('a reading exactly on a limit is not past it', () {
+      const spec = GaugeSpec(
+        channel: 'x',
+        label: 'X',
+        units: '',
+        min: 0,
+        max: 100,
+        dangerBelow: 5,
+        warnBelow: 10,
+        warnAbove: 90,
+        dangerAbove: 95,
+      );
+      expect(spec.statusFor(10), GaugeStatus.normal);
+      expect(spec.statusFor(9.9), GaugeStatus.warning);
+      expect(spec.statusFor(5), GaugeStatus.warning);
+      expect(spec.statusFor(4.9), GaugeStatus.danger);
+      expect(spec.statusFor(90), GaugeStatus.normal);
+      expect(spec.statusFor(95), GaugeStatus.warning);
+      expect(spec.statusFor(95.1), GaugeStatus.danger);
+    });
+
+    test('limits the definition puts on the ends of the scale', () {
+      final catalog = catalogFor(null);
+      GaugeSpec gauge(String name) => catalog.specFor(doc.gaugeNamed(name)!);
+
+      // Advance warns and dangers below 0 degrees: zero itself is fine.
+      expect(gauge('advanceGauge').statusFor(0), GaugeStatus.normal);
+      expect(gauge('advanceGauge').statusFor(-1), GaugeStatus.danger);
+      // Throttle's danger point is 100%: wide open is past the 90% warning,
+      // but not in danger.
+      expect(gauge('throttleGauge').statusFor(100), GaugeStatus.warning);
+    });
+
+    test('things at rest are not too low', () {
+      final catalog = catalogFor(null);
+      GaugeSpec gauge(String name) => catalog.specFor(doc.gaugeNamed(name)!);
+
+      // Shut, where the definition warns below 1%.
+      expect(gauge('throttleGauge').statusFor(0), GaugeStatus.normal);
+      // Fuel cut, where it calls anything under 1 ms danger.
+      expect(gauge('pulseWidthGauge').statusFor(0), GaugeStatus.normal);
+      // Engine stopped.
+      expect(gauge('tachometer').statusFor(0), GaugeStatus.normal);
+
+      // Readings sagging towards zero still alarm.
+      expect(gauge('throttleGauge').statusFor(0.5), GaugeStatus.warning);
+      expect(gauge('pulseWidthGauge').statusFor(0.4), GaugeStatus.danger);
+      expect(gauge('tachometer').statusFor(200), GaugeStatus.danger);
+      // And the bottom of a scale that does not start at zero is no rest: a
+      // coolant sensor reading -40 has usually lost its wire.
+      expect(gauge('cltGauge').statusFor(-40), GaugeStatus.danger);
+    });
+  });
+
   group('alarm bands that contradict each other', () {
     test('are ignored, so a warm engine is not in danger', () {
       // The definition's warmup gauge: danger below 130%, warning below 140%,

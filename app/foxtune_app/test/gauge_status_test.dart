@@ -20,9 +20,11 @@ void main() {
 
     test('classifies an upper-bounded value', () {
       expect(rpm.statusFor(3000), GaugeStatus.normal);
-      expect(rpm.statusFor(6000), GaugeStatus.warning);
-      expect(rpm.statusFor(6500), GaugeStatus.warning);
-      expect(rpm.statusFor(7000), GaugeStatus.danger);
+      // On a limit is not past it.
+      expect(rpm.statusFor(6000), GaugeStatus.normal);
+      expect(rpm.statusFor(6001), GaugeStatus.warning);
+      expect(rpm.statusFor(7000), GaugeStatus.warning);
+      expect(rpm.statusFor(7001), GaugeStatus.danger);
       expect(rpm.statusFor(9000), GaugeStatus.danger);
     });
 
@@ -45,9 +47,10 @@ void main() {
 
     test('classifies a value whose failure mode is low', () {
       expect(battery.statusFor(13.8), GaugeStatus.normal);
-      expect(battery.statusFor(12.0), GaugeStatus.warning);
-      expect(battery.statusFor(11.0), GaugeStatus.danger);
-      expect(battery.statusFor(10.2), GaugeStatus.danger);
+      expect(battery.statusFor(12.0), GaugeStatus.normal);
+      expect(battery.statusFor(11.9), GaugeStatus.warning);
+      expect(battery.statusFor(11.0), GaugeStatus.warning);
+      expect(battery.statusFor(10.9), GaugeStatus.danger);
     });
 
     test('handles limits at both ends', () {
@@ -56,6 +59,32 @@ void main() {
 
     test('danger wins over warning when both apply', () {
       expect(rpm.statusFor(7500), GaugeStatus.danger);
+    });
+
+    test('zero on a scale from zero is at rest, not too low', () {
+      const pulse = GaugeSpec(
+        channel: 'pulseWidth',
+        label: 'PW',
+        units: 'ms',
+        min: 0,
+        max: 35,
+        dangerBelow: 1.0,
+        warnBelow: 1.2,
+        warnAbove: 20,
+      );
+      expect(pulse.statusFor(0), GaugeStatus.normal);
+      expect(pulse.statusFor(0.5), GaugeStatus.danger);
+      expect(pulse.statusFor(1.1), GaugeStatus.warning);
+      // The same zero, on a scale that runs below it, is just a low reading.
+      const offset = GaugeSpec(
+        channel: 'x',
+        label: 'X',
+        units: '',
+        min: -10,
+        max: 10,
+        dangerBelow: 1,
+      );
+      expect(offset.statusFor(0), GaugeStatus.danger);
     });
   });
 

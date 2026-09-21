@@ -509,10 +509,10 @@ String _describe(GaugeCatalog catalog, String source) {
     else
       '${n(spec.min)} to ${n(spec.max)}'
           '${spec.units.isEmpty ? '' : ' ${spec.units}'}',
-    if (spec.dangerBelow case final v?) 'danger at ${n(v)} or below',
-    if (spec.warnBelow case final v?) 'warn at ${n(v)} or below',
-    if (spec.warnAbove case final v?) 'warn at ${n(v)} or above',
-    if (spec.dangerAbove case final v?) 'danger at ${n(v)} or above',
+    if (spec.dangerBelow case final v?) 'danger below ${n(v)}',
+    if (spec.warnBelow case final v?) 'warn below ${n(v)}',
+    if (spec.warnAbove case final v?) 'warn above ${n(v)}',
+    if (spec.dangerAbove case final v?) 'danger above ${n(v)}',
     if (spec.dangerBelow == null &&
         spec.warnBelow == null &&
         spec.warnAbove == null &&
@@ -699,21 +699,22 @@ class _LimitsDialogState extends State<_LimitsDialog> {
           const SizedBox(height: 16),
           Text('Alarms', style: theme.textTheme.labelLarge),
           Text(
-            'Leave one empty to switch it off.',
+            'Leave one empty to switch it off. A reading of zero on a range '
+            'that starts at zero is never low: that is the thing at rest.',
             style: theme.textTheme.bodySmall,
           ),
           Row(
             children: [
-              Expanded(child: _number(_dangerBelow, 'Danger at or below')),
+              Expanded(child: _number(_dangerBelow, 'Danger below')),
               const SizedBox(width: 12),
-              Expanded(child: _number(_warnBelow, 'Warn at or below')),
+              Expanded(child: _number(_warnBelow, 'Warn below')),
             ],
           ),
           Row(
             children: [
-              Expanded(child: _number(_warnAbove, 'Warn at or above')),
+              Expanded(child: _number(_warnAbove, 'Warn above')),
               const SizedBox(width: 12),
-              Expanded(child: _number(_dangerAbove, 'Danger at or above')),
+              Expanded(child: _number(_dangerAbove, 'Danger above')),
             ],
           ),
           const SizedBox(height: 16),
