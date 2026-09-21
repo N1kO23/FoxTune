@@ -374,14 +374,14 @@ page = 2
   group('unmodelled sections', () {
     test('are retained verbatim rather than dropped', () {
       final doc = parse('''
-[FrontPage]
-   gauge1 = tachometer
+[Tools]
+   addTool = veTableGenerator, "VE Table Generator", veTable1Tbl
 [Constants]
 page = 1
   a = scalar, U08, 0, "", 1, 0
 ''');
-      expect(doc.rawSections.containsKey('FrontPage'), isTrue);
-      expect(doc.rawSections['FrontPage']!.lines, hasLength(1));
+      expect(doc.rawSections.containsKey('Tools'), isTrue);
+      expect(doc.rawSections['Tools']!.lines, hasLength(1));
       expect(doc.rawSections.containsKey('Constants'), isFalse);
     });
   });

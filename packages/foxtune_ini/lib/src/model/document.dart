@@ -1,6 +1,7 @@
 import 'analyze.dart';
 import 'dialogs.dart';
 import 'fields.dart';
+import 'gauges.dart';
 import 'menus.dart';
 import 'sections.dart';
 
@@ -67,8 +68,8 @@ enum IniTargetKind {
 
 /// A section the parser retains verbatim rather than modelling.
 ///
-/// `[FrontPage]` and friends describe parts of TunerStudio's own UI that
-/// FoxTune does not reproduce. They are kept as raw lines rather than dropped,
+/// `[LoggerDefinition]`, `[Tools]` and friends describe parts of TunerStudio's
+/// own UI that FoxTune does not reproduce. They are kept as raw lines rather than dropped,
 /// so a later pass can use them without the file needing a second parse.
 class IniRawSection {
   const IniRawSection({required this.name, required this.lines});
@@ -103,6 +104,8 @@ class IniDocument {
     this.defaultValues = const {},
     this.requiresPowerCycle = const {},
     this.veAnalyze,
+    this.gauges = const [],
+    this.frontPage = const IniFrontPage(),
   });
 
   /// Signature and version information.
@@ -163,6 +166,28 @@ class IniDocument {
   /// Null when the definition describes no autotuning, which is the honest
   /// answer for a firmware that has no wideband story.
   final IniVeAnalyze? veAnalyze;
+
+  /// Gauges from `[GaugeConfigurations]`, in declaration order.
+  final List<IniGauge> gauges;
+
+  /// The default dashboard, from `[FrontPage]`.
+  final IniFrontPage frontPage;
+
+  /// Looks up a gauge by name.
+  IniGauge? gaugeNamed(String name) {
+    for (final gauge in gauges) {
+      if (gauge.name == name) return gauge;
+    }
+    return null;
+  }
+
+  /// The first gauge showing [channel], or `null` if none does.
+  IniGauge? gaugeForChannel(String channel) {
+    for (final gauge in gauges) {
+      if (gauge.channel == channel) return gauge;
+    }
+    return null;
+  }
 
   /// Looks up a dialog by its identifier.
   IniDialog? dialogNamed(String id) {

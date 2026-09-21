@@ -54,28 +54,36 @@ class StatTile extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 2),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.baseline,
-              textBaseline: TextBaseline.alphabetic,
-              children: [
-                Text(
-                  spec.format(value),
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                    fontWeight: FontWeight.w600,
-                    color: scheme.onSurface,
-                  ),
-                ),
-                if (spec.units.isNotEmpty) ...[
-                  const SizedBox(width: 3),
+            // Shrinks rather than overflows: a tile can be made narrow on a
+            // dashboard page, and a long reading with long units - "13.80
+            // volts" - must still show whole.
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
                   Text(
-                    spec.units,
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
+                    spec.format(value),
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                      fontWeight: FontWeight.w600,
+                      color: scheme.onSurface,
                     ),
                   ),
+                  if (spec.units.isNotEmpty) ...[
+                    const SizedBox(width: 3),
+                    Text(
+                      spec.units,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
             if (status.isAlarm)
               Text(
@@ -85,17 +93,20 @@ class StatTile extends StatelessWidget {
                   fontWeight: FontWeight.w700,
                 ),
               ),
-            const SizedBox(height: 6),
-            // A thin magnitude track, recessive by design.
-            ClipRRect(
-              borderRadius: BorderRadius.circular(2),
-              child: LinearProgressIndicator(
-                value: spec.fractionFor(value),
-                minHeight: 3,
-                backgroundColor: scheme.surfaceContainerHighest,
-                valueColor: AlwaysStoppedAnimation(accent),
+            // A thin magnitude track, recessive by design - and only where
+            // there is a real range for it to measure against.
+            if (spec.hasRange) ...[
+              const SizedBox(height: 6),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(2),
+                child: LinearProgressIndicator(
+                  value: spec.fractionFor(value),
+                  minHeight: 3,
+                  backgroundColor: scheme.surfaceContainerHighest,
+                  valueColor: AlwaysStoppedAnimation(accent),
+                ),
               ),
-            ),
+            ],
           ],
         ),
       ),
@@ -105,47 +116,79 @@ class StatTile extends StatelessWidget {
 
 /// An on/off indicator lamp for a status flag.
 class FlagLamp extends StatelessWidget {
-  const FlagLamp({super.key, required this.label, required this.on});
+  const FlagLamp({
+    super.key,
+    required this.label,
+    required this.on,
+    this.onColor,
+    this.expand = false,
+  });
 
   final String label;
   final bool? on;
+
+  /// The colour it lights in, where the definition names one. Defaults to the
+  /// palette's "good" green.
+  final Color? onColor;
+
+  /// Whether it fills the space it is given rather than hugging its label.
+  ///
+  /// On a dashboard page a lamp fills its cells, so a column of lamps lines up
+  /// edge to edge whatever their labels say. A label too long for the lamp
+  /// shrinks rather than being cut off - a truncated "Launch Con..." reads as
+  /// the wrong thing.
+  final bool expand;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final active = on ?? false;
+    final lit = onColor ?? StatusPalette.good;
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: active
-            ? StatusPalette.good.withValues(alpha: 0.14)
-            : scheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: active ? StatusPalette.good : scheme.outlineVariant,
+    final content = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Shape as well as colour: a filled circle when on, an outline when
+        // off, so the state survives a colour-blind reading.
+        Icon(
+          active ? Icons.circle : Icons.circle_outlined,
+          size: 9,
+          color: active ? lit : scheme.outline,
         ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Shape as well as colour: a filled circle when on, an outline when
-          // off, so the state survives a colour-blind reading.
-          Icon(
-            active ? Icons.circle : Icons.circle_outlined,
-            size: 9,
-            color: active ? StatusPalette.good : scheme.outline,
+        const SizedBox(width: 6),
+        Text(
+          label,
+          maxLines: 1,
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: active ? scheme.onSurface : scheme.onSurfaceVariant,
+            fontWeight: active ? FontWeight.w600 : FontWeight.w400,
           ),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: active ? scheme.onSurface : scheme.onSurfaceVariant,
-              fontWeight: active ? FontWeight.w600 : FontWeight.w400,
-            ),
-          ),
-        ],
+        ),
+      ],
+    );
+
+    final decoration = BoxDecoration(
+      color: active ? lit.withValues(alpha: 0.14) : scheme.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: active ? lit : scheme.outlineVariant),
+    );
+
+    if (!expand) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: decoration,
+        child: content,
+      );
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+      decoration: decoration,
+      alignment: Alignment.centerLeft,
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.centerLeft,
+        child: content,
       ),
     );
   }

@@ -1,4 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:foxtune_app/src/dashboard/gauge_catalog.dart';
+import 'package:foxtune_ini/foxtune_ini.dart';
 import 'package:foxtune_app/src/dashboard/gauge_status.dart';
 
 void main() {
@@ -16,9 +20,11 @@ void main() {
 
     test('classifies an upper-bounded value', () {
       expect(rpm.statusFor(3000), GaugeStatus.normal);
-      expect(rpm.statusFor(6000), GaugeStatus.warning);
-      expect(rpm.statusFor(6500), GaugeStatus.warning);
-      expect(rpm.statusFor(7000), GaugeStatus.danger);
+      // On a limit is not past it.
+      expect(rpm.statusFor(6000), GaugeStatus.normal);
+      expect(rpm.statusFor(6001), GaugeStatus.warning);
+      expect(rpm.statusFor(7000), GaugeStatus.warning);
+      expect(rpm.statusFor(7001), GaugeStatus.danger);
       expect(rpm.statusFor(9000), GaugeStatus.danger);
     });
 
@@ -41,9 +47,10 @@ void main() {
 
     test('classifies a value whose failure mode is low', () {
       expect(battery.statusFor(13.8), GaugeStatus.normal);
-      expect(battery.statusFor(12.0), GaugeStatus.warning);
-      expect(battery.statusFor(11.0), GaugeStatus.danger);
-      expect(battery.statusFor(10.2), GaugeStatus.danger);
+      expect(battery.statusFor(12.0), GaugeStatus.normal);
+      expect(battery.statusFor(11.9), GaugeStatus.warning);
+      expect(battery.statusFor(11.0), GaugeStatus.warning);
+      expect(battery.statusFor(10.9), GaugeStatus.danger);
     });
 
     test('handles limits at both ends', () {
@@ -52,6 +59,32 @@ void main() {
 
     test('danger wins over warning when both apply', () {
       expect(rpm.statusFor(7500), GaugeStatus.danger);
+    });
+
+    test('zero on a scale from zero is at rest, not too low', () {
+      const pulse = GaugeSpec(
+        channel: 'pulseWidth',
+        label: 'PW',
+        units: 'ms',
+        min: 0,
+        max: 35,
+        dangerBelow: 1.0,
+        warnBelow: 1.2,
+        warnAbove: 20,
+      );
+      expect(pulse.statusFor(0), GaugeStatus.normal);
+      expect(pulse.statusFor(0.5), GaugeStatus.danger);
+      expect(pulse.statusFor(1.1), GaugeStatus.warning);
+      // The same zero, on a scale that runs below it, is just a low reading.
+      const offset = GaugeSpec(
+        channel: 'x',
+        label: 'X',
+        units: '',
+        min: -10,
+        max: 10,
+        dangerBelow: 1,
+      );
+      expect(offset.statusFor(0), GaugeStatus.danger);
     });
   });
 
@@ -114,56 +147,6 @@ void main() {
       expect(GaugeStatus.normal.isAlarm, isFalse);
     });
   });
-
-  group('default gauge set', () {
-    test('every spec has a sane span', () {
-      for (final spec in DefaultGauges.allFor(TemperatureUnit.celsius)) {
-        expect(spec.max, greaterThan(spec.min), reason: spec.channel);
-        expect(spec.channel, isNotEmpty);
-        expect(spec.label, isNotEmpty);
-      }
-    });
-
-    test('thresholds fall inside the displayed range', () {
-      // A limit outside the span could never be drawn on the track.
-      for (final spec in DefaultGauges.allFor(TemperatureUnit.celsius)) {
-        for (final limit in [
-          spec.warnAbove,
-          spec.dangerAbove,
-          spec.warnBelow,
-          spec.dangerBelow,
-        ]) {
-          if (limit == null) continue;
-          expect(
-            limit,
-            inInclusiveRange(spec.min, spec.max),
-            reason:
-                '${spec.channel} limit $limit outside '
-                '${spec.min}..${spec.max}',
-          );
-        }
-      }
-    });
-
-    test('danger is beyond warning wherever both are set', () {
-      for (final spec in DefaultGauges.allFor(TemperatureUnit.celsius)) {
-        if (spec.warnAbove != null && spec.dangerAbove != null) {
-          expect(
-            spec.dangerAbove,
-            greaterThan(spec.warnAbove!),
-            reason: spec.channel,
-          );
-        }
-        if (spec.warnBelow != null && spec.dangerBelow != null) {
-          expect(
-            spec.dangerBelow,
-            lessThan(spec.warnBelow!),
-            reason: spec.channel,
-          );
-        }
-      }
-    });
-  });
 }
 
 void _temperatureUnitTests() {
@@ -183,13 +166,21 @@ void _temperatureUnitTests() {
       expect(TemperatureUnit.fahrenheit.fromCelsius(-40), -40);
     });
 
+    GaugeSpec gaugeFor(TemperatureUnit unit, String name) {
+      // The definition picks its temperature gauges by the same symbols the
+      // decoder is parsed with, so gauge and reading cannot disagree on scale.
+      final doc = IniParser(defined: unit.iniSymbols)
+          .parse(File('assets/speeduino.ini').readAsStringSync());
+      return GaugeCatalog(definition: doc).specFor(doc.gaugeNamed(name)!);
+    }
+
     test('a healthy engine is normal in both scales', () {
       // The bug this guards: the app parsed the definition as Fahrenheit
       // while the gauge kept Celsius limits, so a healthy 108 degree engine
       // decoded as 226 and pegged the gauge at DANGER.
       const healthyCelsius = 90.0;
       for (final unit in TemperatureUnit.values) {
-        final gauge = DefaultGauges.coolant(unit);
+        final gauge = gaugeFor(unit, 'cltGauge');
         final reading = unit.fromCelsius(healthyCelsius);
 
         expect(
@@ -202,56 +193,39 @@ void _temperatureUnitTests() {
           lessThan(1.0),
           reason: 'must not peg the gauge in ${unit.name}',
         );
-        expect(gauge.units, unit.symbol);
       }
     });
 
     test('an overheating engine alarms in both scales', () {
       for (final unit in TemperatureUnit.values) {
-        final gauge = DefaultGauges.coolant(unit);
-        expect(gauge.statusFor(unit.fromCelsius(105)), GaugeStatus.warning);
+        final gauge = gaugeFor(unit, 'cltGauge');
+        expect(gauge.statusFor(unit.fromCelsius(100)), GaugeStatus.warning);
         expect(gauge.statusFor(unit.fromCelsius(115)), GaugeStatus.danger);
       }
     });
 
     test('the same physical temperature reads the same status', () {
-      // Whatever scale is selected, the engine is either fine or it is not.
-      for (final celsius in const [-20.0, 20.0, 90.0, 105.0, 120.0]) {
-        final metric = DefaultGauges.coolant(TemperatureUnit.celsius)
-            .statusFor(celsius);
-        final imperial = DefaultGauges.coolant(TemperatureUnit.fahrenheit)
-            .statusFor(TemperatureUnit.fahrenheit.fromCelsius(celsius));
+      // Checked away from the band edges: the definition's two branches are
+      // written separately and do not line up to the degree - its Fahrenheit
+      // danger point, 220, is 104.4 C where the Celsius one is 105.
+      for (final celsius in const [-20.0, 20.0, 90.0, 100.0, 120.0]) {
+        final metric = gaugeFor(
+          TemperatureUnit.celsius,
+          'cltGauge',
+        ).statusFor(celsius);
+        final imperial = gaugeFor(
+          TemperatureUnit.fahrenheit,
+          'cltGauge',
+        ).statusFor(TemperatureUnit.fahrenheit.fromCelsius(celsius));
         expect(imperial, metric, reason: '$celsius C');
       }
     });
 
     test('intake air follows the same rule', () {
       for (final unit in TemperatureUnit.values) {
-        final gauge = DefaultGauges.intakeAir(unit);
-        expect(gauge.units, unit.symbol);
+        final gauge = gaugeFor(unit, 'iatGauge');
         expect(gauge.statusFor(unit.fromCelsius(25)), GaugeStatus.normal);
-        expect(gauge.statusFor(unit.fromCelsius(70)), GaugeStatus.warning);
-      }
-    });
-
-    test('every gauge stays coherent in both scales', () {
-      for (final unit in TemperatureUnit.values) {
-        for (final spec in DefaultGauges.allFor(unit)) {
-          expect(spec.max, greaterThan(spec.min), reason: spec.channel);
-          for (final limit in [
-            spec.warnAbove,
-            spec.dangerAbove,
-            spec.warnBelow,
-            spec.dangerBelow,
-          ]) {
-            if (limit == null) continue;
-            expect(
-              limit,
-              inInclusiveRange(spec.min, spec.max),
-              reason: '${spec.channel} in ${unit.name}',
-            );
-          }
-        }
+        expect(gauge.statusFor(unit.fromCelsius(115)), GaugeStatus.danger);
       }
     });
   });

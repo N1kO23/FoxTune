@@ -72,6 +72,82 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    // The dashboard lays a dial out at its design size: 154 across for a new
+    // one, 114 for the smallest it can be resized to.
+    for (final side in [154.0, 114.0]) {
+      testWidgets('keeps its text inside the arc at $side across', (
+        tester,
+      ) async {
+        const long = GaugeSpec(
+          channel: 'warmupEnrich',
+          label: 'Warmup Enrichment',
+          units: '%',
+          min: 100,
+          max: 200,
+          warnAbove: 150,
+          dangerAbove: 170,
+        );
+        await tester.pumpWidget(
+          wrap(
+            SizedBox.square(
+              dimension: side,
+              child: const MeterGauge(spec: long, value: 185),
+            ),
+          ),
+        );
+
+        final dial = find.byType(MeterGauge);
+        final centre = tester.getCenter(dial);
+        // The inner edge of the track, as the painter draws it.
+        final stroke = side * 0.085;
+        final inner = (side - stroke) / 2 - 2 - stroke / 2;
+
+        final marks = find.descendant(
+          of: dial,
+          // An icon draws its glyph as text too, so this catches the badge's.
+          matching: find.byType(RichText),
+        );
+        // Title, value, units, and the badge's icon and word.
+        expect(marks, findsNWidgets(5));
+        for (final element in marks.evaluate()) {
+          final rect = tester.getRect(find.byWidget(element.widget));
+          for (final corner in [
+            rect.topLeft,
+            rect.topRight,
+            rect.bottomLeft,
+            rect.bottomRight,
+          ]) {
+            expect(
+              (corner - centre).distance,
+              lessThanOrEqualTo(inner),
+              reason: '${element.widget} reaches the arc at $corner',
+            );
+          }
+        }
+      });
+    }
+
+    testWidgets('sets its text in the dashboard\'s sizes', (tester) async {
+      await tester.pumpWidget(
+        wrap(
+          const SizedBox.square(
+            dimension: 154,
+            child: MeterGauge(spec: rpm, value: 3500),
+          ),
+        ),
+      );
+      final theme = Theme.of(tester.element(find.byType(MeterGauge)));
+      // Captions like a lamp's label, the value like a digital readout's.
+      expect(
+        tester.widget<Text>(find.text('RPM')).style?.fontSize,
+        theme.textTheme.labelSmall?.fontSize,
+      );
+      expect(
+        tester.widget<Text>(find.text('3500')).style?.fontSize,
+        theme.textTheme.titleLarge?.fontSize,
+      );
+    });
+
     testWidgets('exposes a screen-reader description', (tester) async {
       await tester.pumpWidget(wrap(const MeterGauge(spec: rpm, value: 7200)));
       expect(

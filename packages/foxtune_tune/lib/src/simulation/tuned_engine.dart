@@ -247,6 +247,7 @@ class TunedEngineSimulation extends EngineSimulation {
     final derived = _derive(now);
 
     return {
+      ...housekeeping(now),
       'rpm': now.rpm,
       'map': now.map,
       'tps': now.throttle,
@@ -254,8 +255,22 @@ class TunedEngineSimulation extends EngineSimulation {
       'iatRaw': now.iat + 40,
       'batteryVoltage': now.battery,
       'afr': derived.measuredAfr,
+      'afrTarget': derived.targetAfr,
       'advance': derived.advance,
       'VE1': derived.tuneVe,
+      'veCurr': derived.tuneVe,
+      // Each correction as the firmware reports it, and their product - the
+      // firmware's "gamma enrichment", which is what the fuel equation used.
+      'accelEnrich': derived.accelEnrich * 100,
+      'ASECurr': derived.asePercent,
+      // Fuel cut zeroes it, as the firmware does.
+      'gammaEnrich': derived.fuelCut
+          ? 0
+          : derived.warmupPercent *
+              derived.asePercent *
+              derived.accelEnrich *
+              derived.egoCorrection /
+              1e4,
       'pulseWidth': derived.pulseWidth,
       'dwell': 3.1,
       'nSquirts': 2,
@@ -393,6 +408,8 @@ class TunedEngineSimulation extends EngineSimulation {
       dutyCycle: (pulseWidth * 2 * now.rpm / 1200).clamp(0, 100),
       advance: advance,
       warmupPercent: warmupPercent,
+      asePercent: asePercent,
+      targetAfr: targetAfr,
       aseActive: aseActive,
       accelEnrich: _accelEnrich,
       fuelCut: fuelCut,
@@ -474,6 +491,8 @@ class _Derived {
     required this.dutyCycle,
     required this.advance,
     required this.warmupPercent,
+    required this.asePercent,
+    required this.targetAfr,
     required this.aseActive,
     required this.accelEnrich,
     required this.fuelCut,
@@ -488,6 +507,8 @@ class _Derived {
   final double dutyCycle;
   final double advance;
   final double warmupPercent;
+  final double asePercent;
+  final double targetAfr;
   final bool aseActive;
   final double accelEnrich;
   final bool fuelCut;

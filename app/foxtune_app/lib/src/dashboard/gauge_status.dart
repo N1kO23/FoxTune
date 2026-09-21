@@ -52,10 +52,12 @@ class GaugeSpec {
     required this.min,
     required this.max,
     this.decimals = 0,
+    this.labelDecimals,
     this.warnAbove,
     this.dangerAbove,
     this.warnBelow,
     this.dangerBelow,
+    this.hasRange = true,
   });
 
   /// Channel name as the definition declares it.
@@ -70,8 +72,23 @@ class GaugeSpec {
   final double min;
   final double max;
 
+  /// Whether [min] and [max] mean anything.
+  ///
+  /// A computed channel with no gauge definition has no declared range at
+  /// all. It still gets a nominal one so a dial can be drawn, but anything
+  /// that would present that range as a fact - a magnitude bar, a graph's
+  /// fixed scale - leaves it out.
+  final bool hasRange;
+
   /// Decimal places to display.
   final int decimals;
+
+  /// Decimal places for scale labels, where they differ from the value's.
+  final int? labelDecimals;
+
+  /// Formats a scale label - an end of the range, a band - at label precision.
+  String formatLabel(double value) =>
+      value.toStringAsFixed(labelDecimals ?? decimals);
 
   /// Upper limits, for values that are dangerous when too high.
   final double? warnAbove;
@@ -85,12 +102,31 @@ class GaugeSpec {
   final double? dangerBelow;
 
   /// Classifies [value] against the configured limits.
+  ///
+  /// A limit is a boundary, not part of the alarm: a reading has to go past
+  /// it. So a duty cycle whose danger point is 100% is not in danger at 100%,
+  /// and one whose warning starts above 0 is not warning at 0.
+  ///
+  /// And zero, on a scale that starts at zero, is never too low. It is the
+  /// thing at rest - throttle shut, injectors off in fuel cut, engine stopped
+  /// - which is not what a low alarm is for: that is a reading sagging towards
+  /// zero, like a pulse width shrinking into the injectors' dead time. The
+  /// definitions set low alarms without that distinction, so a closed throttle
+  /// warns and every overrun reads as danger. Only exactly zero is let off,
+  /// and only where the scale begins there: a coolant sensor reading the
+  /// bottom of its -40 scale, which is what a broken wire looks like, still
+  /// alarms.
   GaugeStatus statusFor(double? value) {
     if (value == null) return GaugeStatus.normal;
-    if (dangerAbove != null && value >= dangerAbove!) return GaugeStatus.danger;
-    if (dangerBelow != null && value <= dangerBelow!) return GaugeStatus.danger;
-    if (warnAbove != null && value >= warnAbove!) return GaugeStatus.warning;
-    if (warnBelow != null && value <= warnBelow!) return GaugeStatus.warning;
+    final atRest = value == 0 && min == 0;
+    if (dangerAbove != null && value > dangerAbove!) return GaugeStatus.danger;
+    if (!atRest && dangerBelow != null && value < dangerBelow!) {
+      return GaugeStatus.danger;
+    }
+    if (warnAbove != null && value > warnAbove!) return GaugeStatus.warning;
+    if (!atRest && warnBelow != null && value < warnBelow!) {
+      return GaugeStatus.warning;
+    }
     return GaugeStatus.normal;
   }
 
@@ -131,150 +167,4 @@ enum TemperatureUnit {
   /// Converts a threshold expressed in Celsius into this scale.
   double fromCelsius(double celsius) =>
       this == TemperatureUnit.celsius ? celsius : celsius * 1.8 + 32;
-}
-
-/// Default presentation for a Speeduino.
-///
-/// Thresholds are conservative starting points for a naturally aspirated
-/// engine, not tuned advice - they exist so the alarm path is real and
-/// visible. Making these user-configurable is follow-up work.
-abstract final class DefaultGauges {
-  /// The large meters: values read at a glance by angular position.
-  static List<GaugeSpec> primary(TemperatureUnit unit) => [
-    _rpm,
-    coolant(unit),
-    _map,
-  ];
-
-  /// The coolant meter, with its limits expressed in [unit].
-  static GaugeSpec coolant(TemperatureUnit unit) => GaugeSpec(
-    channel: 'coolant',
-    label: 'Coolant',
-    units: unit.symbol,
-    min: unit.fromCelsius(-40),
-    max: unit.fromCelsius(140),
-    warnAbove: unit.fromCelsius(100),
-    dangerAbove: unit.fromCelsius(110),
-  );
-
-  /// The intake air tile, with its limits expressed in [unit].
-  static GaugeSpec intakeAir(TemperatureUnit unit) => GaugeSpec(
-    channel: 'iat',
-    label: 'Intake air',
-    units: unit.symbol,
-    min: unit.fromCelsius(-40),
-    max: unit.fromCelsius(120),
-    warnAbove: unit.fromCelsius(60),
-  );
-
-  static const _rpm = GaugeSpec(
-    channel: 'rpm',
-    label: 'RPM',
-    units: 'rpm',
-    min: 0,
-    max: 8000,
-    warnAbove: 6000,
-    dangerAbove: 7000,
-  );
-
-  static const _map = GaugeSpec(
-    channel: 'map',
-    label: 'MAP',
-    units: 'kPa',
-    min: 0,
-    max: 260,
-  );
-
-  /// Secondary readings, shown as numeric tiles.
-  static List<GaugeSpec> secondary(TemperatureUnit unit) => [
-    _afr,
-    _battery,
-    intakeAir(unit),
-    ..._otherSecondary,
-  ];
-
-  static const _afr = GaugeSpec(
-    channel: 'afr',
-    label: 'AFR',
-    units: '',
-    min: 8,
-    max: 20,
-    decimals: 1,
-    warnAbove: 16,
-    dangerAbove: 17.5,
-  );
-
-  static const _battery = GaugeSpec(
-    channel: 'batteryVoltage',
-    label: 'Battery',
-    units: 'V',
-    min: 8,
-    max: 16,
-    decimals: 1,
-    // Low voltage is the failure mode here, not high.
-    warnBelow: 12.0,
-    dangerBelow: 11.0,
-    warnAbove: 15.0,
-  );
-
-  /// Readings with no unit-dependent limits.
-  static const List<GaugeSpec> _otherSecondary = [
-    GaugeSpec(channel: 'tps', label: 'Throttle', units: '%', min: 0, max: 100),
-    GaugeSpec(
-      channel: 'advance',
-      label: 'Advance',
-      units: '\u00B0',
-      min: -20,
-      max: 60,
-    ),
-    GaugeSpec(channel: 'VE1', label: 'VE', units: '%', min: 0, max: 200),
-    GaugeSpec(
-      channel: 'pulseWidth',
-      label: 'Pulse width',
-      units: 'ms',
-      min: 0,
-      max: 25,
-      decimals: 2,
-    ),
-    GaugeSpec(
-      channel: 'dutyCycle',
-      label: 'Duty',
-      units: '%',
-      min: 0,
-      max: 100,
-      warnAbove: 85,
-      dangerAbove: 95,
-    ),
-    GaugeSpec(
-      channel: 'dwell',
-      label: 'Dwell',
-      units: 'ms',
-      min: 0,
-      max: 10,
-      decimals: 2,
-    ),
-    GaugeSpec(
-      channel: 'egoCorrection',
-      label: 'EGO corr',
-      units: '%',
-      min: 50,
-      max: 150,
-    ),
-  ];
-
-  /// Every gauge, for checks that should hold across the whole set.
-  static List<GaugeSpec> allFor(TemperatureUnit unit) => [
-    ...primary(unit),
-    ...secondary(unit),
-  ];
-
-  /// Status flags worth surfacing as indicator lamps.
-  static const List<({String channel, String label})> flags = [
-    (channel: 'running', label: 'Running'),
-    (channel: 'crank', label: 'Cranking'),
-    (channel: 'ase', label: 'Warmup enrich'),
-    (channel: 'warmup', label: 'Warmup'),
-    (channel: 'DFCOOn', label: 'DFCO'),
-    (channel: 'sync', label: 'Sync'),
-  ];
 }

@@ -144,6 +144,30 @@ void main() {
     });
   });
 
+  group('bitwise', () {
+    test('tests a flag bit the way the SD-card indicators do', () {
+      // `{ sd_status & 4 }` - true while the card is ready.
+      expect(eval('sd_status & 4', {'sd_status': 5}), 4);
+      expect(eval('sd_status & 4', {'sd_status': 3}), 0);
+      expect(eval('a | b', {'a': 1, 'b': 4}), 5);
+      expect(eval('a ^ b', {'a': 5, 'b': 4}), 1);
+    });
+
+    test('binds looser than equality, as in C', () {
+      // (1 == 1) is 1, and 3 & 1 is 1.
+      expect(eval('3 & 1 == 1'), 1);
+      // Were & tighter it would read (3 & 1) == 1, also 1 - so check a case
+      // that differs: 2 & 2 == 2 is 2 & (2 == 2) = 2 & 1 = 0.
+      expect(eval('2 & 2 == 2'), 0);
+    });
+
+    test('does not swallow the logical operators', () {
+      expect(eval('1 && 2'), 1);
+      expect(eval('0 || 4'), 1);
+      expect(eval('a & 1 && b', {'a': 3, 'b': 1}), 1);
+    });
+  });
+
   group('element access', () {
     // Dialog conditions in a real definition test pin assignments this way -
     // `{ outputPin[0] != 0 }` - and there are around a hundred of them. An

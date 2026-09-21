@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -9,6 +10,8 @@ import 'package:foxtune_app/src/connection/connection_controller.dart';
 import 'package:foxtune_app/src/dashboard/dashboard_controller.dart';
 import 'package:foxtune_app/src/dashboard/gauge_status.dart';
 import 'package:foxtune_app/src/dashboard/dashboard_screen.dart';
+import 'package:foxtune_app/src/dashboard/gauge_catalog.dart';
+import 'package:foxtune_app/src/storage/json_store.dart';
 import 'package:foxtune_ini/foxtune_ini.dart';
 import 'package:foxtune_protocol/foxtune_protocol.dart';
 import 'package:foxtune_transport/foxtune_transport.dart';
@@ -21,11 +24,15 @@ void main() {
   _definitionUnitTests();
 
   late IniDocument doc;
+  late Directory storage;
 
   setUpAll(() async {
     final source = await rootBundle.loadString('assets/speeduino.ini');
     doc = IniParser(defined: {'CELSIUS'}).parse(source);
   });
+
+  setUp(() => storage = Directory.systemTemp.createTempSync('foxtune_dash'));
+  tearDown(() => storage.deleteSync(recursive: true));
 
   /// Builds a realtime block with the given raw values at their real offsets.
   Uint8List blockWith(Map<String, int> raws) {
@@ -64,15 +71,27 @@ void main() {
     definition: doc,
   );
 
-  Future<void> pumpDashboard(WidgetTester tester, Uint8List block) async {
+  /// What every dashboard test needs: the connection the screen shows, and a
+  /// storage folder of its own so no saved layout leaks between tests.
+  List<Override> baseOverrides() => [
+    connectionProvider.overrideWith(() => _Connected(connectionFor())),
+    appStorageDirectoryProvider.overrideWith((ref) async => storage),
+    realtimeMonitorProvider.overrideWithValue(null),
+  ];
+
+  Future<void> pumpDashboard(
+    WidgetTester tester,
+    Uint8List block, {
+    Size size = const Size(1200, 1000),
+  }) async {
     final snapshot = RealtimeDecoder(doc.outputChannels).decode(block);
-    await tester.binding.setSurfaceSize(const Size(1200, 1000));
+    await tester.binding.setSurfaceSize(size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          realtimeMonitorProvider.overrideWithValue(null),
+          ...baseOverrides(),
           realtimeProvider.overrideWith(
             (ref) => Stream<RealtimeSnapshot>.value(snapshot),
           ),
@@ -87,6 +106,9 @@ void main() {
         ),
       ),
     );
+    // The layout loads asynchronously; let it arrive.
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
     await tester.pump();
   }
 
@@ -107,10 +129,14 @@ void main() {
     expect(find.text('95'), findsOneWidget);
     // Only available because the computed-channel expression was evaluated.
     expect(find.text('90'), findsOneWidget);
-    expect(find.text('RPM'), findsOneWidget);
+    // The tachometer's own title and units, from the definition.
+    expect(find.text('Engine Speed'), findsOneWidget);
+    expect(find.text('RPM'), findsWidgets);
   });
 
-  testWidgets('renders secondary tiles with scaling applied', (tester) async {
+  testWidgets('renders readouts at the definition\'s precision', (
+    tester,
+  ) async {
     await pumpDashboard(
       tester,
       blockWith({
@@ -121,9 +147,10 @@ void main() {
       }),
     );
 
-    expect(find.text('13.8'), findsOneWidget);
-    expect(find.text('42'), findsOneWidget);
-    expect(find.text('14.7'), findsOneWidget);
+    // Each gauge's own decimal places, from `[GaugeConfigurations]`.
+    expect(find.text('13.80'), findsOneWidget);
+    expect(find.text('42.0'), findsOneWidget);
+    expect(find.text('14.70'), findsOneWidget);
   });
 
   testWidgets('raises a labelled alarm past the redline', (tester) async {
@@ -136,9 +163,10 @@ void main() {
   });
 
   testWidgets('flags low battery voltage', (tester) async {
-    await pumpDashboard(tester, blockWith({'rpm': 800, 'batteryVoltage': 105}));
+    // The definition's battery gauge calls danger at 8 V and below.
+    await pumpDashboard(tester, blockWith({'rpm': 800, 'batteryVoltage': 75}));
 
-    expect(find.text('10.5'), findsOneWidget);
+    expect(find.text('7.50'), findsOneWidget);
     expect(find.text('DANGER'), findsAtLeastNWidgets(1));
   });
 
@@ -147,10 +175,12 @@ void main() {
     expect(find.text('Record'), findsOneWidget);
   });
 
-  testWidgets('shows status lamps', (tester) async {
-    await pumpDashboard(tester, blockWith({'rpm': 900}));
+  testWidgets('shows status lamps in their real state', (tester) async {
+    // Bit 0 of the status byte is "running". The lamps read the definition's
+    // own labels for each state rather than one fixed caption.
+    await pumpDashboard(tester, blockWith({'rpm': 900, 'engine': 1}));
     expect(find.text('Running'), findsOneWidget);
-    expect(find.text('Cranking'), findsOneWidget);
+    expect(find.text('Not Cranking'), findsOneWidget);
   });
 
   testWidgets('a stopped engine reads zero without dividing by zero', (
@@ -163,25 +193,11 @@ void main() {
   });
 
   testWidgets('lays out at phone width without overflowing', (tester) async {
-    final snapshot = RealtimeDecoder(doc.outputChannels)
-        .decode(blockWith({'rpm': 2500}));
-    await tester.binding.setSurfaceSize(const Size(400, 900));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          realtimeMonitorProvider.overrideWithValue(null),
-          realtimeProvider.overrideWith(
-            (ref) => Stream<RealtimeSnapshot>.value(snapshot),
-          ),
-        ],
-        child: MaterialApp(
-          home: Scaffold(body: DashboardScreen(connection: connectionFor())),
-        ),
-      ),
+    await pumpDashboard(
+      tester,
+      blockWith({'rpm': 2500}),
+      size: const Size(400, 900),
     );
-    await tester.pump();
 
     // A RenderFlex overflow would surface here.
     expect(tester.takeException(), isNull);
@@ -192,7 +208,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          realtimeMonitorProvider.overrideWithValue(null),
+          ...baseOverrides(),
           realtimeProvider.overrideWith(
             (ref) => const Stream<RealtimeSnapshot>.empty(),
           ),
@@ -213,6 +229,15 @@ void main() {
 
 void _definitionUnitTests() {
   group('definition temperature scale', () {
+    /// The definition the app builds for [unit].
+    Future<IniDocument> definitionFor(TemperatureUnit unit) async {
+      final container = ProviderContainer(
+        overrides: [temperatureUnitProvider.overrideWith((ref) => unit)],
+      );
+      addTearDown(container.dispose);
+      return container.read(definitionProvider.future);
+    }
+
     /// Decodes a coolant reading through the definition the app actually
     /// builds, rather than one the test parsed itself.
     Future<double?> coolantFor(TemperatureUnit unit) async {
@@ -237,7 +262,12 @@ void _definitionUnitTests() {
       final reading = await coolantFor(TemperatureUnit.celsius);
       expect(reading, closeTo(90, 1e-9));
 
-      final gauge = DefaultGauges.coolant(TemperatureUnit.celsius);
+      final gauge =
+          GaugeCatalog(definition: await definitionFor(TemperatureUnit.celsius))
+              .specFor(
+                (await definitionFor(TemperatureUnit.celsius))
+                    .gaugeNamed('cltGauge')!,
+              );
       expect(gauge.statusFor(reading), GaugeStatus.normal);
       expect(gauge.fractionFor(reading), lessThan(1.0));
     });
@@ -247,7 +277,9 @@ void _definitionUnitTests() {
       final reading = await coolantFor(TemperatureUnit.fahrenheit);
       expect(reading, closeTo(194, 1e-6));
 
-      final gauge = DefaultGauges.coolant(TemperatureUnit.fahrenheit);
+      final definition = await definitionFor(TemperatureUnit.fahrenheit);
+      final gauge = GaugeCatalog(definition: definition)
+          .specFor(definition.gaugeNamed('cltGauge')!);
       expect(
         gauge.statusFor(reading),
         GaugeStatus.normal,
@@ -256,4 +288,14 @@ void _definitionUnitTests() {
       expect(gauge.fractionFor(reading), lessThan(1.0));
     });
   });
+}
+
+/// A connection held as connected, as the dashboard only ever is shown.
+class _Connected extends ConnectionController {
+  _Connected(this._state);
+
+  final EcuConnectionState _state;
+
+  @override
+  EcuConnectionState build() => _state;
 }

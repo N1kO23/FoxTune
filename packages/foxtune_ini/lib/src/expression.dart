@@ -7,8 +7,8 @@
 /// because the ECU never sends them.
 ///
 /// Supported: numeric literals, identifiers, `name[index]` element access,
-/// `+ - * / %`, unary `- !`, comparisons, `&& ||`, `<< >>`, parentheses and
-/// the `? :` ternary. Booleans follow C conventions - false is 0, true is 1,
+/// `+ - * / %`, unary `- !`, comparisons, `&& ||`, bitwise `& | ^`, `<< >>`,
+/// parentheses and the `? :` ternary. Booleans follow C conventions - false is 0, true is 1,
 /// and any non-zero value is truthy.
 ///
 /// Element access is how the dialog conditions in a definition test pin
@@ -108,7 +108,7 @@ class _Token {
 
 const _operators = <String>[
   '<<', '>>', '<=', '>=', '==', '!=', '&&', '||', //
-  '+', '-', '*', '/', '%', '<', '>', '!', '?', ':',
+  '+', '-', '*', '/', '%', '<', '>', '!', '?', ':', '&', '|', '^',
 ];
 
 List<_Token> _tokenize(String source) {
@@ -245,9 +245,38 @@ class _Parser {
   }
 
   _Node _parseLogicalAnd() {
-    var left = _parseEquality();
+    var left = _parseBitOr();
     while (_matchOperator('&&')) {
-      left = _BinaryNode('&&', left, _parseEquality());
+      left = _BinaryNode('&&', left, _parseBitOr());
+    }
+    return left;
+  }
+
+  // Bitwise operators sit between the logical ones and equality, as in C -
+  // so `a & b == c` is `a & (b == c)`. The definition only ever tests a mask
+  // against a flag byte (`{ sd_status & 4 }`), where precedence does not bite,
+  // but matching C means an expression written for TunerStudio reads the same
+  // way here.
+  _Node _parseBitOr() {
+    var left = _parseBitXor();
+    while (_matchOperator('|')) {
+      left = _BinaryNode('|', left, _parseBitXor());
+    }
+    return left;
+  }
+
+  _Node _parseBitXor() {
+    var left = _parseBitAnd();
+    while (_matchOperator('^')) {
+      left = _BinaryNode('^', left, _parseBitAnd());
+    }
+    return left;
+  }
+
+  _Node _parseBitAnd() {
+    var left = _parseEquality();
+    while (_matchOperator('&')) {
+      left = _BinaryNode('&', left, _parseEquality());
     }
     return left;
   }
@@ -551,6 +580,9 @@ class _BinaryNode extends _Node {
       '||' => b != 0 ? 1 : 0,
       '<<' => (a.toInt() << b.toInt()).toDouble(),
       '>>' => (a.toInt() >> b.toInt()).toDouble(),
+      '&' => (a.toInt() & b.toInt()).toDouble(),
+      '|' => (a.toInt() | b.toInt()).toDouble(),
+      '^' => (a.toInt() ^ b.toInt()).toDouble(),
       _ => null,
     };
   }
