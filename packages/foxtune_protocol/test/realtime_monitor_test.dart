@@ -137,6 +137,10 @@ void main() {
     expect(monitor.isRunning, isFalse,
         reason: 'a dead link must stop the loop rather than hammer it');
     expect(errors, isNotEmpty);
+    // Giving up is reported as its own type, once, so the app can tell a lost
+    // link from the ordinary failures leading up to it.
+    expect(errors.whereType<RealtimeLinkLost>(), hasLength(1));
+    expect(errors.last, isA<RealtimeLinkLost>());
   }, timeout: const Timeout(Duration(seconds: 30)));
 
   test('refuses to poll when the definition declares no block size', () async {

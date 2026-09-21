@@ -47,6 +47,12 @@ class ConnectionController extends Notifier<EcuConnectionState> {
   EcuLink? _link;
   EcuClient? _client;
 
+  /// What the last connection attempt went through, so a retry or reconnect
+  /// uses the same route. A network ECU must be retried over TCP, not handed
+  /// to the platform's USB transport as though its address were a device.
+  EcuPort? _lastPort;
+  EcuTransport? _lastTransport;
+
   @override
   EcuConnectionState build() {
     ref.onDispose(_teardown);
@@ -67,8 +73,11 @@ class ConnectionController extends Notifier<EcuConnectionState> {
     await _teardown();
     state = EcuConnecting(port);
 
+    final EcuTransport resolved = transport ?? ref.read(transportProvider);
+    _lastPort = port;
+    _lastTransport = resolved;
+
     try {
-      final EcuTransport resolved = transport ?? ref.read(transportProvider);
       final link = await resolved.open(port);
       _link = link;
 
@@ -100,9 +109,34 @@ class ConnectionController extends Notifier<EcuConnectionState> {
     }
   }
 
+  /// Connects again to the ECU last tried, by the same route.
+  Future<void> reconnect() async {
+    final port = _lastPort;
+    if (port == null) return;
+    await connect(port, transport: _lastTransport);
+  }
+
+  /// Ends the session.
+  ///
+  /// Unburned edits are rescued by `unburnedEditsGuardProvider` as the
+  /// connection changes, not here: the loaded tune depends on this
+  /// controller, so reaching back into it from here is a circular dependency
+  /// Riverpod refuses.
   Future<void> disconnect() async {
     await _teardown();
     state = const EcuDisconnected();
+  }
+
+  /// Ends a session that stopped working, without being asked to.
+  ///
+  /// Called when the ECU stops answering or its cable is unplugged. Leaving
+  /// the app reporting "connected" over frozen gauges would be worse than
+  /// saying so plainly.
+  Future<void> connectionLost(String reason) async {
+    final current = state;
+    if (current is! EcuConnected) return;
+    await _teardown();
+    state = EcuConnectionLost(reason, port: current.port);
   }
 
   Future<void> _teardown() async {

@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../dashboard/gauge_status.dart';
 import 'log_controller.dart';
+import 'log_files.dart';
 
 /// Start/stop control for datalogging, with live status.
 class RecordButton extends ConsumerStatefulWidget {
@@ -53,10 +55,14 @@ class _RecordButtonState extends ConsumerState<RecordButton> {
         if (path != null) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(
-                'Saved ${next.rows} rows to ${path.split('/').last}',
+              content: Text('Recorded ${next.rows} rows'),
+              duration: const Duration(seconds: 8),
+              // The log is in app storage, which on a phone nothing else can
+              // see; saving it out is the step that makes it usable.
+              action: SnackBarAction(
+                label: 'Save log…',
+                onPressed: () => LogFiles.save(context, ref, File(path)),
               ),
-              duration: const Duration(seconds: 6),
             ),
           );
         }
@@ -64,10 +70,20 @@ class _RecordButtonState extends ConsumerState<RecordButton> {
     });
 
     if (!session.recording) {
-      return OutlinedButton.icon(
-        onPressed: () => ref.read(logSessionProvider.notifier).start(),
-        icon: const Icon(Icons.fiber_manual_record, size: 16),
-        label: const Text('Record'),
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          OutlinedButton.icon(
+            onPressed: () => ref.read(logSessionProvider.notifier).start(),
+            icon: const Icon(Icons.fiber_manual_record, size: 16),
+            label: const Text('Record'),
+          ),
+          IconButton(
+            tooltip: 'Recorded logs',
+            onPressed: () => LogFiles.showList(context),
+            icon: const Icon(Icons.folder_open_outlined),
+          ),
+        ],
       );
     }
 

@@ -13,6 +13,11 @@ class SerialPortTransport implements EcuTransport {
   @override
   String get name => 'libserialport';
 
+  /// libserialport has no attach notification; the port list is refreshed
+  /// by hand instead.
+  @override
+  Stream<EcuPortEvent> get portEvents => const Stream.empty();
+
   @override
   Future<List<EcuPort>> listPorts() async {
     final ports = <EcuPort>[];

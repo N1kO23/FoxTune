@@ -1,14 +1,20 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:foxtune_transport/foxtune_transport.dart';
 
 import '../autotune/autotune_screen.dart';
 import '../dashboard/dashboard_screen.dart';
+import '../dashboard/gauge_status.dart';
 import '../settings/settings_screen.dart';
+import '../tune/msq_actions.dart';
+import '../tune/recovered_edits.dart';
 import '../tune/table_editor_screen.dart';
 import '../tune/tune_controller.dart';
 import 'connection_controller.dart';
 import 'connection_state.dart';
+import 'connection_watchdog.dart';
 
 /// The app shell: pick a port, connect, then hand off to the dashboard and
 /// table editor.
@@ -22,13 +28,19 @@ class ConnectScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final connection = ref.watch(connectionProvider);
+    // Both live as long as the app: one notices a connection ending, the
+    // other keeps the screen on while there is one.
+    ref.watch(connectionWatchdogProvider);
+    ref.watch(screenWakeWatcherProvider);
+    ref.watch(unburnedEditsGuardProvider);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('FoxTune'),
         actions: [
           if (connection is EcuDisconnected ||
-              connection is EcuConnectionFailed)
+              connection is EcuConnectionFailed ||
+              connection is EcuConnectionLost)
             IconButton(
               tooltip: 'Rescan ports',
               icon: const Icon(Icons.refresh),
@@ -48,8 +60,7 @@ class ConnectScreen extends ConsumerWidget {
             IconButton(
               tooltip: 'Disconnect',
               icon: const Icon(Icons.link_off),
-              onPressed: () =>
-                  ref.read(connectionProvider.notifier).disconnect(),
+              onPressed: () => confirmDisconnect(context, ref),
             ),
           ],
         ],
@@ -61,8 +72,13 @@ class ConnectScreen extends ConsumerWidget {
                 'FOX1: Commencing operation. Connecting to ${port.label}...',
           ),
           EcuConnected() => _ConnectedShell(connection: connection),
-          EcuConnectionFailed() => _FailedView(state: connection),
-          EcuDisconnected() => const _PortList(),
+          EcuConnectionFailed() => _WithRecoveredEdits(
+            child: _FailedView(state: connection),
+          ),
+          EcuConnectionLost() => _WithRecoveredEdits(
+            child: _LostView(state: connection),
+          ),
+          EcuDisconnected() => const _WithRecoveredEdits(child: _PortList()),
         },
       ),
     );
@@ -105,10 +121,14 @@ class _PortList extends ConsumerWidget {
           return _Message(
             icon: Icons.usb_off,
             title: 'No serial ports found',
-            detail:
-                'Connect a Speeduino over USB, then rescan.\n\n'
-                'On Linux you may need to be in the dialout group:\n'
-                'sudo usermod -aG dialout \$USER',
+            detail: Platform.isAndroid
+                ? 'Plug the Speeduino in with a USB OTG cable. It appears '
+                      'here on its own - and if Android offers to open '
+                      'FoxTune, tick "always" so it stops asking for '
+                      'permission.'
+                : 'Connect a Speeduino over USB, then rescan.\n\n'
+                      'On Linux you may need to be in the dialout group:\n'
+                      'sudo usermod -aG dialout \$USER',
             action: Column(
               children: [
                 FilledButton.tonalIcon(
@@ -222,7 +242,13 @@ class _ConnectedView extends ConsumerWidget {
         ),
         const SizedBox(height: 16),
         OutlinedButton.icon(
-          onPressed: () => ref.read(connectionProvider.notifier).disconnect(),
+          onPressed: () async {
+            // Ask over the sheet, and close it only once actually
+            // disconnected - closing first would leave the question with no
+            // screen to be asked on.
+            final navigator = Navigator.of(context);
+            if (await confirmDisconnect(context, ref)) navigator.pop();
+          },
           icon: const Icon(Icons.link_off),
           label: const Text('Disconnect'),
         ),
@@ -295,6 +321,142 @@ class _SignatureCard extends StatelessWidget {
   }
 }
 
+/// Asks before disconnecting over edits that were never burned.
+///
+/// The edits are kept either way - they can be saved as a `.msq` from the
+/// connect screen - but a tuner who meant to burn first deserves the chance.
+///
+/// Returns whether it disconnected.
+Future<bool> confirmDisconnect(BuildContext context, WidgetRef ref) async {
+  final tune = ref.read(tuneProvider).valueOrNull;
+  if (tune != null && tune.isDirty) {
+    final pages = tune.dirtyPages.length;
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        icon: Icon(Icons.warning_amber_rounded, color: StatusPalette.warning),
+        title: const Text('Disconnect with unburned changes?'),
+        content: Text(
+          '$pages page(s) have changes that have not been burned to the ECU. '
+          'They will be kept so you can save them as a .msq, but the ECU will '
+          'not have them.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Disconnect'),
+          ),
+        ],
+      ),
+    );
+    if (proceed != true) return false;
+  }
+  await ref.read(connectionProvider.notifier).disconnect();
+  return true;
+}
+
+/// A connection that was working, and stopped.
+class _LostView extends ConsumerWidget {
+  const _LostView({required this.state});
+  final EcuConnectionLost state;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => _Message(
+    icon: Icons.link_off,
+    title: 'Connection lost',
+    detail: '${state.reason}\n\n${state.port.label}',
+    action: Wrap(
+      spacing: 12,
+      runSpacing: 8,
+      alignment: WrapAlignment.center,
+      children: [
+        FilledButton.icon(
+          onPressed: () => ref.read(connectionProvider.notifier).reconnect(),
+          icon: const Icon(Icons.refresh),
+          label: const Text('Reconnect'),
+        ),
+        OutlinedButton(
+          onPressed: () => ref.read(connectionProvider.notifier).disconnect(),
+          child: const Text('Back to ports'),
+        ),
+      ],
+    ),
+  );
+}
+
+/// Puts rescued edits in front of the user until they are dealt with.
+class _WithRecoveredEdits extends ConsumerWidget {
+  const _WithRecoveredEdits({required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final recovered = ref.watch(recoveredEditsProvider);
+    if (recovered == null) return child;
+
+    final theme = Theme.of(context);
+    return Column(
+      children: [
+        Material(
+          color: StatusPalette.warning.withValues(alpha: 0.14),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.edit_note, color: StatusPalette.warning),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Unburned changes to ${recovered.pages.length} '
+                        'page(s) were kept when the connection ended.',
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                    ),
+                  ],
+                ),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    TextButton.icon(
+                      onPressed: () async {
+                        final saved = await MsqActions.save(
+                          context,
+                          ref,
+                          recovered.tune,
+                        );
+                        if (saved) {
+                          ref.read(recoveredEditsProvider.notifier).state =
+                              null;
+                        }
+                      },
+                      icon: const Icon(Icons.save_alt),
+                      label: const Text('Save as .msq'),
+                    ),
+                    TextButton(
+                      onPressed: () =>
+                          ref.read(recoveredEditsProvider.notifier).state =
+                              null,
+                      child: const Text('Discard'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        Expanded(child: child),
+      ],
+    );
+  }
+}
+
 class _FailedView extends ConsumerWidget {
   const _FailedView({required this.state});
   final EcuConnectionFailed state;
@@ -307,10 +469,11 @@ class _FailedView extends ConsumerWidget {
     action: Wrap(
       spacing: 12,
       children: [
-        if (state.port case final port?)
+        if (state.port != null)
           FilledButton.icon(
-            onPressed: () =>
-                ref.read(connectionProvider.notifier).connect(port),
+            // Through reconnect(), so a network ECU is retried over TCP
+            // rather than handed to the USB transport by address.
+            onPressed: () => ref.read(connectionProvider.notifier).reconnect(),
             icon: const Icon(Icons.refresh),
             label: const Text('Retry'),
           ),

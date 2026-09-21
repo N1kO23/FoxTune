@@ -324,6 +324,48 @@ void main() {
     });
   });
 
+  group('at phone width', () {
+    const phone = Size(400, 850);
+
+    Future<void> openFromList(WidgetTester tester, String label) async {
+      await tester.enterText(find.byType(TextField).first, label);
+      await tester.pumpAndSettle();
+      // The search box now holds the same text, so aim at the list entry.
+      await tester.tap(find.widgetWithText(ListTile, label));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('the menu fills the screen and opens settings on top', (
+      tester,
+    ) async {
+      await pumpSettings(tester, size: phone);
+      expect(tester.takeException(), isNull);
+
+      await openFromList(tester, 'Trigger Setup');
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Trigger Pattern'), findsOneWidget);
+    });
+
+    testWidgets('a curve fits', (tester) async {
+      await pumpSettings(tester, size: phone);
+      await openFromList(tester, 'Warmup Enrichment');
+
+      expect(tester.takeException(), isNull);
+      expect(find.byType(CurveEditor), findsOneWidget);
+    });
+
+    testWidgets('the busiest dialog fits', (tester) async {
+      // Engine Constants nests dialogs inside a border layout, which is what
+      // would be squeezed into unusable columns if it were laid out as wide.
+      await pumpSettings(tester, size: phone);
+      await openFromList(tester, 'Engine Constants');
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Board Layout'), findsOneWidget);
+    });
+  });
+
   group('plot geometry', () {
     test('places a point inside the declared window, y growing upwards', () {
       const window = CurveWindow(xMin: 0, xMax: 100, yMin: 0, yMax: 200);

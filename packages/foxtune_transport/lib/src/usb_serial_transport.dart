@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:foxtune_protocol/foxtune_protocol.dart';
 import 'package:usb_serial/usb_serial.dart';
 
@@ -13,6 +14,18 @@ import 'ecu_transport.dart';
 class UsbSerialTransport implements EcuTransport {
   @override
   String get name => 'usb_serial (Android USB host)';
+
+  @override
+  Stream<EcuPortEvent> get portEvents {
+    final events = UsbSerial.usbEventStream;
+    if (events == null) return const Stream.empty();
+    return events.map((event) {
+      final address = event.device?.deviceName;
+      return event.event == UsbEvent.ACTION_USB_ATTACHED
+          ? EcuPortEvent.attached(address)
+          : EcuPortEvent.detached(address);
+    });
+  }
 
   @override
   Future<List<EcuPort>> listPorts() async {
@@ -44,12 +57,18 @@ class UsbSerialTransport implements EcuTransport {
       throw EcuTransportException('Device is no longer attached', port: port);
     }
 
-    // Android prompts the user for permission here; a refusal surfaces as a
-    // null port rather than an exception.
-    final usbPort = await device.create();
+    // Android prompts the user for permission here, unless it was granted
+    // when the app was opened from the plug-in prompt. A refusal arrives as a
+    // PlatformException from the plugin, not as a null port.
+    final UsbPort? usbPort;
+    try {
+      usbPort = await device.create();
+    } on PlatformException catch (error) {
+      throw EcuTransportException(describeOpenFailure(error), port: port);
+    }
     if (usbPort == null) {
       throw EcuTransportException(
-          'Could not claim the device. USB permission may have been denied.',
+          'Android did not provide a serial driver for this device.',
           port: port);
     }
 
@@ -71,6 +90,24 @@ class UsbSerialTransport implements EcuTransport {
     await Future<void>.delayed(const Duration(milliseconds: 1000));
 
     return _UsbSerialLink(usbPort, port.label);
+  }
+
+  /// A message for a failure to claim a USB device, fit to show a user.
+  ///
+  /// The plugin reports a denied permission as "Failed to acquire
+  /// permissions."; shown verbatim that reads like a bug rather than like the
+  /// tap on "Deny" it actually was.
+  static String describeOpenFailure(PlatformException error) {
+    final text = '${error.message ?? ''} ${error.details ?? ''}'.toLowerCase();
+    if (text.contains('permission')) {
+      return 'USB permission was denied. Connect again and allow FoxTune to '
+          'use the device - or unplug and replug it, and tick "always" when '
+          'Android offers to open FoxTune.';
+    }
+    final detail = error.message;
+    return detail == null || detail.isEmpty
+        ? 'Could not claim the USB device.'
+        : 'Could not claim the USB device: $detail';
   }
 }
 

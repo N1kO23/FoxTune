@@ -1,11 +1,9 @@
-import 'dart:io';
-
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
 
 import '../dashboard/gauge_status.dart';
+import '../files/file_saving.dart';
 import 'tune_controller.dart';
 
 /// Saving and loading TunerStudio `.msq` tune files.
@@ -14,8 +12,11 @@ import 'tune_controller.dart';
 /// user burns, which keeps the guard rails in one place rather than giving a
 /// file load its own path to the hardware.
 abstract final class MsqActions {
-  /// Writes the current tune to a file the user chooses.
-  static Future<void> save(
+  /// Writes [tune] to a file the user chooses.
+  ///
+  /// Returns whether it was saved, so a caller holding edits that exist
+  /// nowhere else knows when it is safe to let them go.
+  static Future<bool> save(
     BuildContext context,
     WidgetRef ref,
     TuneState tune,
@@ -25,20 +26,18 @@ abstract final class MsqActions {
     final suggested =
         '${signature.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_')}.msq';
 
-    final path = await FilePicker.platform.saveFile(
-      dialogTitle: 'Save tune',
-      fileName: suggested,
-      type: FileType.custom,
-      allowedExtensions: const ['msq'],
-    );
-    if (path == null) return;
-
     try {
-      final xml = MsqCodec.encode(tune, tuneComment: 'Saved by FoxTune');
-      await File(path).writeAsString(xml);
-      messenger.showSnackBar(
-        SnackBar(content: Text('Saved ${path.split('/').last}')),
-      );
+      final saved = await ref
+          .read(fileSavingProvider)
+          .saveText(
+            dialogTitle: 'Save tune',
+            fileName: suggested,
+            extension: 'msq',
+            text: MsqCodec.encode(tune, tuneComment: 'Saved by FoxTune'),
+          );
+      if (saved == null) return false;
+      messenger.showSnackBar(SnackBar(content: Text('Saved $saved')));
+      return true;
     } on Object catch (error) {
       messenger.showSnackBar(
         SnackBar(
@@ -46,6 +45,7 @@ abstract final class MsqActions {
           content: Text('Could not save: $error'),
         ),
       );
+      return false;
     }
   }
 
@@ -55,23 +55,23 @@ abstract final class MsqActions {
     WidgetRef ref,
     TuneState tune,
   ) async {
-    final result = await FilePicker.platform.pickFiles(
-      dialogTitle: 'Open tune',
-      type: FileType.custom,
-      allowedExtensions: const ['msq'],
-    );
-    final path = result?.files.single.path;
-    if (path == null || !context.mounted) return;
-
     final messenger = ScaffoldMessenger.of(context);
     String xml;
     try {
-      xml = await File(path).readAsString();
+      final picked = await ref
+          .read(fileSavingProvider)
+          .pickFile(dialogTitle: 'Open tune', extensions: const ['msq']);
+      if (picked == null || !context.mounted) return;
+      xml = picked.text;
     } on Object catch (error) {
       messenger.showSnackBar(
         SnackBar(
           backgroundColor: StatusPalette.critical,
-          content: Text('Could not read the file: $error'),
+          content: Text(
+            error is WrongFileTypeException
+                ? error.message
+                : 'Could not read the file: $error',
+          ),
         ),
       );
       return;

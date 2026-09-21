@@ -161,10 +161,11 @@ Ways out, in rough order of preference:
 
 The release manifest (`android/app/src/main/AndroidManifest.xml`) declares:
 
-| Declaration                   | Why                                                                |
-| ----------------------------- | ------------------------------------------------------------------ |
-| `android.permission.INTERNET` | TCP transport - a WiFi bridge, or the simulator on another machine |
-| `android.hardware.usb.host`   | USB OTG enumeration; without it `listDevices()` returns nothing    |
+| Declaration                   | Why                                                                          |
+| ----------------------------- | ---------------------------------------------------------------------------- |
+| `android.permission.INTERNET` | TCP transport - a WiFi bridge, or the simulator on another machine           |
+| `android.hardware.usb.host`   | Declares USB host (OTG) use; `required="false"` keeps TCP-only phones listed |
+| `USB_DEVICE_ATTACHED` filter  | Plugging in a known board offers to open FoxTune (see below)                 |
 
 `INTERNET` has to be declared explicitly. Flutter's template only puts it in the **debug** and
 **profile** manifests, so a release APK built without it fails every socket with
@@ -172,11 +173,42 @@ The release manifest (`android/app/src/main/AndroidManifest.xml`) declares:
 process that does not hold the permission. It works in debug and breaks in release, which makes
 it easy to miss.
 
+`usb.host` is a declaration only. Permission to talk to a particular device is separate: Android
+asks the first time FoxTune opens it, or grants it up front when FoxTune was launched from the
+plug-in prompt.
+
+**Plugging in.** `MainActivity` registers for `USB_DEVICE_ATTACHED`, filtered by
+`res/xml/device_filter.xml`, so plugging a Speeduino in asks "Open FoxTune when this is
+connected?". Ticking **always** makes Android remember the USB permission, so connecting stops
+prompting. The filter lists vendor IDs, in decimal, and must match `EcuPort.knownEcuVendorIds`
+in `foxtune_transport` - a test fails if the two drift apart.
+
 Local network access needs nothing extra today: at `targetSdk` 36 it is implicitly granted by
 `INTERNET`, and Google's guidance is _not_ to declare `ACCESS_LOCAL_NETWORK` yet. That changes
 at `targetSdk` 37 (Android 17), where local network access is blocked by default and
 `ACCESS_LOCAL_NETWORK` becomes a runtime permission that has to be requested. Revisit this when
 the target SDK moves.
+
+### Testing on a phone
+
+CI builds the APK, but nothing in CI can plug a cable in. Before trusting a build in a car,
+go through this with the phone and a Speeduino - the bench ECU is fine, engine off:
+
+1. **Plug in.** Android offers to open FoxTune. Tick **always**; unplug and replug - FoxTune
+   opens with no permission prompt, and the board is at the top of the list.
+2. **Deny once.** Clear FoxTune's defaults (Settings → Apps → FoxTune → Open by default),
+   replug, connect, tap **Deny**. The message says permission was denied - not a raw
+   exception - and connecting again asks again.
+3. **Connect over OTG.** Gauges move. Leave it for longer than the screen timeout; the screen
+   stays on. Disconnect; the screen times out normally again.
+4. **Pull the cable** with an unburned edit made (change one table cell). Within about a second
+   the app says **Connection lost**, and offers to save the edit as a `.msq`.
+5. **Files.** Save a tune to Downloads, then load it back. Export a table and re-import it.
+6. **Logs.** Record for ten seconds, stop, tap **Save log…** in the message, and open the `.msl`
+   off the phone. The folder button next to **Record** lists earlier logs.
+
+Anything that behaves differently goes in an issue with the phone model and Android version:
+USB host support varies more between manufacturers than anywhere else on Android.
 
 ## Release signing
 

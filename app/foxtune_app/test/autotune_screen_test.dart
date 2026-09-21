@@ -143,8 +143,9 @@ void main() {
     WidgetTester tester, {
     WritePermission permission = const WritePermission.granted(),
     bool realtimeDependsOnTune = false,
+    Size size = const Size(1400, 1200),
   }) async {
-    await tester.binding.setSurfaceSize(const Size(1400, 1200));
+    await tester.binding.setSurfaceSize(size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     final container = ProviderContainer(
@@ -211,6 +212,19 @@ void main() {
     expect(find.text('Idle'), findsOneWidget);
     expect(find.text('Start autotune'), findsOneWidget);
     expect(find.byType(TableGrid), findsOneWidget);
+  });
+
+  testWidgets('lays out at phone width, running or not', (tester) async {
+    final container = await pumpAutotune(tester, size: const Size(400, 850));
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.text('Start autotune'));
+    await tester.pumpAndSettle();
+    expect(container.read(autotuneProvider).armed, isTrue);
+
+    // The status strip is at its widest once there is data and a reason.
+    await drive(tester, afr: 15.5, count: 10);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('a read-only session cannot arm', (tester) async {

@@ -5,9 +5,10 @@ Open source ECU tuning software for open source ECUs.
 FoxTune targets [Speeduino](https://speeduino.com/) first, with rusEFI and MegaSquirt as later
 goals. It runs on Linux, Windows, macOS and Android from a single Flutter codebase.
 
-> **Status: works, but unproven on hardware.** Everything below is implemented and tested
-> against a protocol-accurate simulator. None of it has yet talked to a real Speeduino, so
-> treat the write path in particular as unverified - see [Safety](#safety).
+> **Status: works; the write path is unproven on hardware.** Everything below is implemented
+> and tested against a protocol-accurate simulator. Connecting and the live dashboard have been
+> used against a real Speeduino. Burning, the settings screens, autotuning and USB OTG on
+> Android have not yet, so treat those as unverified - see [Safety](#safety).
 
 ## Why
 
@@ -37,13 +38,20 @@ codec does sits above the `EcuLink` byte pipe, so it can be driven by an in-memo
 
 ### Platform support
 
-| Platform           | Transport                       | Status                      |
-| ------------------ | ------------------------------- | --------------------------- |
-| Linux              | USB serial, TCP                 | Built and run               |
-| Android            | USB OTG, TCP                    | Built and run; OTG untested |
-| Windows / macOS    | USB serial, TCP                 | Should build; never tried   |
-| Any, including iOS | TCP (ESP8266/ESP32 WiFi bridge) | Works                       |
-| iOS                | BLE                             | Not started                 |
+| Platform           | Transport                       | Status                          |
+| ------------------ | ------------------------------- | ------------------------------- |
+| Linux              | USB serial, TCP                 | Built and run                   |
+| Android            | USB OTG, TCP                    | TCP used; OTG built, not tested |
+| Windows / macOS    | USB serial, TCP                 | Should build; never tried       |
+| Any, including iOS | TCP (ESP8266/ESP32 WiFi bridge) | Works                           |
+| iOS                | BLE                             | Not started                     |
+
+On Android, plugging a Speeduino in offers to open FoxTune; ticking "always" stops the USB
+permission prompt from coming back. The screen stays on while connected. A pulled cable is
+noticed at once and reported as a lost connection, and any edits not yet burned are kept so they
+can be saved as a `.msq`. Tunes, table exports and datalogs leave the phone through Android's own
+"Save to" picker. [BUILDING.md](BUILDING.md#testing-on-a-phone) has the checklist for trying
+it on a real phone.
 
 iOS exposes no generic USB serial API - the External Accessory framework requires Apple MFi
 licensing - so an iPhone can only ever reach a Speeduino over WiFi (an ESP8266/ESP32 bridge on

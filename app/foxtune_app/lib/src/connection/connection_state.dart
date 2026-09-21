@@ -62,3 +62,19 @@ class EcuConnectionFailed extends EcuConnectionState {
   final String message;
   final EcuPort? port;
 }
+
+/// The connection was working, and then it stopped.
+///
+/// Distinct from [EcuConnectionFailed], which is a connection that never came
+/// up: here a session was under way, so there may be unburned edits to rescue
+/// and the right next step is reconnecting to the same ECU rather than
+/// choosing a port again. A pulled OTG cable in the car is the usual cause.
+class EcuConnectionLost extends EcuConnectionState {
+  const EcuConnectionLost(this.reason, {required this.port});
+
+  /// Why, fit to show a user.
+  final String reason;
+
+  /// The port that was connected.
+  final EcuPort port;
+}

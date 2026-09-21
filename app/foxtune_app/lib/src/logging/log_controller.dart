@@ -2,12 +2,12 @@ import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../connection/connection_controller.dart';
 import '../connection/connection_state.dart';
 import '../dashboard/dashboard_controller.dart';
 import '../tune/tune_controller.dart';
+import 'log_files.dart';
 
 /// State of the datalogger.
 class LogSession {
@@ -85,13 +85,13 @@ class LogController extends Notifier<LogSession> {
     );
 
     try {
-      final dir = await getApplicationDocumentsDirectory();
+      final dir = await ref.read(logDirectoryProvider.future);
       final stamp = DateTime.now()
           .toIso8601String()
           .replaceAll(':', '-')
           .split('.')
           .first;
-      final file = File('${dir.path}/FoxTune/logs/foxtune-$stamp.msl');
+      final file = File('${dir.path}/foxtune-$stamp.msl');
 
       await recorder.start(file, probe: probe);
       // Subscribe to the monitor directly rather than to the provider's
@@ -130,6 +130,8 @@ class LogController extends Notifier<LogSession> {
     _recorder = null;
     final rows = recorder.rowCount;
     final file = await recorder.stop();
+    // A new log exists, so the list of recorded ones is out of date.
+    ref.invalidate(recentLogsProvider);
     state = LogSession(
       recording: false,
       path: file?.path,

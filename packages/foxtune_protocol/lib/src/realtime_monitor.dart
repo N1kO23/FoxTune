@@ -111,9 +111,7 @@ class RealtimeMonitor {
         if (_consecutiveErrors >= maxConsecutiveErrors) {
           _running = false;
           if (!_errors.isClosed) {
-            _errors.add(EcuProtocolException(
-                'Stopped polling after $_consecutiveErrors consecutive '
-                'failures'));
+            _errors.add(RealtimeLinkLost(_consecutiveErrors, cause: error));
           }
           return;
         }
@@ -140,4 +138,21 @@ class RealtimeMonitor {
       _rateWindowCount = 0;
     }
   }
+}
+
+/// The realtime monitor has stopped, because the ECU stopped answering.
+///
+/// Emitted once on [RealtimeMonitor.errors] when polling gives up, as a type
+/// of its own so a caller can tell "the link is gone" from the ordinary
+/// one-off failures that come before it. A pulled USB cable, a flat battery
+/// and a crashed firmware all end here.
+class RealtimeLinkLost extends EcuProtocolException {
+  RealtimeLinkLost(this.failures, {this.cause})
+      : super('Stopped polling after $failures consecutive failures');
+
+  /// Consecutive failed polls that led to giving up.
+  final int failures;
+
+  /// The last failure, for diagnostics.
+  final Object? cause;
 }

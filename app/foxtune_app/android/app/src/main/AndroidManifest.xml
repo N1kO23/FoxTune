@@ -1,6 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Required for USB OTG: without this, listDevices() returns nothing on
-         Android even with a Speeduino plugged in. -->
+    <!-- Declares that FoxTune uses USB host mode (OTG). required="false" keeps
+         it installable on devices without host mode, which can still reach an
+         ECU over TCP. This is a declaration only: permission to talk to a
+         particular device is granted separately, at runtime or through the
+         attach prompt below. -->
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
 
     <!-- Required to reach an ECU over TCP - an ESP8266/ESP32 WiFi bridge, or the
@@ -12,7 +15,7 @@
          outright to a process that does not hold INTERNET. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <application
-        android:label="foxtune_app"
+        android:label="FoxTune"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
@@ -36,6 +39,17 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- Plugging in a board listed in device_filter.xml offers to open
+                 FoxTune. Ticking "always" makes Android remember the USB
+                 permission, so connecting does not prompt every time. The app
+                 opens on the connect screen with the board at the top of the
+                 list; connecting is still a deliberate tap. -->
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/device_filter" />
         </activity>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

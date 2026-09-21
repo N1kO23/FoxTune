@@ -27,6 +27,10 @@ class TcpEcuTransport implements EcuTransport {
   @override
   Future<List<EcuPort>> listPorts() async => const [];
 
+  /// A network endpoint is never plugged in, so nothing is reported.
+  @override
+  Stream<EcuPortEvent> get portEvents => const Stream.empty();
+
   /// Builds a port from a `host` or `host:port` string.
   EcuPort portFor(String address) =>
       EcuPort(address: address.trim(), description: 'Network ECU');

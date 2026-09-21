@@ -33,26 +33,50 @@ class EcuPort {
       ? address
       : '$address - $description';
 
+  /// USB vendor IDs of the boards and adapters Speeduino commonly runs on.
+  ///
+  /// The Android app's `res/xml/device_filter.xml` lists the same IDs, so that
+  /// plugging one of these in offers to open FoxTune. A test keeps the two
+  /// lists in step.
+  static const knownEcuVendorIds = {
+    0x2341, // Arduino
+    0x1A86, // CH340/CH341 clones
+    0x0403, // FTDI
+    0x10C4, // Silicon Labs CP210x
+    0x1EAF, // Leaflabs Maple / STM32
+    0x0483, // STMicroelectronics
+    0x16C0, // Teensy
+  };
+
   /// Whether this port looks like a board Speeduino runs on.
   ///
   /// A hint for sorting a picker, never a gate: plenty of valid setups use
   /// adapters this does not recognise, so nothing is hidden on this basis.
   bool get isLikelyEcu {
     final vid = vendorId;
-    if (vid == null) return false;
-    return const {
-      0x2341, // Arduino
-      0x1A86, // CH340/CH341 clones
-      0x0403, // FTDI
-      0x10C4, // Silicon Labs CP210x
-      0x1EAF, // Leaflabs Maple / STM32
-      0x0483, // STMicroelectronics
-      0x16C0, // Teensy
-    }.contains(vid);
+    return vid != null && knownEcuVendorIds.contains(vid);
   }
 
   @override
   String toString() => 'EcuPort($label)';
+}
+
+/// A port was plugged in or unplugged.
+class EcuPortEvent {
+  const EcuPortEvent.attached(this.address) : attached = true;
+
+  const EcuPortEvent.detached(this.address) : attached = false;
+
+  /// The port's address, matching [EcuPort.address], where the platform
+  /// reports which device it was.
+  final String? address;
+
+  /// Whether the port appeared rather than went away.
+  final bool attached;
+
+  @override
+  String toString() =>
+      'EcuPortEvent(${attached ? 'attached' : 'detached'} $address)';
 }
 
 /// Enumerates serial ports and opens links to them.
@@ -72,6 +96,14 @@ abstract class EcuTransport {
 
   /// Lists currently attached ports.
   Future<List<EcuPort>> listPorts();
+
+  /// Ports being plugged in and unplugged, where the platform reports it.
+  ///
+  /// Android does, through USB host broadcasts: that is what lets the port
+  /// list refresh itself and a pulled cable be noticed straight away. Desktop
+  /// serial offers no such notification, so there this stays empty and the
+  /// list has a refresh button instead.
+  Stream<EcuPortEvent> get portEvents;
 
   /// Opens [port] and returns a link ready for [EcuClient].
   ///

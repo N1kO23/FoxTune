@@ -1,11 +1,9 @@
-import 'dart:io';
-
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
 
 import '../dashboard/gauge_status.dart';
+import '../files/file_saving.dart';
 import 'tune_controller.dart';
 
 /// Import and export of a single table as a TunerStudio `.table` file.
@@ -23,23 +21,18 @@ abstract final class TableFileActions {
     final suggested =
         '${view.table.id.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_')}.table';
 
-    final path = await FilePicker.platform.saveFile(
-      dialogTitle: 'Export ${view.title}',
-      fileName: suggested,
-      type: FileType.custom,
-      allowedExtensions: const ['table'],
-    );
-    if (path == null) return;
-
     try {
-      await File(path).writeAsString(TableFileCodec.encode(view));
+      final saved = await ref
+          .read(fileSavingProvider)
+          .saveText(
+            dialogTitle: 'Export ${view.title}',
+            fileName: suggested,
+            extension: 'table',
+            text: TableFileCodec.encode(view),
+          );
+      if (saved == null) return;
       messenger.showSnackBar(
-        SnackBar(
-          content: Text(
-            'Exported ${view.title} to '
-            '${path.split('/').last}',
-          ),
-        ),
+        SnackBar(content: Text('Exported ${view.title} to $saved')),
       );
     } on Object catch (error) {
       messenger.showSnackBar(
@@ -57,27 +50,26 @@ abstract final class TableFileActions {
     WidgetRef ref,
     TableView view,
   ) async {
-    final result = await FilePicker.platform.pickFiles(
-      dialogTitle: 'Import into ${view.title}',
-      type: FileType.custom,
-      allowedExtensions: const ['table'],
-    );
-    final path = result?.files.single.path;
-    if (path == null || !context.mounted) return;
-
     final messenger = ScaffoldMessenger.of(context);
     TableFileData data;
     try {
-      data = TableFileCodec.decode(await File(path).readAsString());
+      final picked = await ref
+          .read(fileSavingProvider)
+          .pickFile(
+            dialogTitle: 'Import into ${view.title}',
+            extensions: const ['table'],
+          );
+      if (picked == null || !context.mounted) return;
+      data = TableFileCodec.decode(picked.text);
     } on Object catch (error) {
       messenger.showSnackBar(
         SnackBar(
           backgroundColor: StatusPalette.critical,
-          content: Text(
-            error is TableFileException
-                ? error.message
-                : 'Could not read the file: $error',
-          ),
+          content: Text(switch (error) {
+            TableFileException(:final message) => message,
+            WrongFileTypeException(:final message) => message,
+            _ => 'Could not read the file: $error',
+          }),
           duration: const Duration(seconds: 6),
         ),
       );
