@@ -102,15 +102,28 @@ cd packages/foxtune_tune
 dart run bin/fake_ecu.dart --msq /path/to/your-tune.msq
 ```
 
-Then connect from the app with **Network ECU** → `127.0.0.1:2000`. The simulator drives a
-plausible running engine into the realtime block - idle, a pull to redline, a cruise, then a
+Then connect from the app with **Network ECU** → `127.0.0.1:2000`. It drives a plausible
+running engine into the realtime block - idle, a pull to redline, a cruise, then a
 closed-throttle overrun - so gauges move, the live table cursor travels across cells, and the
 warning thresholds are actually reached. `--static` disables it; `--ini PATH` uses a different
 definition.
 
-Pass a tune with `--msq`. Without one the simulator serves empty pages, and channels whose
-scaling depends on a configuration constant - the VE table's load axis among them - cannot be
-written at all. It prints a warning naming any it could not scale.
+**The engine runs on the tune.** The VE table in the ECU's own pages decides how much fuel goes
+in; a hidden airflow model decides how much the engine needed; the wideband reports the
+difference through a sensor lag. So editing the VE table in FoxTune changes what the simulated
+engine runs at, closed-loop correction trims against it, warmup and afterstart enrichment come
+off the tune's own curves, ignition advance comes off the spark table, and the overrun cuts
+fuel. Autotuning can be driven end to end without an engine.
+
+Fuelling is defined so that a VE table equal to the engine's airflow lands exactly on the AFR
+target - which is what "a correct VE table" means to a tuner, and what autotuning is trying to
+reach.
+
+Pass a tune with `--msq` for realistic tables and settings. Without one the pages hold filler
+bytes, which are not a tune - the axis bins are not even monotonic - so a base tune is seeded
+instead: real axes, a VE table taken from the engine model, a flat mixture target, an ignition
+map and the enrichment curves. `--ve-error PERCENT` sets how far out the seeded VE table
+starts, which is what gives autotuning something to correct (default -8%).
 
 In tests it is used directly:
 
@@ -120,6 +133,19 @@ final port = await ecu.start();
 final link = await SocketEcuLink.connect('127.0.0.1', port);
 final id = await EcuClient(link).identify();
 ```
+
+`FakeSpeeduino` alone fuels the engine from a canned curve, which is all the protocol tests
+need. For the tune-driven model, hand it a `TunedEngineSimulation` from
+`package:foxtune_tune/simulation.dart`:
+
+```dart
+final engine = TunedEngineSimulation(definition: doc, pages: ecu.pages)
+  ..seedTune(errorPercent: -10);
+ecu.simulateEngine(simulation: engine);
+```
+
+It lives in `foxtune_tune` rather than beside `FakeSpeeduino` because it reads the ECU's pages
+through `TableView` and `CurveView`, and `foxtune_protocol` sits below those.
 
 The desktop serial driver itself is the one part that cannot be tested this way: libserialport
 rejects pseudo-terminals (`sp_get_port_by_name` returns `EINVAL` for `/dev/pts/*`), so a `socat`

@@ -1,8 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:foxtune_protocol/foxtune_protocol.dart';
 
-import 'package:foxtune_tune/foxtune_tune.dart';
-
 import '../connection/connection_controller.dart';
 import '../connection/connection_state.dart';
 import '../tune/tune_controller.dart';
@@ -23,14 +21,18 @@ final realtimeMonitorProvider = Provider<RealtimeMonitor?>((ref) {
   // dutyCycle needs twoStroke, which lives on a configuration page - so give
   // the decoder a way to reach the loaded tune. Without it those gauges read
   // as unavailable.
-  final tune = ref.watch(tuneProvider).valueOrNull;
-  final resolver = tune == null ? null : TuneValueResolver(tune);
+  //
+  // Reached through the controller rather than by watching the tune's value.
+  // Watching would tie the poller's lifetime to the tune, and a tune changes
+  // on every edited cell: autotuning applies corrections many times a second,
+  // and each one would dispose this monitor and start a fresh one mid-poll.
+  final tuneController = ref.read(tuneProvider.notifier);
 
   final monitor = RealtimeMonitor(
     client: client,
     decoder: RealtimeDecoder(
       definition.outputChannels,
-      constantResolver: resolver?.resolve,
+      constantResolver: (name) => tuneController.resolver?.resolve(name),
     ),
     interval: const Duration(milliseconds: 33),
   );

@@ -67,6 +67,22 @@ final autotuneProvider = NotifierProvider<AutotuneController, AutotuneSession>(
 );
 
 class AutotuneController extends Notifier<AutotuneSession> {
+  /// The session, held here rather than read back out of Riverpod.
+  ///
+  /// Reading `state` flushes this provider, and flushing walks its ancestors
+  /// and rebuilds any that are stale. That is fine from a button press and
+  /// wrong from inside a realtime notification: applying a correction marks
+  /// the tune edited, which makes the realtime feed stale, so reading the
+  /// session back asks Riverpod to rebuild a provider that is still part-way
+  /// through notifying us - and it asserts. Writing `state` does not flush, so
+  /// the session is kept here and pushed out.
+  ///
+  /// The notifier instance outlives `build`, so this survives a rebuild that
+  /// would otherwise discard a session mid-run.
+  AutotuneSession _session = const AutotuneSession(
+    settings: AutotuneSettings(),
+  );
+
   DateTime _lastPublished = DateTime.fromMillisecondsSinceEpoch(0);
 
   /// How often the status strip refreshes while nothing is changing.
@@ -90,14 +106,20 @@ class AutotuneController extends Notifier<AutotuneSession> {
       if (next is! EcuConnected) disarm();
     });
 
-    return const AutotuneSession(settings: AutotuneSettings());
+    return _session;
+  }
+
+  /// Publishes [next] without reading the current state back.
+  void _emit(AutotuneSession next) {
+    _session = next;
+    state = next;
   }
 
   /// Starts collecting, or records why it cannot.
   void arm() {
     final tune = ref.read(tuneProvider).valueOrNull;
     if (tune == null) {
-      state = state.copyWith(blockedReason: 'No tune is loaded yet.');
+      _emit(_session.copyWith(blockedReason: 'No tune is loaded yet.'));
       return;
     }
 
@@ -105,27 +127,29 @@ class AutotuneController extends Notifier<AutotuneSession> {
       tune: tune,
       permission: ref.read(writePermissionProvider),
       resolver: ref.read(tuneResolverProvider),
-      settings: state.settings,
+      settings: _session.settings,
     );
 
     final tuner = result.tuner;
     if (tuner == null) {
-      state = state.copyWith(
-        armed: false,
-        blockedReason: result.readiness.reason,
-        clearTuner: true,
+      _emit(
+        _session.copyWith(
+          armed: false,
+          blockedReason: result.readiness.reason,
+          clearTuner: true,
+        ),
       );
       return;
     }
 
     _lastPublished = DateTime.fromMillisecondsSinceEpoch(0);
-    state = state.copyWith(armed: true, tuner: tuner, clearBlocked: true);
+    _emit(_session.copyWith(armed: true, tuner: tuner, clearBlocked: true));
   }
 
   /// Stops collecting. Anything already applied stays applied.
   void disarm() {
-    if (!state.armed) return;
-    state = state.copyWith(armed: false);
+    if (!_session.armed) return;
+    _emit(_session.copyWith(armed: false));
   }
 
   /// Throws away the session's data and its record of what it changed.
@@ -133,19 +157,21 @@ class AutotuneController extends Notifier<AutotuneSession> {
   /// The table keeps the values autotuning gave it - undoing those is what
   /// re-reading the tune from the ECU is for.
   void resetSession() {
-    state.tuner?.reset();
-    state = state.copyWith(last: null);
+    _session.tuner?.reset();
+    _emit(_session.copyWith(last: null));
   }
 
   /// Replaces the limits, restarting the session if one is running.
   void updateSettings(AutotuneSettings settings) {
-    final wasArmed = state.armed;
-    state = state.copyWith(settings: settings, armed: false, clearTuner: true);
+    final wasArmed = _session.armed;
+    _emit(
+      _session.copyWith(settings: settings, armed: false, clearTuner: true),
+    );
     if (wasArmed) arm();
   }
 
   void _consume(RealtimeSnapshot snapshot) {
-    final session = state;
+    final session = _session;
     final tuner = session.tuner;
     if (!session.armed || tuner == null) return;
 
@@ -173,6 +199,6 @@ class AutotuneController extends Notifier<AutotuneSession> {
 
   void _publish(AutotuneOutcome outcome, DateTime at) {
     _lastPublished = at;
-    state = state.copyWith(last: outcome);
+    _emit(_session.copyWith(last: outcome));
   }
 }

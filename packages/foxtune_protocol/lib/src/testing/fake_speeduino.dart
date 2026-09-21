@@ -177,7 +177,10 @@ class FakeSpeeduino {
     final definition = channels;
     if (engine == null || definition == null) return;
 
-    final sample = engine.sample();
+    // One instant, asked for once: a model that integrates state - a closed
+    // fuelling loop, say - must not be stepped twice per tick.
+    final now = engine.conditions();
+    final sample = engine.sampleAt(now);
 
     /// Resolves an identifier the same way the decoder will: simulated
     /// channels first, then computed channels, then tune constants.
@@ -238,7 +241,7 @@ class FakeSpeeduino {
             name,
       ]);
 
-    engine.flags().forEach((name, on) {
+    engine.flagsAt(now).forEach((name, on) {
       final field = definition.channelNamed(name);
       if (field is! IniBitsField) return;
       final offset = field.offset;

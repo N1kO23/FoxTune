@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:foxtune_ini/foxtune_ini.dart';
 import 'package:foxtune_protocol/testing.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
+import 'package:foxtune_tune/simulation.dart';
 
 /// Runs a simulated Speeduino on a TCP port.
 ///
@@ -11,19 +12,28 @@ import 'package:foxtune_tune/foxtune_tune.dart';
 /// drives a running engine into the realtime block, so gauges move and the live
 /// table cursor travels.
 ///
+/// The mixture answers to the tune: the VE table in the ECU's pages decides
+/// how much fuel goes in, the engine's own airflow decides how much it needed,
+/// and the wideband reports the difference through a sensor lag. Edit the VE
+/// table in FoxTune and the simulated AFR moves; closed-loop correction trims
+/// against it; autotuning can be driven end to end without an engine.
+///
 /// Seed it with a real tune via `--msq` to get realistic tables and settings.
 /// That also matters for correctness, not just realism: channels like
 /// `fuelLoad` scale by an expression that depends on a configuration constant,
-/// so without a tune loaded they cannot be written at all.
+/// so without a tune loaded they cannot be written at all. Without one, the VE
+/// and target tables are seeded from the engine model instead, deliberately a
+/// few percent out so there is something to tune.
 ///
 /// Usage:
 ///   dart run foxtune_tune:fake_ecu [--port N] [--ini PATH] [--msq PATH]
-///                                  [--static]
+///                                  [--static] [--ve-error PERCENT]
 Future<void> main(List<String> args) async {
   var port = 2000;
   var iniPath = '../foxtune_ini/test/fixtures/speeduino.ini';
   String? msqPath;
   var simulate = true;
+  var veError = -8.0;
 
   for (var i = 0; i < args.length; i++) {
     switch (args[i]) {
@@ -38,10 +48,13 @@ Future<void> main(List<String> args) async {
         i++;
       case '--static':
         simulate = false;
+      case '--ve-error':
+        veError = double.tryParse(args.elementAtOrNull(i + 1) ?? '') ?? veError;
+        i++;
       case '--help':
       case '-h':
-        stdout.writeln(
-            'Usage: fake_ecu [--port N] [--ini PATH] [--msq PATH] [--static]');
+        stdout.writeln('Usage: fake_ecu [--port N] [--ini PATH] [--msq PATH] '
+            '[--static] [--ve-error PERCENT]');
         return;
     }
   }
@@ -86,14 +99,17 @@ Future<void> main(List<String> args) async {
         '${result.skipped.isEmpty ? '' : ', ${result.skipped.length} skipped'}');
   }
 
-  final resolver = TuneValueResolver(tune);
+  // Constants are resolved from the ECU's live pages rather than from a copy,
+  // so a setting written over the wire takes effect the way it would on real
+  // hardware instead of leaving the realtime block scaled by a stale value.
+  late final TunedEngineSimulation engine;
   final ecu = FakeSpeeduino(
     signature: definition.identity.signature ?? 'speeduino',
     pageSizes: definition.constants.pageSizes,
     realtimeBlockSize: definition.outputChannels.blockSize ?? 139,
     blockingFactor: definition.constants.blockingFactor ?? 251,
     channels: definition.outputChannels,
-    constantResolver: resolver.resolve,
+    constantResolver: (name) => engine.resolve(name),
   );
 
   if (tuneLoaded) {
@@ -102,8 +118,18 @@ Future<void> main(List<String> args) async {
     }
   }
 
+  // The engine reads the ECU's pages directly, so a VE table written over the
+  // wire changes what it runs at from the next sample onwards.
+  engine = TunedEngineSimulation(definition: definition, pages: ecu.pages);
+  if (!tuneLoaded) {
+    // Filler bytes are not a tune: the axis bins are not even monotonic.
+    // Seeding lays down a coherent base tune, with the VE table deliberately
+    // out by a known amount so there is something to tune.
+    engine.seedTune(errorPercent: veError);
+  }
+
   final bound = await ecu.start(host: '0.0.0.0', port: port);
-  if (simulate) ecu.simulateEngine();
+  if (simulate) ecu.simulateEngine(simulation: engine);
 
   stdout
     ..writeln('FoxTune simulated ECU')
@@ -111,7 +137,13 @@ Future<void> main(List<String> args) async {
     ..writeln('  listening : 0.0.0.0:$bound')
     ..writeln('  pages     : ${ecu.pageSizes.length}')
     ..writeln('  realtime  : ${ecu.realtimeBlockSize} bytes')
-    ..writeln('  engine    : ${simulate ? "running" : "static"}');
+    ..writeln('  engine    : ${simulate ? "running, fuelled from the VE "
+        "table" : "static"}');
+
+  if (simulate && !tuneLoaded) {
+    stdout.writeln('  ve table  : seeded from the engine model, '
+        '${veError.toStringAsFixed(0)}% out');
+  }
 
   if (simulate && ecu.unresolvedChannels.isNotEmpty) {
     stdout.writeln('  warning   : could not scale '

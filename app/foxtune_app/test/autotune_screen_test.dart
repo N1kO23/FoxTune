@@ -142,6 +142,7 @@ void main() {
   Future<ProviderContainer> pumpAutotune(
     WidgetTester tester, {
     WritePermission permission = const WritePermission.granted(),
+    bool realtimeDependsOnTune = false,
   }) async {
     await tester.binding.setSurfaceSize(const Size(1400, 1200));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -151,7 +152,16 @@ void main() {
         tuneProvider.overrideWith(() => _FakeTuneController(tune)),
         writePermissionProvider.overrideWithValue(permission),
         realtimeMonitorProvider.overrideWithValue(null),
-        realtimeProvider.overrideWith((ref) => feed.stream),
+        realtimeProvider.overrideWith((ref) {
+          // The app's realtime feed reaches the tune: the decoder needs
+          // constants from it, so `realtimeProvider` depends on
+          // `realtimeMonitorProvider`, which watches `tuneProvider`. A
+          // standalone stream here does not reproduce what happens when
+          // autotuning marks the tune edited from inside that feed's own
+          // notification.
+          if (realtimeDependsOnTune) ref.watch(tuneProvider);
+          return feed.stream;
+        }),
       ],
     );
     addTearDown(container.dispose);
@@ -283,6 +293,29 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Minimum CLT'), findsOneWidget);
+  });
+
+  testWidgets('survives the realtime feed depending on the tune', (
+    tester,
+  ) async {
+    // Applying a correction marks the tune edited, which dirties everything
+    // downstream of it - including the realtime feed this is being notified
+    // by. Reading the session back at that moment asks Riverpod to rebuild a
+    // provider that is still mid-notification.
+    final container = await pumpAutotune(tester, realtimeDependsOnTune: true);
+    // Every sample moves a cell, so every notification marks the tune edited
+    // - which is what drives the re-entry.
+    container
+        .read(autotuneProvider.notifier)
+        .updateSettings(const AutotuneSettings(minWeight: 1));
+    await tester.tap(find.text('Start autotune'));
+    await tester.pumpAndSettle();
+
+    await drive(tester, afr: 15.5, count: 30);
+
+    expect(tester.takeException(), isNull);
+    expect(container.read(autotuneProvider).moved, greaterThan(0));
+    expect(tune.isDirty, isTrue);
   });
 
   testWidgets('stopping leaves what was already applied', (tester) async {

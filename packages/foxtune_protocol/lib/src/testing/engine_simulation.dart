@@ -1,5 +1,62 @@
 import 'dart:math' as math;
 
+/// What the driver and the engine are doing at one instant.
+///
+/// Separated from the channel map so a model that reads the tune can reuse the
+/// driving profile - the throttle, revs and temperatures - and work out the
+/// fuelling for itself instead of repeating the drive cycle.
+class EngineConditions {
+  const EngineConditions({
+    required this.seconds,
+    required this.phase,
+    required this.throttle,
+    required this.throttleRate,
+    required this.rpm,
+    required this.map,
+    required this.coolant,
+    required this.iat,
+    required this.battery,
+    required this.cranking,
+    required this.overrun,
+  });
+
+  /// Seconds since the simulation began.
+  final double seconds;
+
+  /// Position within the drive cycle, from 0 to 1.
+  final double phase;
+
+  /// Throttle position, as a percentage.
+  final double throttle;
+
+  /// How fast the throttle is moving, in percent per second.
+  ///
+  /// What acceleration enrichment keys off, and what a tuning filter uses to
+  /// throw the resulting mixture reading away.
+  final double throttleRate;
+
+  /// Engine speed.
+  final double rpm;
+
+  /// Manifold absolute pressure, in kPa.
+  final double map;
+
+  /// Coolant temperature, in degrees Celsius.
+  final double coolant;
+
+  /// Intake air temperature, in degrees Celsius.
+  final double iat;
+
+  /// Battery voltage.
+  final double battery;
+
+  /// Whether the starter is still turning the engine.
+  final bool cranking;
+
+  /// Whether the throttle is shut with the engine still turning fast.
+  final bool overrun;
+}
+
 /// A crude but plausible running engine, for driving a UI without hardware.
 ///
 /// This is not a physical model. It exists so gauges move, the live table
@@ -9,6 +66,10 @@ import 'dart:math' as math;
 /// The cycle is deliberate: idle, a pull to high load, a cruise, then a
 /// closed-throttle overrun. That sweep visits the corners of a VE table and
 /// crosses the coolant and RPM alarm thresholds.
+///
+/// Fuelling here is canned. For a model where the mixture actually answers to
+/// the VE table in the ECU's pages, see `TunedEngineSimulation` in
+/// `package:foxtune_tune/simulation.dart`.
 class EngineSimulation {
   EngineSimulation({this.cycle = const Duration(seconds: 24)});
 
@@ -21,21 +82,29 @@ class EngineSimulation {
   double get elapsedSeconds =>
       DateTime.now().difference(_startedAt).inMilliseconds / 1000;
 
-  /// Channel values in engineering units at the current instant.
-  Map<String, double> sample() {
+  /// The drive cycle at the current instant.
+  EngineConditions conditions() {
     final t = elapsedSeconds;
-    final phase = (t % cycle.inSeconds) / cycle.inSeconds;
+    final seconds = cycle.inSeconds;
+    final phase = (t % seconds) / seconds;
 
-    // Throttle profile across the cycle.
+    // Throttle profile across the cycle, and how fast it is moving. The rate
+    // is taken from the profile rather than from a remembered previous
+    // sample, so it is the same whether this is called once or ten times.
     final double throttle;
+    final double throttleRate;
     if (phase < 0.25) {
       throttle = 0; // idle
+      throttleRate = 0;
     } else if (phase < 0.45) {
       throttle = ((phase - 0.25) / 0.20) * 100; // pull
+      throttleRate = 100 / (0.20 * seconds);
     } else if (phase < 0.75) {
       throttle = 35 + 10 * math.sin(t * 1.5); // cruise
+      throttleRate = 10 * 1.5 * math.cos(t * 1.5);
     } else {
       throttle = 0; // overrun
+      throttleRate = phase < 0.76 ? -100 / (0.01 * seconds) : 0;
     }
 
     final rpm = _rpmFor(phase, throttle, t);
@@ -48,57 +117,72 @@ class EngineSimulation {
     // warning threshold is actually exercised.
     final warmup = math.min(t / 70, 1.0);
     final coolant = 20 + warmup * 82 + 6 * math.sin(t * 0.25) * warmup;
-
     final load = map / 100;
-    final onOverrun = closedThrottle && rpm > 1500;
 
-    final iat = 24 + 6 * load + math.sin(t * 0.4);
+    return EngineConditions(
+      seconds: t,
+      phase: phase,
+      throttle: throttle,
+      throttleRate: throttleRate,
+      rpm: rpm,
+      map: map,
+      coolant: coolant,
+      iat: 24 + 6 * load + math.sin(t * 0.4),
+      battery: 13.9 - 0.5 * load,
+      cranking: t < 1.2,
+      overrun: closedThrottle && rpm > 1500,
+    );
+  }
+
+  /// Channel values in engineering units at the current instant.
+  Map<String, double> sample() => sampleAt(conditions());
+
+  /// Channel values for [now].
+  Map<String, double> sampleAt(EngineConditions now) {
+    final t = now.seconds;
+    final load = now.map / 100;
 
     return {
-      'rpm': rpm,
-      'map': map,
-      'tps': throttle,
+      'rpm': now.rpm,
+      'map': now.map,
+      'tps': now.throttle,
       // Temperatures go on the wire offset by 40 so they can be negative in a
       // single unsigned byte. The definition derives `coolant` and `iat` from
       // these by expression, so emitting the raw channels is what the ECU
       // actually does - and it exercises that derivation.
-      'coolantRaw': coolant + 40,
-      'iatRaw': iat + 40,
-      'batteryVoltage': 13.9 - 0.5 * load,
+      'coolantRaw': now.coolant + 40,
+      'iatRaw': now.iat + 40,
+      'batteryVoltage': now.battery,
       // Rich under load, lean on overrun, closed-loop wobble at cruise.
-      'afr': onOverrun
+      'afr': now.overrun
           ? 18.5
-          : (throttle > 70 ? 12.4 : 14.7 + 0.5 * math.sin(t * 3)),
-      'advance': onOverrun ? 30 : (14 + rpm / 400 - load * 9),
+          : (now.throttle > 70 ? 12.4 : 14.7 + 0.5 * math.sin(t * 3)),
+      'advance': now.overrun ? 30 : (14 + now.rpm / 400 - load * 9),
       'VE1': 42 + load * 48,
-      'pulseWidth': onOverrun ? 0 : (1.2 + load * 7.5),
+      'pulseWidth': now.overrun ? 0 : (1.2 + load * 7.5),
       'dwell': 3.1,
       // Transmitted by the ECU, and several computed channels divide by it -
       // dutyCycle reads as unavailable if it is left at zero.
       'nSquirts': 2,
       'egoCorrection': 100 + 4 * math.sin(t * 1.1),
-      'dutyCycle': onOverrun ? 0 : math.min(95, load * rpm / 90),
-      'fuelLoad': map,
-      'ignLoad': map,
+      'dutyCycle': now.overrun ? 0 : math.min(95, load * now.rpm / 90),
+      'fuelLoad': now.map,
+      'ignLoad': now.map,
     };
   }
 
   /// Boolean status flags at the current instant.
-  Map<String, bool> flags() {
-    final t = elapsedSeconds;
-    final values = sample();
-    final rpm = values['rpm']!;
+  Map<String, bool> flags() => flagsAt(conditions());
 
-    return {
-      // A short crank at the very start of the first cycle only.
-      'crank': t < 1.2,
-      'running': rpm > 300,
-      'ase': t < 12,
-      'warmup': (values['coolantRaw']! - 40) < 70,
-      'DFCOOn': values['tps']! < 2 && rpm > 1500,
-      'sync': rpm > 200,
-    };
-  }
+  /// Boolean status flags for [now].
+  Map<String, bool> flagsAt(EngineConditions now) => {
+        'crank': now.cranking,
+        'running': now.rpm > 300,
+        'ase': now.seconds < 12,
+        'warmup': now.coolant < 70,
+        'DFCOOn': now.overrun,
+        'sync': now.rpm > 200,
+      };
 
   double _rpmFor(double phase, double throttle, double t) {
     if (t < 1.2) return 220 + 60 * math.sin(t * 18); // cranking
