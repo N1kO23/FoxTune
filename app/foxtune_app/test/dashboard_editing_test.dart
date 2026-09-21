@@ -12,10 +12,12 @@ import 'package:foxtune_app/src/dashboard/bar_gauge.dart';
 import 'package:foxtune_app/src/dashboard/dashboard_controller.dart';
 import 'package:foxtune_app/src/dashboard/dashboard_screen.dart';
 import 'package:foxtune_app/src/dashboard/gauge_status.dart';
+import 'package:foxtune_app/src/dashboard/gauge_view.dart';
 import 'package:foxtune_app/src/dashboard/layout/dashboard_layout.dart';
 import 'package:foxtune_app/src/dashboard/layout/layout_controller.dart';
 import 'package:foxtune_app/src/dashboard/meter_gauge.dart';
 import 'package:foxtune_app/src/dashboard/sample_history.dart';
+import 'package:foxtune_app/src/dashboard/stat_tile.dart';
 import 'package:foxtune_app/src/dashboard/time_graph.dart';
 import 'package:foxtune_app/src/storage/json_store.dart';
 import 'package:foxtune_app/src/tune/tune_controller.dart';
@@ -33,6 +35,10 @@ class _Connected extends ConnectionController {
 }
 
 /// Two readouts with room between and below them.
+///
+/// Saved in the version 1 format, twelve across, so every test here also
+/// loads a layout from before grids could change size: it arrives doubled onto
+/// the 24-across default, "a" at 0,0 6x4 and "b" at 12,0 6x4.
 const _testLayout = {
   'version': 1,
   'pages': [
@@ -198,16 +204,17 @@ void main() {
       await pump(tester);
       await startEditing(tester);
 
-      // Just over four cells down: it snaps to four.
+      // A 720-wide page, 24 across: 30-pixel cells. Just over eight cells
+      // down snaps to eight.
       await tester.drag(gaugeShowing('Air:Fuel Ratio'), const Offset(0, 250));
       await tester.pumpAndSettle();
 
-      expect(item(tester, 'a').y, 4);
+      expect(item(tester, 'a').y, 8);
       final saved = jsonDecode(layoutFile().readAsStringSync()) as Map;
       final a = ((saved['pages'] as List).first['items'] as List).firstWhere(
         (i) => i['id'] == 'a',
       ) as Map;
-      expect(a['y'], 4);
+      expect(a['y'], 8);
     });
 
     testWidgets('a gauge dropped on another springs back', (tester) async {
@@ -229,12 +236,12 @@ void main() {
       // The handle sits beside the gauge's content, not inside it; gauge "a"
       // comes first on the page.
       final handle = find.byIcon(Icons.open_in_full).first;
-      // Two cells wider would reach the neighbour; one fits.
-      await tester.drag(handle, const Offset(80, 80));
+      // Two cells each way; seven wider would reach the neighbour.
+      await tester.drag(handle, const Offset(66, 66));
       await tester.pumpAndSettle();
 
-      expect(item(tester, 'a').width, 4);
-      expect(item(tester, 'a').height, 3);
+      expect(item(tester, 'a').width, 8);
+      expect(item(tester, 'a').height, 6);
     });
 
     testWidgets('a gauge can be restyled, graphed and removed', (tester) async {
@@ -255,7 +262,7 @@ void main() {
       // A graph needs more room than a readout, and gets it.
       expect(
         item(tester, 'a').width,
-        greaterThanOrEqualTo(GaugeStyle.graph.minWidth),
+        greaterThanOrEqualTo(GaugeStyle.graph.minimumIn(24).width),
       );
       await tester.tap(find.text('60s'));
       await tester.pumpAndSettle();
@@ -303,6 +310,119 @@ void main() {
       expect(added.style, GaugeStyle.lamp);
       expect(added.indicator, 'sync');
     });
+
+    testWidgets('a live channel with no gauge is added as a number', (
+      tester,
+    ) async {
+      saveLayout(_testLayout);
+      await pump(tester);
+      await startEditing(tester);
+
+      await tester.tap(find.byTooltip('Add a gauge'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Channels'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'rpmDOT');
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ListTile, 'rpmDOT'));
+      await tester.pumpAndSettle();
+
+      final added = page(tester).items.last;
+      expect(added.gauges, [GaugeRef.channel('rpmDOT')]);
+      expect(added.style, GaugeStyle.digital);
+      expect(gaugeShowing('rpmDOT'), findsOneWidget);
+    });
+
+    testWidgets('a status bit with no indicator is added as a lamp', (
+      tester,
+    ) async {
+      saveLayout(_testLayout);
+      await pump(tester);
+      await startEditing(tester);
+
+      await tester.tap(find.byTooltip('Add a gauge'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Channels'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'knock');
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ListTile, 'knockActive'));
+      await tester.pumpAndSettle();
+
+      final added = page(tester).items.last;
+      expect(added.style, GaugeStyle.lamp);
+      expect(added.indicator, 'knockActive');
+      expect(gaugeShowing('knockActive'), findsOneWidget);
+    });
+  });
+
+  group('range and alarms', () {
+    Future<void> openLimits(WidgetTester tester) async {
+      await tester.tap(gaugeShowing('Air:Fuel Ratio'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Range and alarms'));
+      await tester.pumpAndSettle();
+    }
+
+    Finder field(String label) => find.widgetWithText(TextField, label);
+
+    testWidgets('can be set for a gauge, and handed back', (tester) async {
+      saveLayout(_testLayout);
+      await pump(tester);
+      await startEditing(tester);
+      await openLimits(tester);
+
+      // Starts from what the definition says.
+      expect(tester.widget<TextField>(field('From')).controller!.text, '7');
+      await tester.enterText(field('Warn at or above'), '15.5');
+      await tester.enterText(field('Danger at or above'), '');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      final layout = container(tester).read(dashboardLayoutProvider).value!;
+      final limits = layout.limits['afrGauge']!;
+      expect(limits.warnAbove, 15.5);
+      // Emptied, so off - not quietly the definition's.
+      expect(limits.dangerAbove, isNull);
+      final tile = tester.widget<StatTile>(
+        find.descendant(
+          of: gaugeShowing('Air:Fuel Ratio'),
+          matching: find.byType(StatTile),
+        ),
+      );
+      expect(tile.spec.warnAbove, 15.5);
+      expect(find.textContaining('set by you'), findsOneWidget);
+
+      await tester.tap(find.text('Range and alarms'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text("Use the definition's"));
+      await tester.pumpAndSettle();
+      expect(
+        container(tester).read(dashboardLayoutProvider).value!.limits,
+        isEmpty,
+      );
+    });
+
+    testWidgets('refuses alarms no reading could pass', (tester) async {
+      saveLayout(_testLayout);
+      await pump(tester);
+      await startEditing(tester);
+      await openLimits(tester);
+
+      await tester.enterText(field('Warn at or below'), '16');
+      await tester.enterText(field('Warn at or above'), '12');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('every reading would be an alarm'),
+        findsOneWidget,
+      );
+      expect(
+        container(tester).read(dashboardLayoutProvider).value!.limits,
+        isEmpty,
+      );
+    });
   });
 
   group('pages', () {
@@ -330,6 +450,19 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.widgetWithText(ChoiceChip, 'Logging'), findsOneWidget);
 
+      await pageMenu('Grid size (24 across)');
+      await tester.tap(find.text('48 across'));
+      await tester.pumpAndSettle();
+      expect(
+        container(tester)
+            .read(dashboardLayoutProvider)
+            .value!
+            .pages
+            .firstWhere((p) => p.name == 'Logging')
+            .columns,
+        48,
+      );
+
       await pageMenu('Delete page');
       await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
       await tester.pumpAndSettle();
@@ -348,6 +481,96 @@ void main() {
         find.widgetWithText(PopupMenuItem<String>, 'Delete page'),
       );
       expect(delete.enabled, isFalse);
+    });
+  });
+
+  group('the grid', () {
+    testWidgets('a coarser grid keeps the gauges where they were', (
+      tester,
+    ) async {
+      saveLayout(_testLayout);
+      await pump(tester);
+      await startEditing(tester);
+
+      await tester.tap(find.byTooltip('Page'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Grid size (24 across)'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('12 across'));
+      await tester.pumpAndSettle();
+
+      expect(page(tester).columns, 12);
+      final a = item(tester, 'a');
+      final b = item(tester, 'b');
+      expect((a.x, a.y, a.width, a.height), (0, 0, 3, 2));
+      expect((b.x, b.y, b.width, b.height), (6, 0, 3, 2));
+    });
+
+    testWidgets('a wider page keeps its gauges and uses the screen', (
+      tester,
+    ) async {
+      saveLayout(_testLayout);
+      await pump(tester);
+      await startEditing(tester);
+
+      Size pageSize() => tester.getSize(
+        find
+            .ancestor(
+              of: find.byType(GaugeView).first,
+              matching: find.byType(Stack),
+            )
+            .last,
+      );
+      // A phone-wide page stops growing at one and a half times its size.
+      expect(pageSize().width, 720);
+
+      await tester.tap(find.byTooltip('Page'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Page width (Phone)'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Laptop'));
+      await tester.pumpAndSettle();
+
+      expect(page(tester).width, PageWidth.laptop);
+      expect(page(tester).columns, 72);
+      final a = item(tester, 'a');
+      expect((a.x, a.y, a.width, a.height), (0, 0, 6, 4));
+      // Now as wide as the window allows: 1200 less the page's margins.
+      expect(pageSize().width, 1184);
+    });
+
+    testWidgets('lamps fill their cells, whatever their labels', (
+      tester,
+    ) async {
+      saveLayout({
+        'version': 2,
+        'pages': [
+          {
+            'id': 'p',
+            'name': 'Lamps',
+            'columns': 24,
+            'items': [
+              for (final (i, expression) in ['running', 'launchHard'].indexed)
+                {
+                  'id': 'l$i',
+                  'style': 'lamp',
+                  'x': 0,
+                  'y': i * 2,
+                  'w': 6,
+                  'h': 2,
+                  'indicator': expression,
+                },
+            ],
+          },
+        ],
+      });
+      await pump(tester);
+
+      final lamps = find.byType(FlagLamp);
+      expect(lamps, findsNWidgets(2));
+      // Six by two cells of a 24-across design grid, less the gauge padding.
+      expect(tester.getSize(lamps.at(0)), const Size(114, 34));
+      expect(tester.getSize(lamps.at(1)), const Size(114, 34));
     });
   });
 

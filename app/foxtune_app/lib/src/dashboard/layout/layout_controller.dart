@@ -56,7 +56,7 @@ class DashboardLayoutController extends AsyncNotifier<DashboardLayout> {
 
   void _updatePage(String pageId, DashboardPage Function(DashboardPage) edit) {
     _commit(
-      DashboardLayout(
+      _layout.copyWith(
         pages: [
           for (final page in _layout.pages)
             if (page.id == pageId) edit(page) else page,
@@ -68,9 +68,18 @@ class DashboardLayoutController extends AsyncNotifier<DashboardLayout> {
   // --- Pages ---------------------------------------------------------------
 
   /// Adds an empty page at the end, and returns its id.
-  String addPage(String name) {
-    final page = DashboardPage(id: newLayoutId(), name: name);
-    _commit(DashboardLayout(pages: [..._layout.pages, page]));
+  ///
+  /// It takes the width and grid of [like], where given: a page added on a
+  /// laptop, from a laptop-wide page, is wanted laptop-wide.
+  String addPage(String name, {String? like}) {
+    final model = like == null ? null : _layout.pageById(like);
+    final page = DashboardPage(
+      id: newLayoutId(),
+      name: name,
+      density: model?.density ?? defaultGridDensity,
+      width: model?.width ?? PageWidth.phone,
+    );
+    _commit(_layout.copyWith(pages: [..._layout.pages, page]));
     return page.id;
   }
 
@@ -82,7 +91,7 @@ class DashboardLayoutController extends AsyncNotifier<DashboardLayout> {
   void deletePage(String pageId) {
     if (_layout.pages.length <= 1) return;
     _commit(
-      DashboardLayout(
+      _layout.copyWith(
         pages: [
           for (final page in _layout.pages)
             if (page.id != pageId) page,
@@ -99,15 +108,50 @@ class DashboardLayoutController extends AsyncNotifier<DashboardLayout> {
     final to = (from + delta).clamp(0, pages.length - 1);
     if (to == from) return;
     pages.insert(to, pages.removeAt(from));
-    _commit(DashboardLayout(pages: pages));
+    _commit(_layout.copyWith(pages: pages));
   }
 
-  /// Puts a page back to the definition's default content, keeping its name.
+  /// Puts a page back to the definition's default content, keeping its name,
+  /// width and grid.
   void resetPage(String pageId) {
     final definition = _definition;
     if (definition == null) return;
-    final fresh = defaultPage(definition);
-    _updatePage(pageId, (page) => page.copyWith(items: fresh.items));
+    _updatePage(pageId, (page) {
+      final fresh = defaultPage(
+        definition,
+        density: page.density,
+        width: page.width,
+      );
+      return page.copyWith(items: fresh.items);
+    });
+  }
+
+  /// Moves a page onto a grid [density] squares across a phone's width,
+  /// keeping its look.
+  void setDensity(String pageId, int density) {
+    if (!gridDensityChoices.contains(density)) return;
+    _updatePage(pageId, (page) => regridPage(page, density));
+  }
+
+  /// Lays a page out [width] wide, keeping every gauge's size.
+  void setWidth(String pageId, PageWidth width) =>
+      _updatePage(pageId, (page) => widenPage(page, width));
+
+  // --- Limits --------------------------------------------------------------
+
+  /// Sets the limits for the gauge [ref] names, or with `null` hands them back
+  /// to the definition.
+  void setLimits(String ref, GaugeLimits? limits) {
+    if (limits != null && limits.problem != null) return;
+    _commit(
+      _layout.copyWith(
+        limits: {
+          for (final entry in _layout.limits.entries)
+            if (entry.key != ref) entry.key: entry.value,
+          ref: ?limits,
+        },
+      ),
+    );
   }
 
   // --- Gauges --------------------------------------------------------------
@@ -120,9 +164,10 @@ class DashboardLayoutController extends AsyncNotifier<DashboardLayout> {
     String? indicator,
   }) {
     final page = _layout.pageById(pageId);
+    final size = style.sizeIn(page?.density ?? defaultGridDensity);
     final spot = page == null
-        ? GridRect(0, 0, style.width, style.height)
-        : firstFreeSpot(page, style.width, style.height);
+        ? GridRect(0, 0, size.width, size.height)
+        : firstFreeSpot(page, size.width, size.height);
     final placement = GaugePlacement(
       id: newLayoutId(),
       style: style,
@@ -160,7 +205,7 @@ class DashboardLayoutController extends AsyncNotifier<DashboardLayout> {
     if (page == null) return;
 
     var next = updated;
-    final grown = clampToGrid(GridRect.of(updated), updated.style);
+    final grown = clampToGrid(GridRect.of(updated), updated.style, page);
     if (grown != GridRect.of(updated)) {
       final spot = isFree(page, grown, ignoring: updated.id)
           ? grown

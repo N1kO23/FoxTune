@@ -99,6 +99,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                 definition: definition,
                                 resolver: ref.watch(tuneResolverProvider),
                                 realtime: snapshot,
+                                limits: layout.limits,
                               ),
                               history: ref.watch(sampleHistoryProvider),
                             ),
@@ -149,7 +150,11 @@ class _PageBar extends ConsumerWidget {
       } else if (picked.gauge case final gauge?) {
         controller.addGauge(
           current.id,
-          style: GaugeStyle.dial,
+          // A bare channel has no declared range to put on a dial; it starts
+          // as a number, and becomes a dial once it has a range.
+          style: GaugeRef.channelOf(gauge) == null
+              ? GaugeStyle.dial
+              : GaugeStyle.digital,
           gauges: [gauge],
         );
       }
@@ -170,7 +175,78 @@ class _PageBar extends ConsumerWidget {
             title: 'New page',
             initial: 'Page ${pages.length + 1}',
           );
-          if (name != null) onSelect(controller.addPage(name));
+          if (name != null) {
+            onSelect(controller.addPage(name, like: current.id));
+          }
+        case 'grid':
+          final density = await showDialog<int>(
+            context: context,
+            builder: (context) => SimpleDialog(
+              title: const Text('Grid size'),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+                  child: Text(
+                    'Squares across the page. A finer grid places and sizes '
+                    'gauges in smaller steps; gauges stay the size they are.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+                RadioGroup<int>(
+                  groupValue: current.density,
+                  onChanged: (value) => Navigator.of(context).pop(value),
+                  child: Column(
+                    children: [
+                      for (final choice in gridDensityChoices)
+                        RadioListTile<int>(
+                          value: choice,
+                          title: Text(
+                            '${choice * current.width.phones} across',
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+          if (density != null) controller.setDensity(current.id, density);
+        case 'width':
+          final width = await showDialog<PageWidth>(
+            context: context,
+            builder: (context) => SimpleDialog(
+              title: const Text('Page width'),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+                  child: Text(
+                    'A wider page holds more gauges side by side, at the same '
+                    'size. On a screen narrower than the page, the whole page '
+                    'shrinks to fit.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+                RadioGroup<PageWidth>(
+                  groupValue: current.width,
+                  onChanged: (value) => Navigator.of(context).pop(value),
+                  child: Column(
+                    children: [
+                      for (final choice in PageWidth.values)
+                        RadioListTile<PageWidth>(
+                          value: choice,
+                          title: Text(choice.label),
+                          subtitle: Text(switch (choice.phones) {
+                            1 => 'A phone held upright',
+                            final n => '$n times as wide',
+                          }),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+          if (width != null) controller.setWidth(current.id, width);
         case 'left':
           controller.movePage(current.id, -1);
         case 'right':
@@ -239,6 +315,14 @@ class _PageBar extends ConsumerWidget {
                   child: Text('Rename page'),
                 ),
                 const PopupMenuItem(value: 'new', child: Text('New page')),
+                PopupMenuItem(
+                  value: 'width',
+                  child: Text('Page width (${current.width.label})'),
+                ),
+                PopupMenuItem(
+                  value: 'grid',
+                  child: Text('Grid size (${current.columns} across)'),
+                ),
                 PopupMenuItem(
                   value: 'left',
                   enabled: index > 0,

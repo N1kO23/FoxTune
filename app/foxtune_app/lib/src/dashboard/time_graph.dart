@@ -164,9 +164,9 @@ class LanePainter extends CustomPainter {
   List<Offset?> points() {
     final latest = history.latest;
     if (latest == null) return const [];
-    final end = latest.timestamp;
-    final start = end.subtract(window);
+    final start = latest.timestamp.subtract(window);
     final span = window.inMicroseconds.toDouble();
+    final (:min, :max) = scale();
 
     final result = <Offset?>[];
     for (final sample in history.samples) {
@@ -177,9 +177,39 @@ class LanePainter extends CustomPainter {
         continue;
       }
       final x = sample.timestamp.difference(start).inMicroseconds / span;
-      result.add(Offset(x, 1 - spec.fractionFor(value)));
+      result.add(Offset(x, 1 - ((value - min) / (max - min)).clamp(0.0, 1.0)));
     }
     return result;
+  }
+
+  /// What the lane's height stands for, bottom to top.
+  ///
+  /// The gauge's range where it has one. A channel with no declared range is
+  /// fitted to the readings in view instead - a made-up fixed scale would
+  /// either flatten the trace or run it off the lane.
+  ({double min, double max}) scale() {
+    if (spec.hasRange) return (min: spec.min, max: spec.max);
+
+    final latest = history.latest;
+    double? low;
+    double? high;
+    if (latest != null) {
+      final start = latest.timestamp.subtract(window);
+      for (final sample in history.samples) {
+        if (sample.timestamp.isBefore(start)) continue;
+        final value = sample[spec.channel];
+        if (value == null) continue;
+        if (low == null || value < low) low = value;
+        if (high == null || value > high) high = value;
+      }
+    }
+    if (low == null || high == null) return (min: 0, max: 1);
+    // A flat trace still needs a span; centre it.
+    if (high - low < 1e-9) {
+      final pad = low.abs() < 1 ? 1.0 : low.abs() * 0.1;
+      return (min: low - pad, max: high + pad);
+    }
+    return (min: low, max: high);
   }
 
   @override
@@ -195,10 +225,11 @@ class LanePainter extends CustomPainter {
         hairline,
       );
 
-    _label(canvas, spec.formatLabel(spec.max), const Offset(2, 1));
+    final (:min, :max) = scale();
+    _label(canvas, spec.formatLabel(max), const Offset(2, 1));
     _label(
       canvas,
-      spec.formatLabel(spec.min),
+      spec.formatLabel(min),
       Offset(2, size.height - (labelStyle?.fontSize ?? 11) - 3),
     );
 

@@ -83,8 +83,13 @@ class EngineSimulation {
       DateTime.now().difference(_startedAt).inMilliseconds / 1000;
 
   /// The drive cycle at the current instant.
-  EngineConditions conditions() {
-    final t = elapsedSeconds;
+  EngineConditions conditions() => conditionsAt(elapsedSeconds);
+
+  /// The drive cycle [t] seconds after the simulation began.
+  ///
+  /// A pure function of time, so a rate of change - revs per second, say -
+  /// can be read off it by looking a moment back, without keeping history.
+  EngineConditions conditionsAt(double t) {
     final seconds = cycle.inSeconds;
     final phase = (t % seconds) / seconds;
 
@@ -141,8 +146,11 @@ class EngineSimulation {
   Map<String, double> sampleAt(EngineConditions now) {
     final t = now.seconds;
     final load = now.map / 100;
+    final ego = 100 + 4 * math.sin(t * 1.1);
+    final warmup = now.coolant < 70 ? 100 + (70 - now.coolant) * 0.8 : 100.0;
 
     return {
+      ...housekeeping(now),
       'rpm': now.rpm,
       'map': now.map,
       'tps': now.throttle,
@@ -159,15 +167,55 @@ class EngineSimulation {
           : (now.throttle > 70 ? 12.4 : 14.7 + 0.5 * math.sin(t * 3)),
       'advance': now.overrun ? 30 : (14 + now.rpm / 400 - load * 9),
       'VE1': 42 + load * 48,
+      'veCurr': 42 + load * 48,
       'pulseWidth': now.overrun ? 0 : (1.2 + load * 7.5),
       'dwell': 3.1,
       // Transmitted by the ECU, and several computed channels divide by it -
       // dutyCycle reads as unavailable if it is left at zero.
       'nSquirts': 2,
-      'egoCorrection': 100 + 4 * math.sin(t * 1.1),
+      'egoCorrection': ego,
+      'warmupEnrich': warmup,
+      // The product of every correction applied, as the firmware reports it.
+      'gammaEnrich': warmup * ego / 100,
+      'afrTarget': 14.7,
       'dutyCycle': now.overrun ? 0 : math.min(95, load * now.rpm / 90),
       'fuelLoad': now.map,
       'ignLoad': now.map,
+    };
+  }
+
+  /// Channels any running ECU reports whatever its tune: its clock, its own
+  /// health, rates of change, and the corrections that sit at 100% on an
+  /// engine at sea level with the battery charging.
+  ///
+  /// Without these a gauge for, say, loop rate reads whatever happens to be in
+  /// that part of the block - and a real ECU never sends filler.
+  Map<String, double> housekeeping(EngineConditions now) {
+    final t = now.seconds;
+    // Rates of change, taken over the last tenth of a second.
+    const step = 0.1;
+    final before = conditionsAt(math.max(0, t - step));
+    final span = t - before.seconds;
+    double rate(double current, double previous) =>
+        span <= 0 ? 0 : (current - previous) / span;
+
+    return {
+      'secl': (t.floor() % 256).toDouble(),
+      // A busy main loop runs slower at high revs, where interrupts eat it.
+      'loopsPerSecond': 3200 - now.rpm * 0.12 + 40 * math.sin(t * 0.7),
+      'freeRAM': 1438,
+      'baro': 101,
+      'syncLossCounter': 0,
+      'batCorrection': 100,
+      'airCorrection': 100,
+      'baroCorrection': 100,
+      'accelEnrich': 100,
+      'ASECurr': 100,
+      'TPSdot': now.throttleRate,
+      'rpmDOT': rate(now.rpm, before.rpm),
+      'MAPdot': rate(now.map, before.map),
+      'tpsADC': 28 + now.throttle * 1.9,
+      'dwellActual': 3.1,
     };
   }
 

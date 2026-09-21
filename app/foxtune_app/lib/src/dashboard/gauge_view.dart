@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:foxtune_ini/foxtune_ini.dart';
 
 import 'bar_gauge.dart';
 import 'gauge_catalog.dart';
@@ -9,34 +8,33 @@ import 'sample_history.dart';
 import 'stat_tile.dart';
 import 'time_graph.dart';
 
-/// The size one grid cell is laid out at, before scaling to the screen.
-///
-/// Every gauge is drawn at this design size and then scaled, whole, to the
-/// cell it actually has. So a page looks the same on a phone and a laptop -
-/// larger or smaller, but not rearranged, and never with text that fits on
-/// one and overflows on the other.
-const designCellSize = 40.0;
-
 /// Draws one placed gauge, scaled to fill the space it is given.
+///
+/// Every gauge is laid out at its design size - its cells times the design
+/// cell of its page's grid - and then scaled, whole, to the space it actually
+/// has.
 class GaugeView extends StatelessWidget {
   const GaugeView({
     super.key,
     required this.placement,
-    required this.definition,
+    required this.designCell,
     required this.catalog,
     required this.history,
   });
 
   final GaugePlacement placement;
-  final IniDocument definition;
+
+  /// The size one grid square of its page is laid out at.
+  final double designCell;
+
   final GaugeCatalog catalog;
   final SampleHistory history;
 
   @override
   Widget build(BuildContext context) {
     final design = Size(
-      placement.width * designCellSize,
-      placement.height * designCellSize,
+      placement.width * designCell,
+      placement.height * designCell,
     );
     return FittedBox(
       child: SizedBox.fromSize(
@@ -52,33 +50,27 @@ class GaugeView extends StatelessWidget {
   Widget _content(BuildContext context, Size design) {
     switch (placement.style) {
       case GaugeStyle.lamp:
-        final indicator = definition.frontPage.indicators
-            .where((i) => i.expression == placement.indicator)
-            .firstOrNull;
+        final indicator = catalog.indicatorFor(placement.indicator);
         if (indicator == null) {
           return _Missing(what: placement.indicator ?? 'indicator');
         }
         final on = catalog.isOn(indicator);
-        return Center(
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            child: FlagLamp(
-              label: on ?? false ? indicator.onLabel : indicator.offLabel,
-              on: on,
-              onColor: GaugeCatalog.colorFor(indicator.onBackground),
-            ),
-          ),
+        return FlagLamp(
+          label: on ?? false ? indicator.onLabel : indicator.offLabel,
+          on: on,
+          onColor: GaugeCatalog.colorFor(indicator.onBackground),
+          expand: true,
         );
 
       case GaugeStyle.graph:
-        final gauges = [
-          for (final name in placement.gauges) ?definition.gaugeNamed(name),
+        final lanes = [
+          for (final ref in placement.gauges) ?catalog.specOf(ref),
         ];
-        if (gauges.isEmpty) {
+        if (lanes.isEmpty) {
           return _Missing(what: placement.gauges.join(', '));
         }
         return TimeGraph(
-          lanes: [for (final gauge in gauges) catalog.specFor(gauge)],
+          lanes: lanes,
           history: history,
           window: Duration(seconds: placement.windowSeconds),
         );
@@ -86,12 +78,15 @@ class GaugeView extends StatelessWidget {
       case GaugeStyle.dial:
       case GaugeStyle.bar:
       case GaugeStyle.digital:
-        final name = placement.gauges.firstOrNull;
-        final gauge = name == null ? null : definition.gaugeNamed(name);
-        if (gauge == null) return _Missing(what: name ?? 'gauge');
+        final ref = placement.gauges.firstOrNull;
+        final spec = ref == null ? null : catalog.specOf(ref);
+        if (spec == null) {
+          return _Missing(
+            what: ref == null ? 'gauge' : (GaugeRef.channelOf(ref) ?? ref),
+          );
+        }
 
-        final spec = catalog.specFor(gauge);
-        final value = catalog.valueOf(gauge);
+        final value = catalog.readingOf(ref!);
         return switch (placement.style) {
           GaugeStyle.dial => Center(
             child: MeterGauge(

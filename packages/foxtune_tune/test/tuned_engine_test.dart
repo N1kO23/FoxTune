@@ -408,6 +408,14 @@ void main() {
       // A value the definition only produces by expression, which needs the
       // tune the simulator is holding.
       expect(snapshot['fuelLoad'], isNotNull);
+      // A 16-bit channel once read two bytes of the test pattern here and
+      // showed 13875%.
+      expect(snapshot['gammaEnrich'], inInclusiveRange(0, 250));
+      expect(snapshot['loopsPerSecond'], greaterThan(900));
+      // Hardware the simulated engine does not have reads zero, as it would
+      // on a real ECU - not leftover filler.
+      expect(snapshot['auxin_gauge0'], 0);
+      expect(snapshot['vss'], 0);
     });
   });
 
@@ -437,6 +445,34 @@ void main() {
       final warmSample = engine.sampleAt(warm);
       expect(warmSample['warmupEnrich'], closeTo(100, 1));
       expect(engine.flagsAt(warm)['warmup'], isFalse);
+    });
+
+    test('reports gamma enrichment as the product of its corrections', () {
+      final engine = engineOn(freshPages());
+      final cold = at(seconds: 2, coolant: 20);
+      engine.sampleAt(at(seconds: 1, coolant: 20));
+      final sample = engine.sampleAt(cold);
+
+      expect(sample['warmupEnrich'], greaterThan(110));
+      expect(sample['ASECurr'], greaterThan(100));
+      expect(
+        sample['gammaEnrich'],
+        closeTo(
+          sample['warmupEnrich']! *
+              sample['ASECurr']! *
+              sample['accelEnrich']! *
+              sample['egoCorrection']! /
+              1e6,
+          0.01,
+        ),
+      );
+
+      // And the firmware zeroes it when it cuts fuel.
+      engine.sampleAt(at(seconds: 199, tps: 0, map: 30));
+      final cut = engine.sampleAt(
+        at(seconds: 200, tps: 0, map: 30, overrun: true),
+      );
+      expect(cut['gammaEnrich'], 0);
     });
 
     test('runs afterstart enrichment just after a start', () {

@@ -13,13 +13,15 @@ import 'layout/grid.dart';
 import 'layout/layout_controller.dart';
 import 'sample_history.dart';
 
-/// Largest a grid cell is drawn, in logical pixels.
+/// Largest a page is drawn, relative to its design size.
 ///
-/// The grid scales with the window, but not without limit: past this a wide
-/// monitor would blow the gauges up to poster size. The page centres instead.
-const maxCellSize = 60.0;
+/// A page scales to fill the window's width, but not without limit: past this
+/// a phone-width page on a wide monitor would blow its gauges up to poster
+/// size. The page centres instead - and a wider page is the way to use the
+/// room.
+const maxPageScale = 1.5;
 
-/// One dashboard page: its gauges on a 12-column grid scaled to fit.
+/// One dashboard page: its gauges on its grid, scaled to fit the width.
 class DashboardPageView extends StatelessWidget {
   const DashboardPageView({
     super.key,
@@ -38,11 +40,20 @@ class DashboardPageView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final columns = page.columns;
     return LayoutBuilder(
       builder: (context, constraints) {
-        final cell = math.min(constraints.maxWidth / gridColumns, maxCellSize);
-        // While editing, leave room below the last gauge to drag one into.
-        final contentRows = page.rows + (editing ? 3 : 0);
+        final width = math.min(
+          constraints.maxWidth,
+          page.width.designWidth * maxPageScale,
+        );
+        final cell = width / columns;
+        // While editing, leave room below the last gauge to drag one into -
+        // about a small gauge's worth, whatever the grid.
+        final spare = editing
+            ? GaugeStyle.digital.sizeIn(page.density).height
+            : 0;
+        final contentRows = page.rows + spare;
         final visibleRows = constraints.hasBoundedHeight
             ? (constraints.maxHeight / cell).floor()
             : 0;
@@ -51,7 +62,7 @@ class DashboardPageView extends StatelessWidget {
         return SingleChildScrollView(
           child: Center(
             child: SizedBox(
-              width: cell * gridColumns,
+              width: cell * columns,
               height: rows * cell,
               child: Stack(
                 children: [
@@ -60,8 +71,8 @@ class DashboardPageView extends StatelessWidget {
                       child: CustomPaint(
                         painter: _GridPainter(
                           cell: cell,
-                          color: Theme.of(context).colorScheme.outlineVariant
-                              .withValues(alpha: 0.5),
+                          major: page.density ~/ 12,
+                          color: Theme.of(context).colorScheme.outlineVariant,
                         ),
                       ),
                     ),
@@ -73,6 +84,7 @@ class DashboardPageView extends StatelessWidget {
                         placement: item,
                         cell: cell,
                         definition: definition,
+                        catalog: catalog,
                         child: _view(item),
                       )
                     else
@@ -94,7 +106,7 @@ class DashboardPageView extends StatelessWidget {
 
   Widget _view(GaugePlacement item) => GaugeView(
     placement: item,
-    definition: definition,
+    designCell: page.designCell,
     catalog: catalog,
     history: history,
   );
@@ -116,6 +128,7 @@ class _EditableGauge extends ConsumerStatefulWidget {
     required this.placement,
     required this.cell,
     required this.definition,
+    required this.catalog,
     required this.child,
   });
 
@@ -123,6 +136,7 @@ class _EditableGauge extends ConsumerStatefulWidget {
   final GaugePlacement placement;
   final double cell;
   final IniDocument definition;
+  final GaugeCatalog catalog;
   final Widget child;
 
   @override
@@ -145,7 +159,7 @@ class _EditableGaugeState extends ConsumerState<_EditableGauge> {
     final moved = drag == _Drag.move
         ? GridRect(r.x + dx, r.y + dy, r.width, r.height)
         : GridRect(r.x, r.y, r.width + dx, r.height + dy);
-    return clampToGrid(moved, widget.placement.style);
+    return clampToGrid(moved, widget.placement.style, widget.page);
   }
 
   void _start(_Drag drag) => setState(() {
@@ -190,6 +204,7 @@ class _EditableGaugeState extends ConsumerState<_EditableGauge> {
           pageId: widget.page.id,
           placementId: widget.placement.id,
           definition: widget.definition,
+          catalog: widget.catalog,
         ),
         onPanStart: (_) => _start(_Drag.move),
         onPanUpdate: _update,
@@ -255,26 +270,39 @@ class _EditableGaugeState extends ConsumerState<_EditableGauge> {
 }
 
 /// Hairline cell boundaries, shown while editing.
+///
+/// On a fine grid every line at full strength turns the page to mesh, so only
+/// every [major]th line - twelve to a phone's width, whatever the grid - is
+/// drawn firmly, and the rest faintly.
 class _GridPainter extends CustomPainter {
-  _GridPainter({required this.cell, required this.color});
+  _GridPainter({required this.cell, required this.major, required this.color});
 
   final double cell;
+  final int major;
   final Color color;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
+    final strong = Paint()
+      ..color = color.withValues(alpha: 0.6)
       ..strokeWidth = 1;
-    for (var x = 0.0; x <= size.width + 0.5; x += cell) {
+    final faint = Paint()
+      ..color = color.withValues(alpha: major > 1 ? 0.22 : 0.6)
+      ..strokeWidth = 1;
+
+    var i = 0;
+    for (var x = 0.0; x <= size.width + 0.5; x += cell, i++) {
+      final paint = i % major == 0 ? strong : faint;
       canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
     }
-    for (var y = 0.0; y <= size.height + 0.5; y += cell) {
+    i = 0;
+    for (var y = 0.0; y <= size.height + 0.5; y += cell, i++) {
+      final paint = i % major == 0 ? strong : faint;
       canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
     }
   }
 
   @override
   bool shouldRepaint(_GridPainter old) =>
-      old.cell != cell || old.color != color;
+      old.cell != cell || old.major != major || old.color != color;
 }

@@ -160,6 +160,12 @@ class FakeSpeeduino {
           'definition; construct FakeSpeeduino with channels:.');
     }
     _engine = simulation ?? EngineSimulation();
+    // The test pattern goes: it exists to expose a misaddressed read, and
+    // under a running engine it decodes as nonsense - a 16-bit channel the
+    // simulation leaves alone reads two pattern bytes, which is how gamma
+    // enrichment came to show 13875%. A real ECU reports zero for what it is
+    // not doing, so channels the simulation does not drive read zero too.
+    realtime.fillRange(0, realtime.length, 0);
     _engineTimer?.cancel();
     _engineTimer = Timer.periodic(tick, (_) => _writeEngineSample());
     _writeEngineSample();

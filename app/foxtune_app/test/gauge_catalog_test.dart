@@ -1,9 +1,12 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:foxtune_app/src/dashboard/gauge_catalog.dart';
 import 'package:foxtune_app/src/dashboard/gauge_status.dart';
+import 'package:foxtune_app/src/dashboard/layout/dashboard_layout.dart';
 import 'package:foxtune_ini/foxtune_ini.dart';
+import 'package:foxtune_protocol/foxtune_protocol.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
 
 void main() {
@@ -59,6 +62,169 @@ void main() {
     final spec = catalogFor(TuneState.empty(doc))
         .specFor(doc.gaugeNamed('AuxInGauge0')!);
     expect(spec.label, 'AuxInGauge0');
+  });
+
+  group('alarm bands that contradict each other', () {
+    test('are ignored, so a warm engine is not in danger', () {
+      // The definition's warmup gauge: danger below 130%, warning below 140%,
+      // warning above 140%. Nothing is normal, and 100% - fully warm - is
+      // danger.
+      final catalog = catalogFor(TuneState.empty(doc));
+      final spec = catalog.specFor(doc.gaugeNamed('warmupEnrichGauge')!);
+
+      expect(spec.statusFor(100), GaugeStatus.normal);
+      expect(spec.dangerBelow, isNull);
+      expect(spec.dangerAbove, isNull);
+      expect(catalog.ignoresDefinedBands('warmupEnrichGauge'), isTrue);
+    });
+
+    test('are the eight copies of one line, and free memory', () {
+      // Factory values rather than an empty tune: in an empty tune `stoich`
+      // is zero, and every AFR band - a multiple of it - collapses to zero.
+      final catalog = catalogFor(null);
+      final ignored = [
+        for (final gauge in doc.gauges)
+          if (catalog.ignoresDefinedBands(gauge.name)) gauge.name,
+      ];
+      expect(
+        ignored,
+        unorderedEquals([
+          'warmupEnrichGauge',
+          'aseEnrichGauge',
+          'iatCorrectGauge',
+          'baroCorrectGauge',
+          'flexEnrich',
+          'fuelTempCorGauge',
+          'mapMultiplyGauge',
+          'nSquirtsGauge',
+          'memoryGauge',
+        ]),
+      );
+    });
+
+    test('leave sensible bands alone', () {
+      final catalog = catalogFor(TuneState.empty(doc));
+      final ego = catalog.specFor(doc.gaugeNamed('egoCorrGauge')!);
+      expect(ego.warnAbove, 101);
+      expect(ego.statusFor(100), GaugeStatus.normal);
+      expect(catalog.ignoresDefinedBands('tachometer'), isFalse);
+    });
+  });
+
+  group('a channel with no gauge', () {
+    test('is drawn from its output channel entry', () {
+      final catalog = catalogFor(TuneState.empty(doc));
+      final spec = catalog.specOf(GaugeRef.channel('rpmDOT'))!;
+
+      expect(spec.label, 'rpmDOT');
+      expect(spec.units, 'rpm/s');
+      // A signed 16-bit channel can report this much, and nothing says what
+      // is normal.
+      expect((spec.min, spec.max), (-32768, 32767));
+      expect(spec.hasRange, isTrue);
+      expect(spec.statusFor(30000), GaugeStatus.normal);
+    });
+
+    test('a computed channel admits it has no range', () {
+      final spec = catalogFor(TuneState.empty(doc))
+          .specOf(GaugeRef.channel('cycleTime'))!;
+      expect(spec.hasRange, isFalse);
+    });
+
+    test('reads live from its channel', () {
+      final channels = doc.outputChannels;
+      final block = Uint8List(channels.blockSize!);
+      ByteData.sublistView(
+        block,
+      ).setInt16(channels.channelNamed('rpmDOT')!.offset!, -420, Endian.little);
+      final catalog = GaugeCatalog(
+        definition: doc,
+        realtime: RealtimeDecoder(channels).decode(block),
+      );
+      expect(catalog.readingOf(GaugeRef.channel('rpmDOT')), -420);
+    });
+
+    test('every one the picker offers can be drawn', () {
+      final catalog = catalogFor(TuneState.empty(doc));
+      final offered = GaugeCatalog.channelsWithoutGauges(doc);
+      expect(offered, isNotEmpty);
+      for (final channel in offered) {
+        if (channel.isFlag) {
+          expect(
+            catalog.indicatorFor(channel.name),
+            isNotNull,
+            reason: channel.name,
+          );
+        } else {
+          expect(
+            catalog.specOf(GaugeRef.channel(channel.name)),
+            isNotNull,
+            reason: channel.name,
+          );
+        }
+      }
+    });
+
+    test('a status bit the front page already has is not offered twice', () {
+      final offered = {
+        for (final c in GaugeCatalog.channelsWithoutGauges(doc)) c.name,
+      };
+      expect(offered, isNot(contains('running')));
+      expect(offered, contains('knockActive'));
+    });
+
+    test('a status bit shows as a lamp labelled with its name', () {
+      final catalog = catalogFor(TuneState.empty(doc));
+      final lamp = catalog.indicatorFor('knockActive')!;
+      expect(lamp.onLabel, 'knockActive');
+      // The front page's own labels win where there are some.
+      expect(catalog.indicatorFor('running')!.onLabel, 'Running');
+    });
+  });
+
+  group('limits the tuner set', () {
+    test('replace the definition\'s, bands and all', () {
+      final catalog = GaugeCatalog(
+        definition: doc,
+        resolver: TuneValueResolver(TuneState.empty(doc)),
+        limits: const {
+          'warmupEnrichGauge': GaugeLimits(
+            min: 100,
+            max: 200,
+            decimals: 0,
+            warnAbove: 170,
+          ),
+        },
+      );
+      final spec = catalog.specOf('warmupEnrichGauge')!;
+      expect(spec.warnAbove, 170);
+      expect(spec.statusFor(180), GaugeStatus.warning);
+      expect(spec.statusFor(100), GaugeStatus.normal);
+      // What the definition says is still there to go back to.
+      expect(catalog.definedSpecOf('warmupEnrichGauge')!.warnAbove, isNull);
+    });
+
+    test('give a channel a range it did not have', () {
+      final catalog = GaugeCatalog(
+        definition: doc,
+        limits: {
+          GaugeRef.channel('cycleTime'): const GaugeLimits(
+            min: 0,
+            max: 200,
+            decimals: 1,
+          ),
+        },
+      );
+      final spec = catalog.specOf(GaugeRef.channel('cycleTime'))!;
+      expect(spec.hasRange, isTrue);
+      expect(spec.max, 200);
+    });
+
+    test('are flagged for gauges that follow the tune', () {
+      final catalog = catalogFor(null);
+      expect(catalog.followsTune('tachometer'), isTrue);
+      expect(catalog.followsTune('cltGauge'), isFalse);
+    });
   });
 
   test('indicator colours keep the definition meaning on the palette', () {

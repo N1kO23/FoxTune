@@ -33,12 +33,24 @@ const _extraReadouts = [
 /// in the gauge picker.
 const _startingIndicators = 12;
 
-/// The first page, built from the definition's own front page.
-DashboardPage defaultPage(IniDocument definition, {String name = 'Main'}) {
-  var page = DashboardPage(id: newLayoutId(), name: name);
+/// The first page, built from the definition's own front page, laid out
+/// [width] wide on a grid [density] squares across a phone.
+DashboardPage defaultPage(
+  IniDocument definition, {
+  String name = 'Main',
+  int density = defaultGridDensity,
+  PageWidth width = PageWidth.phone,
+}) {
+  var page = DashboardPage(
+    id: newLayoutId(),
+    name: name,
+    density: density,
+    width: width,
+  );
 
   void place(GaugeStyle style, {String? gauge, String? indicator}) {
-    final spot = firstFreeSpot(page, style.width, style.height);
+    final size = style.sizeIn(page.density);
+    final spot = firstFreeSpot(page, size.width, size.height);
     page = page.copyWith(
       items: [
         ...page.items,

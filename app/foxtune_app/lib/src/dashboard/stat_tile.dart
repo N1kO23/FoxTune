@@ -93,17 +93,20 @@ class StatTile extends StatelessWidget {
                   fontWeight: FontWeight.w700,
                 ),
               ),
-            const SizedBox(height: 6),
-            // A thin magnitude track, recessive by design.
-            ClipRRect(
-              borderRadius: BorderRadius.circular(2),
-              child: LinearProgressIndicator(
-                value: spec.fractionFor(value),
-                minHeight: 3,
-                backgroundColor: scheme.surfaceContainerHighest,
-                valueColor: AlwaysStoppedAnimation(accent),
+            // A thin magnitude track, recessive by design - and only where
+            // there is a real range for it to measure against.
+            if (spec.hasRange) ...[
+              const SizedBox(height: 6),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(2),
+                child: LinearProgressIndicator(
+                  value: spec.fractionFor(value),
+                  minHeight: 3,
+                  backgroundColor: scheme.surfaceContainerHighest,
+                  valueColor: AlwaysStoppedAnimation(accent),
+                ),
               ),
-            ),
+            ],
           ],
         ),
       ),
@@ -118,6 +121,7 @@ class FlagLamp extends StatelessWidget {
     required this.label,
     required this.on,
     this.onColor,
+    this.expand = false,
   });
 
   final String label;
@@ -127,6 +131,14 @@ class FlagLamp extends StatelessWidget {
   /// palette's "good" green.
   final Color? onColor;
 
+  /// Whether it fills the space it is given rather than hugging its label.
+  ///
+  /// On a dashboard page a lamp fills its cells, so a column of lamps lines up
+  /// edge to edge whatever their labels say. A label too long for the lamp
+  /// shrinks rather than being cut off - a truncated "Launch Con..." reads as
+  /// the wrong thing.
+  final bool expand;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -134,34 +146,49 @@ class FlagLamp extends StatelessWidget {
     final active = on ?? false;
     final lit = onColor ?? StatusPalette.good;
 
+    final content = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Shape as well as colour: a filled circle when on, an outline when
+        // off, so the state survives a colour-blind reading.
+        Icon(
+          active ? Icons.circle : Icons.circle_outlined,
+          size: 9,
+          color: active ? lit : scheme.outline,
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          maxLines: 1,
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: active ? scheme.onSurface : scheme.onSurfaceVariant,
+            fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+          ),
+        ),
+      ],
+    );
+
+    final decoration = BoxDecoration(
+      color: active ? lit.withValues(alpha: 0.14) : scheme.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: active ? lit : scheme.outlineVariant),
+    );
+
+    if (!expand) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: decoration,
+        child: content,
+      );
+    }
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: active
-            ? lit.withValues(alpha: 0.14)
-            : scheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: active ? lit : scheme.outlineVariant),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Shape as well as colour: a filled circle when on, an outline when
-          // off, so the state survives a colour-blind reading.
-          Icon(
-            active ? Icons.circle : Icons.circle_outlined,
-            size: 9,
-            color: active ? lit : scheme.outline,
-          ),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: active ? scheme.onSurface : scheme.onSurfaceVariant,
-              fontWeight: active ? FontWeight.w600 : FontWeight.w400,
-            ),
-          ),
-        ],
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+      decoration: decoration,
+      alignment: Alignment.centerLeft,
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.centerLeft,
+        child: content,
       ),
     );
   }

@@ -57,6 +57,7 @@ class GaugeSpec {
     this.dangerAbove,
     this.warnBelow,
     this.dangerBelow,
+    this.hasRange = true,
   });
 
   /// Channel name as the definition declares it.
@@ -70,6 +71,14 @@ class GaugeSpec {
 
   final double min;
   final double max;
+
+  /// Whether [min] and [max] mean anything.
+  ///
+  /// A computed channel with no gauge definition has no declared range at
+  /// all. It still gets a nominal one so a dial can be drawn, but anything
+  /// that would present that range as a fact - a magnitude bar, a graph's
+  /// fixed scale - leaves it out.
+  final bool hasRange;
 
   /// Decimal places to display.
   final int decimals;
