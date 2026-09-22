@@ -39,6 +39,11 @@ All paths below are under `app/foxtune_app/`.
 | In the app (app bar) | `assets/branding/`                                                       | Rendered from the SVGs, see below                                                              |
 | In the app (colours) | `lib/src/branding/brand_theme.dart`                                      | The pink as the accent, on neutral surfaces                                                    |
 
+The Linux set is PNG only, with no `scalable/` SVG. KDE draws icons with Qt, whose SVG renderer
+supports only SVG Tiny: it skips nested `<svg>` elements and ignores clip paths, and every SVG
+here is built from both. As a desktop icon, KDE would draw it as a plain black square or with
+the lines in the wrong colours. Browsers and librsvg draw these SVGs correctly.
+
 On Linux the build copies the icons and `linux/com.foxtune.foxtune_app.desktop` into the bundle.
 X11 gets the window icon from there directly. Wayland only shows it once the desktop entry is
 installed: `tool/install-linux-desktop.sh` does that for the current user.

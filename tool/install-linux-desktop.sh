@@ -29,6 +29,9 @@ data=${XDG_DATA_HOME:-$HOME/.local/share}
 mkdir -p "$data/icons" "$data/applications"
 
 cp -R "$bundle/data/icons/." "$data/icons/"
+# Earlier builds also shipped a scalable SVG icon, which KDE prefers and draws
+# with Qt - whose SVG renderer ignores the clip paths the artwork is built from.
+rm -f "$data/icons/hicolor/scalable/apps/foxtune.svg"
 # The shipped entry expects foxtune_app on PATH; point it at this bundle.
 sed "s|^Exec=.*|Exec=\"$bundle/foxtune_app\"|" \
   "$bundle/data/com.foxtune.foxtune_app.desktop" \
@@ -37,5 +40,12 @@ sed "s|^Exec=.*|Exec=\"$bundle/foxtune_app\"|" \
 if command -v update-desktop-database > /dev/null; then
   update-desktop-database -q "$data/applications" || true
 fi
+# KDE Plasma finds entries through its own cache, not the one above.
+for sycoca in kbuildsycoca6 kbuildsycoca5; do
+  if command -v "$sycoca" > /dev/null; then
+    "$sycoca" > /dev/null 2>&1 || true
+    break
+  fi
+done
 
 echo "Installed com.foxtune.foxtune_app.desktop for $bundle/foxtune_app"
