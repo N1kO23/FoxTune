@@ -49,6 +49,10 @@ dependencies:
   # pins win32 5. Moving to file_picker 13 would lift this, at the cost of a
   # major-version change to the file APIs.
   wakelock_plus: ^1.5.2
+  # Lets the app draw its own title bar on Linux and Windows: hides the native
+  # one, and moves, minimizes and maximizes the window from Flutter. Only
+  # initialized on those two platforms - see lib/src/window/.
+  window_manager: ^0.5.2
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.

@@ -90,6 +90,18 @@ flutter pub get && flutter test
 depend on the Flutter SDK, so `dart test` cannot load their tests; run those with `flutter test`
 from their own directories.
 
+## The desktop window frame
+
+On Linux and Windows the app draws its own title bar: the top app bar of each screen doubles as
+it (`WindowAppBar`, in `lib/src/window/`), and `window_manager` hides the native one at startup.
+New full-window screens should use `WindowAppBar` rather than `AppBar`, or they will have no
+way to move or close the window. macOS and Android keep their native frame.
+
+The Linux runner still creates a GTK header bar on every session, only for it to be hidden. That
+is deliberate: a window with a GTK titlebar stays client-side decorated, so GTK keeps drawing the
+shadow and the resize edges, and tells KWin not to add a title bar of its own. Without one,
+`window_manager` falls back to an undecorated window, which has neither.
+
 ## Developing without an ECU
 
 You do not need a Speeduino to work on almost any of this. The protocol package ships a
@@ -292,13 +304,14 @@ flutter build apk --release
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs four jobs:
+`.github/workflows/ci.yml` runs five jobs:
 
 | Job             | What it proves                                                         |
 | --------------- | ---------------------------------------------------------------------- |
 | `core`          | The pure-Dart packages analyze, format and test with a bare Dart SDK   |
 | `flutter`       | The transport package and app analyze, and the app's widget tests pass |
 | `build-linux`   | The desktop app links, and publishes a `.tar.gz` artifact              |
+| `build-windows` | The Windows app links, and publishes a `.zip` artifact                 |
 | `build-android` | The APK compiles, is signed, and publishes an artifact                 |
 
 The `core` job is the fast signal and should stay that way: it needs no device, display or

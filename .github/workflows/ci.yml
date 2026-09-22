@@ -95,6 +95,38 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  # The only place the Windows build is checked: the app draws its own title
+  # bar there too, through the Win32 side of window_manager.
+  build-windows:
+    name: Build Windows desktop
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+
+      - name: Build
+        working-directory: app/foxtune_app
+        run: |
+          flutter pub get
+          flutter build windows --release
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $sha = $env:GITHUB_SHA.Substring(0, 7)
+          Compress-Archive -Path app/foxtune_app/build/windows/x64/runner/Release/* -DestinationPath "foxtune-windows-x64-$sha.zip"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: foxtune-windows-x64
+          path: foxtune-windows-x64-*.zip
+          archive: false
+          if-no-files-found: error
+          retention-days: 30
+
   build-android:
     name: Build Android APK
     runs-on: ubuntu-latest

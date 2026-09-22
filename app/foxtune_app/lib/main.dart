@@ -2,9 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'src/connection/connect_screen.dart';
+import 'src/window/window_controls.dart';
 
-void main() {
-  runApp(const ProviderScope(child: FoxTuneApp()));
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final window = await initWindowFrame();
+
+  runApp(
+    ProviderScope(
+      overrides: [
+        if (window != null) windowControlsProvider.overrideWithValue(window),
+      ],
+      child: const FoxTuneApp(),
+    ),
+  );
 }
 
 class FoxTuneApp extends StatelessWidget {

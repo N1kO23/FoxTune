@@ -14,6 +14,7 @@ import '../tune/msq_actions.dart';
 import '../tune/recovered_edits.dart';
 import '../tune/table_editor_screen.dart';
 import '../tune/tune_controller.dart';
+import '../window/window_app_bar.dart';
 import 'connection_controller.dart';
 import 'connection_state.dart';
 import 'connection_watchdog.dart';
@@ -37,7 +38,7 @@ class ConnectScreen extends ConsumerWidget {
     ref.watch(unburnedEditsGuardProvider);
 
     return Scaffold(
-      appBar: AppBar(
+      appBar: WindowAppBar(
         title: const Text('FoxTune'),
         actions: [
           if (connection is EcuDisconnected ||

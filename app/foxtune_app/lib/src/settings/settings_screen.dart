@@ -10,6 +10,7 @@ import '../tune/burn_actions.dart';
 import '../tune/surface_screen.dart';
 import '../tune/table_editor_screen.dart';
 import '../tune/tune_controller.dart';
+import '../window/window_app_bar.dart';
 import 'curve_editor.dart';
 import 'dialog_view.dart';
 import 'settings_scope.dart';
@@ -119,7 +120,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => Scaffold(
-          appBar: AppBar(title: Text(_titleFor(target))),
+          appBar: WindowAppBar(title: Text(_titleFor(target))),
           body: SettingDetail(target: target, connection: widget.connection),
         ),
       ),
@@ -391,7 +392,9 @@ class SettingDetail extends ConsumerWidget {
       Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => Scaffold(
-            appBar: AppBar(title: Text(asSurface ? '$title - 3D' : title)),
+            appBar: WindowAppBar(
+              title: Text(asSurface ? '$title - 3D' : title),
+            ),
             body: asSurface
                 ? SurfaceScreen(connection: connection, tableId: tableId)
                 : TableEditorScreen(connection: connection),

@@ -4,6 +4,7 @@ import 'package:foxtune_tune/foxtune_tune.dart';
 
 import '../connection/connection_state.dart';
 import '../dashboard/dashboard_controller.dart';
+import '../window/window_app_bar.dart';
 import 'cursor_readout.dart';
 import 'surface_view.dart';
 import 'table_editor_screen.dart';
@@ -100,7 +101,7 @@ class SurfaceScreen extends ConsumerWidget {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) => Scaffold(
-                        appBar: AppBar(title: Text(table.title)),
+                        appBar: WindowAppBar(title: Text(table.title)),
                         body: TableEditorScreen(connection: connection),
                       ),
                     ),
