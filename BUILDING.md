@@ -102,6 +102,22 @@ is deliberate: a window with a GTK titlebar stays client-side decorated, so GTK 
 shadow and the resize edges, and tells KWin not to add a title bar of its own. Without one,
 `window_manager` falls back to an undecorated window, which has neither.
 
+### The icon on Wayland
+
+A Wayland session shows a generic icon for FoxTune in the task manager until its desktop entry is
+installed. Wayland compositors ignore the icon a window sets and instead look up the `.desktop`
+entry named after the application ID (`com.foxtune.foxtune_app`). X11 needs nothing: the runner
+sets the icon on the window itself. To install the entry and icons for your user, pointing at a
+build:
+
+```sh
+flutter build linux                 # from app/foxtune_app
+../../tool/install-linux-desktop.sh # or pass another bundle directory
+```
+
+The brand artwork, and where each platform's icons come from, is described in
+[branding/README.md](branding/README.md).
+
 ## Developing without an ECU
 
 You do not need a Speeduino to work on almost any of this. The protocol package ships a

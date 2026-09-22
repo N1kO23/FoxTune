@@ -6,6 +6,7 @@ import 'package:foxtune_protocol/foxtune_protocol.dart' show EcuFamily;
 import 'package:foxtune_transport/foxtune_transport.dart';
 
 import '../autotune/autotune_screen.dart';
+import '../branding/foxtune_logo.dart';
 import '../dashboard/dashboard_screen.dart';
 import '../dashboard/gauge_status.dart';
 import '../definitions/choose_definition.dart';
@@ -39,7 +40,7 @@ class ConnectScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: WindowAppBar(
-        title: const Text('FoxTune'),
+        title: const FoxTuneLogo(),
         actions: [
           if (connection is EcuDisconnected ||
               connection is EcuConnectionFailed ||

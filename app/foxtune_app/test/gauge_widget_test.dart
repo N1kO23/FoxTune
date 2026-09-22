@@ -1,17 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:foxtune_app/src/branding/brand_theme.dart';
 import 'package:foxtune_app/src/dashboard/gauge_status.dart';
 import 'package:foxtune_app/src/dashboard/meter_gauge.dart';
 import 'package:foxtune_app/src/dashboard/stat_tile.dart';
 
 Widget wrap(Widget child, {Brightness brightness = Brightness.light}) =>
     MaterialApp(
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFFC75B12),
-          brightness: brightness,
-        ),
-      ),
+      theme: brandTheme(brightness),
       home: Scaffold(
         body: Center(child: SizedBox(width: 200, child: child)),
       ),

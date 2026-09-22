@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:foxtune_app/src/branding/brand_theme.dart';
 import 'package:foxtune_app/src/connection/connection_state.dart';
 import 'package:foxtune_app/src/connection/connection_controller.dart';
 import 'package:foxtune_app/src/dashboard/dashboard_controller.dart';
@@ -97,11 +98,7 @@ void main() {
           ),
         ],
         child: MaterialApp(
-          theme: ThemeData(
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: const Color(0xFFC75B12),
-            ),
-          ),
+          theme: brandTheme(Brightness.light),
           home: Scaffold(body: DashboardScreen(connection: connectionFor())),
         ),
       ),

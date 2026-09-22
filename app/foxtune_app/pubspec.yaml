@@ -84,6 +84,9 @@ flutter:
     # lets the app verify a connected ECU's signature out of the box; loading a
     # user-supplied .ini comes later.
     - assets/speeduino.ini
+    # The logo in the app bar. Only what the app shows is bundled here; the
+    # full artwork lives in branding/ at the repository root.
+    - assets/branding/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

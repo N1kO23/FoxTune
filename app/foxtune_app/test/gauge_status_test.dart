@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:foxtune_app/src/dashboard/gauge_catalog.dart';
 import 'package:foxtune_ini/foxtune_ini.dart';
@@ -145,6 +146,21 @@ void main() {
       expect(StatusPalette.iconFor(GaugeStatus.normal), isNull);
       expect(StatusPalette.labelFor(GaugeStatus.normal), isNull);
       expect(GaugeStatus.normal.isAlarm, isFalse);
+    });
+
+    test('normal is neutral, not the accent', () {
+      // The brand accent is a red-leaning pink: normal dials in it would
+      // compete with the critical colour for attention.
+      for (final brightness in Brightness.values) {
+        final scheme = ColorScheme.fromSeed(
+          seedColor: const Color(0xFFFF2E6E),
+          brightness: brightness,
+        );
+        expect(
+          StatusPalette.forStatus(GaugeStatus.normal, scheme),
+          scheme.onSurface,
+        );
+      }
     });
   });
 }

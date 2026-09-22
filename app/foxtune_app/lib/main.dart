@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'src/branding/brand_theme.dart';
 import 'src/connection/connect_screen.dart';
 import 'src/window/window_controls.dart';
 
@@ -26,17 +27,8 @@ class FoxTuneApp extends StatelessWidget {
     return MaterialApp(
       title: 'FoxTune',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFC75B12)),
-        useMaterial3: true,
-      ),
-      darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFFC75B12),
-          brightness: Brightness.dark,
-        ),
-        useMaterial3: true,
-      ),
+      theme: brandTheme(Brightness.light),
+      darkTheme: brandTheme(Brightness.dark),
       home: const ConnectScreen(),
     );
   }

@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:foxtune_app/src/autotune/autotune_controller.dart';
 import 'package:foxtune_app/src/autotune/autotune_screen.dart';
+import 'package:foxtune_app/src/branding/brand_theme.dart';
 import 'package:foxtune_app/src/connection/connection_state.dart';
 import 'package:foxtune_app/src/dashboard/dashboard_controller.dart';
 import 'package:foxtune_app/src/tune/table_grid.dart';
@@ -171,11 +172,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: ThemeData(
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: const Color(0xFFC75B12),
-            ),
-          ),
+          theme: brandTheme(Brightness.light),
           home: Scaffold(body: AutotuneScreen(connection: connectionFor())),
         ),
       ),

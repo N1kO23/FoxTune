@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=FoxTune
+GenericName=ECU Tuning
+Comment=Open source ECU tuning for Speeduino and rusEFI
+Exec=foxtune_app
+Icon=foxtune
+Terminal=false
+Categories=Utility;
+StartupWMClass=com.foxtune.foxtune_app

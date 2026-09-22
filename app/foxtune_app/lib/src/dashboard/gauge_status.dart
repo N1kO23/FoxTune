@@ -16,6 +16,11 @@ enum GaugeStatus {
 /// every alarm here is rendered with an icon and a text label as well: colour
 /// alone never carries the meaning, which also keeps the cluster readable for
 /// colour-blind users and in direct sunlight.
+///
+/// A normal reading is drawn in the plain text colour, not the theme's accent.
+/// The brand accent is a pink close enough to [critical] that a dashboard of
+/// healthy dials in it read as half alarmed; neutral dials leave colour to the
+/// readings that need attention.
 abstract final class StatusPalette {
   static const Color good = Color(0xFF0CA30C);
   static const Color warning = Color(0xFFFAB219);
@@ -23,7 +28,7 @@ abstract final class StatusPalette {
 
   static Color forStatus(GaugeStatus status, ColorScheme scheme) =>
       switch (status) {
-        GaugeStatus.normal => scheme.primary,
+        GaugeStatus.normal => scheme.onSurface,
         GaugeStatus.warning => warning,
         GaugeStatus.danger => critical,
       };
