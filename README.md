@@ -1,4 +1,11 @@
-# FoxTune
+<!-- markdownlint-disable MD033 - Markdown has no image that follows the reader's theme -->
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="branding/logo/svg/foxtune-horizontal-dark.svg">
+    <img alt="FoxTune" src="branding/logo/svg/foxtune-horizontal-light.svg" width="400">
+  </picture>
+</h1>
+<!-- markdownlint-enable MD033 -->
 
 Open source ECU tuning software for open source ECUs.
 
