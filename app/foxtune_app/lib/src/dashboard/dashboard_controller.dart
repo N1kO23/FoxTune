@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:foxtune_protocol/foxtune_protocol.dart';
 
@@ -54,3 +55,26 @@ final realtimeErrorProvider = StreamProvider<Object>((ref) {
   if (monitor == null) return const Stream<Object>.empty();
   return monitor.errors;
 });
+
+/// Watches [provider] while the widget reading it is on screen, and only reads
+/// it while the widget is hidden.
+///
+/// The connected shell keeps every tab alive in an [IndexedStack], which marks
+/// the ones not shown as hidden to [Visibility.of]; a pushed route leaves the
+/// screen beneath it built, with [TickerMode] off. Watching the realtime feed
+/// from a hidden screen rebuilds, and lays out again, something nobody can
+/// see - 30 times a second, for every such screen. Hidden, a widget here keeps
+/// what it last showed and its subscription lapses, since Riverpod drops
+/// whatever a build did not watch. Both are inherited, so being shown again
+/// rebuilds the widget, and it watches afresh.
+///
+/// For widgets that show live data. Providers that must keep up with the feed
+/// while nothing shows them - the graph history, autotuning, logging - listen
+/// to it directly instead.
+T watchWhileVisible<T>(
+  WidgetRef ref,
+  BuildContext context,
+  ProviderListenable<T> provider,
+) => Visibility.of(context) && TickerMode.valuesOf(context).enabled
+    ? ref.watch(provider)
+    : ref.read(provider);

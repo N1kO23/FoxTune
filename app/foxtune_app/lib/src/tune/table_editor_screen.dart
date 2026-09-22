@@ -144,7 +144,11 @@ class _TableEditorScreenState extends ConsumerState<TableEditorScreen> {
   /// A live realtime channel value, or `null` when it is unavailable.
   double? _channelValue(String? channel) {
     if (channel == null) return null;
-    return ref.watch(realtimeProvider).valueOrNull?[channel];
+    return watchWhileVisible(
+      ref,
+      context,
+      realtimeProvider,
+    ).valueOrNull?[channel];
   }
 
   /// Cells this session has changed but not yet burned.

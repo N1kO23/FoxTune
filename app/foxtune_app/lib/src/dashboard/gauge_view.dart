@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
 
 import 'bar_gauge.dart';
+import 'dashboard_controller.dart';
 import 'gauge_catalog.dart';
 import 'layout/dashboard_layout.dart';
 import 'meter_gauge.dart';
@@ -14,7 +16,12 @@ import 'time_graph.dart';
 /// Every gauge is laid out at its design size - its cells times the design
 /// cell of its page's grid - and then scaled, whole, to the space it actually
 /// has.
-class GaugeView extends StatelessWidget {
+///
+/// Each gauge follows the realtime feed itself, and rebuilds only when what it
+/// shows has changed. The page around it is not rebuilt per sample, and a lamp
+/// that stays off or a temperature that holds costs nothing while the rest of
+/// the page moves.
+class GaugeView extends ConsumerWidget {
   const GaugeView({
     super.key,
     required this.placement,
@@ -28,11 +35,21 @@ class GaugeView extends StatelessWidget {
   /// The size one grid square of its page is laid out at.
   final double designCell;
 
+  /// The page's catalog, without a sample: each gauge adds the latest itself.
   final GaugeCatalog catalog;
   final SampleHistory history;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    watchWhileVisible(
+      ref,
+      context,
+      realtimeProvider.select(
+        (live) => _shown(catalog.withRealtime(live.valueOrNull)),
+      ),
+    );
+    final live = catalog.withRealtime(ref.read(realtimeProvider).valueOrNull);
+
     final design = Size(
       placement.width * designCell,
       placement.height * designCell,
@@ -42,13 +59,55 @@ class GaugeView extends StatelessWidget {
         size: design,
         child: Padding(
           padding: const EdgeInsets.all(3),
-          child: _content(context, design),
+          child: _content(context, design, live),
         ),
       ),
     );
   }
 
-  Widget _content(BuildContext context, Size design) {
+  /// What this gauge draws from a sample, compared from one sample to the
+  /// next to decide whether it needs rebuilding.
+  Object? _shown(GaugeCatalog live) {
+    switch (placement.style) {
+      case GaugeStyle.lamp:
+        final indicator = live.indicatorFor(placement.indicator);
+        if (indicator == null) return null;
+        final on = live.isOn(indicator);
+        return (
+          on,
+          indicatorLabel(
+            indicator,
+            on: on ?? false,
+            definition: live.definition,
+            resolve: live.resolveLive,
+          ),
+        );
+
+      case GaugeStyle.graph:
+        // The traces follow the history without a rebuild; see TimeGraph.
+        return null;
+
+      case GaugeStyle.dial:
+      case GaugeStyle.bar:
+      case GaugeStyle.digital:
+        final ref = placement.gauges.firstOrNull;
+        final spec = ref == null ? null : live.specOf(ref);
+        if (spec == null) return null;
+        // The limits as well as the reading: expression limits can follow
+        // live values.
+        return (
+          live.readingOf(ref!),
+          spec.min,
+          spec.max,
+          spec.dangerBelow,
+          spec.warnBelow,
+          spec.warnAbove,
+          spec.dangerAbove,
+        );
+    }
+  }
+
+  Widget _content(BuildContext context, Size design, GaugeCatalog catalog) {
     switch (placement.style) {
       case GaugeStyle.lamp:
         final indicator = catalog.indicatorFor(placement.indicator);

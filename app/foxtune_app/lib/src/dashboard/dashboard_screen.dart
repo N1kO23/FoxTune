@@ -41,7 +41,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final snapshot = ref.watch(realtimeProvider).valueOrNull;
+    // Whether any sample has come, not the samples themselves: each gauge
+    // follows the feed on its own, so the page is not rebuilt 30 times a
+    // second to pass readings down.
+    final hasData = watchWhileVisible(
+      ref,
+      context,
+      realtimeProvider.select((live) => live.hasValue),
+    );
     final monitor = ref.watch(realtimeMonitorProvider);
     final layout = ref.watch(dashboardLayoutProvider);
     final definition = widget.connection.definition;
@@ -54,7 +61,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           child: _StatusBar(
             connection: widget.connection,
             monitor: monitor,
-            hasData: snapshot != null,
+            hasData: hasData,
           ),
         ),
         Expanded(
@@ -87,7 +94,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           onToggleEditing: () =>
                               setState(() => _editing = !_editing),
                         ),
-                        if (snapshot == null) const _WaitingForData(),
+                        if (!hasData) const _WaitingForData(),
                         Expanded(
                           child: Padding(
                             padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
@@ -98,7 +105,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                               catalog: GaugeCatalog(
                                 definition: definition,
                                 resolver: ref.watch(tuneResolverProvider),
-                                realtime: snapshot,
                                 limits: layout.limits,
                               ),
                               history: ref.watch(sampleHistoryProvider),
@@ -402,6 +408,29 @@ class _Message extends StatelessWidget {
   );
 }
 
+/// The achieved poll rate and count - the one part of the status bar that
+/// changes with every sample, so the only part rebuilt for one.
+class _PollRate extends ConsumerWidget {
+  const _PollRate({required this.monitor});
+
+  final RealtimeMonitor monitor;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    watchWhileVisible(ref, context, realtimeProvider);
+    final theme = Theme.of(context);
+    return Text(
+      // The achieved rate, not the requested one.
+      '${monitor.measuredHz.toStringAsFixed(1)} Hz · '
+      '${monitor.pollCount} polls',
+      style: theme.textTheme.bodySmall?.copyWith(
+        color: theme.colorScheme.onSurfaceVariant,
+        fontFeatures: const [FontFeature.tabularFigures()],
+      ),
+    );
+  }
+}
+
 class _StatusBar extends ConsumerWidget {
   const _StatusBar({
     required this.connection,
@@ -452,16 +481,7 @@ class _StatusBar extends ConsumerWidget {
                 color: scheme.onSurfaceVariant,
               ),
             ),
-            if (monitor != null)
-              Text(
-                // The achieved rate, not the requested one.
-                '${monitor!.measuredHz.toStringAsFixed(1)} Hz · '
-                '${monitor!.pollCount} polls',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
-              ),
+            if (monitor != null) _PollRate(monitor: monitor!),
             const RecordButton(),
             if (!ref.watch(writePermissionProvider).allowed)
               Row(

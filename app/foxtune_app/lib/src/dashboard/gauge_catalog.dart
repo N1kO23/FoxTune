@@ -99,6 +99,14 @@ class GaugeCatalog {
     limits: limits,
   );
 
+  /// This catalog reading [realtime] as the latest sample.
+  GaugeCatalog withRealtime(RealtimeSnapshot? realtime) => GaugeCatalog(
+    definition: definition,
+    resolver: resolver,
+    realtime: realtime,
+    limits: limits,
+  );
+
   // --- By reference ----------------------------------------------------------
 
   /// How to draw what [ref] names, with any limits the tuner set, or `null`

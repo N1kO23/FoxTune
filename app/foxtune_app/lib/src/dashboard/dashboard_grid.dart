@@ -104,11 +104,15 @@ class DashboardPageView extends StatelessWidget {
     );
   }
 
-  Widget _view(GaugePlacement item) => GaugeView(
-    placement: item,
-    designCell: page.designCell,
-    catalog: catalog,
-    history: history,
+  // Its own layer, so a gauge whose reading changed repaints alone rather
+  // than taking every other gauge on the page with it.
+  Widget _view(GaugePlacement item) => RepaintBoundary(
+    child: GaugeView(
+      placement: item,
+      designCell: page.designCell,
+      catalog: catalog,
+      history: history,
+    ),
   );
 }
 

@@ -281,7 +281,7 @@ class _BodyState extends ConsumerState<_Body> {
       return const _Message(text: 'The VE table could not be resolved.');
     }
 
-    final live = ref.watch(realtimeProvider).valueOrNull;
+    final live = watchWhileVisible(ref, context, realtimeProvider).valueOrNull;
     double? channel(String? name) => name == null ? null : live?[name];
     final x = channel(table.xBins.channel);
     final y = channel(table.yBins.channel);

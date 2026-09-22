@@ -318,6 +318,35 @@ export ANDROID_KEYSTORE_PASSWORD=... ANDROID_KEY_ALIAS=... ANDROID_KEY_PASSWORD=
 flutter build apk --release
 ```
 
+## Measuring dashboard performance
+
+Judge smoothness in a profile or release build, never in a plain `flutter run`: debug builds
+run Dart unoptimised, and a dashboard that is smooth in release can stutter there.
+
+To put numbers on it, a benchmark draws a real saved layout (4 time graphs, 11 gauges and
+14 lamps) from a synthetic 30 Hz feed, with the whole connected shell up, and records frame
+timings in profile mode on the desktop:
+
+```sh
+cd app/foxtune_app
+flutter drive --profile -d linux \
+  --driver=test_driver/perf_driver.dart \
+  --target=integration_test/dashboard_perf_test.dart
+```
+
+It opens a window for about 40 seconds and writes the summary to
+`build/integration_response_data.json`: build (UI thread) and raster times, average and
+percentiles, once with the dashboard showing and once with it hidden behind the Tables tab. At
+30 Hz only about every other frame carries a new sample, so the 90th percentile is the figure to
+watch. Keep it well under the 16 ms a 60 Hz frame allows.
+
+Two rules keep it low, and the benchmark shows it when either is broken:
+
+- **A widget showing live data watches it with `watchWhileVisible`**, not `ref.watch`. The shell
+  keeps every tab alive, so a plain watch rebuilds hidden screens 30 times a second.
+- **A dashboard gauge watches only what it shows** (`realtimeProvider.select`), so a lamp that
+  holds its state and the page around it are not rebuilt per sample.
+
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs five jobs:

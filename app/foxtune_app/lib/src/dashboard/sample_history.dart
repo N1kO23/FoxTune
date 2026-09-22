@@ -30,6 +30,29 @@ class SampleHistory extends ChangeNotifier {
   /// Number of samples held.
   int get length => _samples.length;
 
+  /// Samples taken at or after [start], oldest first.
+  ///
+  /// Found by bisection rather than by walking in from the oldest: the buffer
+  /// holds two minutes, most graphs show a fraction of that, and every graph
+  /// asks on every frame.
+  Iterable<RealtimeSnapshot> since(DateTime start) {
+    var low = 0;
+    var high = _samples.length;
+    while (low < high) {
+      final middle = (low + high) >> 1;
+      if (_samples.elementAt(middle).timestamp.isBefore(start)) {
+        low = middle + 1;
+      } else {
+        high = middle;
+      }
+    }
+    final first = low;
+    return Iterable.generate(
+      _samples.length - first,
+      (i) => _samples.elementAt(first + i),
+    );
+  }
+
   void add(RealtimeSnapshot sample) {
     // The feed can hand the same sample over twice as providers rebuild; a
     // repeated point would draw nothing wrong, but it is not a new reading.

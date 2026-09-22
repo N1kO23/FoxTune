@@ -60,6 +60,12 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  # For the dashboard frame-time benchmark, which has to run on a real device
+  # in profile mode - see integration_test/dashboard_perf_test.dart.
+  integration_test:
+    sdk: flutter
+  flutter_driver:
+    sdk: flutter
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
