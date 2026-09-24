@@ -82,7 +82,7 @@ void main() {
               previous,
               next,
             ) {
-              final sample = next.valueOrNull;
+              final sample = next.value;
               if (sample != null) history.add(sample);
             });
             ref.onDispose(history.dispose);

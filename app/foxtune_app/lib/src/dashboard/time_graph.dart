@@ -117,7 +117,7 @@ class _LaneHeader extends ConsumerWidget {
     final current = watchWhileVisible(
       ref,
       context,
-      realtimeProvider.select((live) => live.valueOrNull?[spec.channel]),
+      realtimeProvider.select((live) => live.value?[spec.channel]),
     );
     final status = spec.statusFor(current);
 

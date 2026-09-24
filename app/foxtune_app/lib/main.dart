@@ -11,6 +11,11 @@ Future<void> main() async {
 
   runApp(
     ProviderScope(
+      // Riverpod retries a failed provider on its own by default. Here that
+      // would mean reading the whole tune from the ECU again, unasked, after a
+      // read failed part-way - so a failure is shown instead, and retried
+      // only when the user asks.
+      retry: (_, _) => null,
       overrides: [
         if (window != null) windowControlsProvider.overrideWithValue(window),
       ],

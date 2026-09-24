@@ -11,7 +11,7 @@ env:
   # Gradle 9 removes the jcenter() that flutter_libserialport still calls - so a
   # Flutter bump needs to be a deliberate change with that window rechecked.
   # See BUILDING.md.
-  FLUTTER_VERSION: 3.47.4
+  FLUTTER_VERSION: 3.47.5
 
 jobs:
   # The core packages carry no Flutter dependency, so they build and test with

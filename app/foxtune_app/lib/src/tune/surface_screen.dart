@@ -35,7 +35,7 @@ class SurfaceScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final tune = ref.watch(tuneProvider).valueOrNull;
+    final tune = ref.watch(tuneProvider).value;
     final definition = connection.definition;
     final table = definition?.tableNamed(tableId);
 
@@ -62,7 +62,7 @@ class SurfaceScreen extends ConsumerWidget {
       );
     }
 
-    final live = watchWhileVisible(ref, context, realtimeProvider).valueOrNull;
+    final live = watchWhileVisible(ref, context, realtimeProvider).value;
     double? channel(String? name) => name == null ? null : live?[name];
 
     final x = channel(table.xBins.channel);

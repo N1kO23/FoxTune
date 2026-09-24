@@ -42,7 +42,7 @@ class DashboardLayoutController extends AsyncNotifier<DashboardLayout> {
       'dashboards/${ecuFamily(definition.identity.signature)}.json';
 
   DashboardLayout get _layout =>
-      state.valueOrNull ?? const DashboardLayout(pages: []);
+      state.value ?? const DashboardLayout(pages: []);
 
   void _commit(DashboardLayout layout) {
     state = AsyncValue.data(layout);

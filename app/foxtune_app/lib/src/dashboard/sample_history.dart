@@ -81,7 +81,7 @@ final sampleHistoryProvider = Provider<SampleHistory>((ref) {
   ref.watch(connectionProvider);
   final history = SampleHistory();
   ref.listen<AsyncValue<RealtimeSnapshot>>(realtimeProvider, (previous, next) {
-    final sample = next.valueOrNull;
+    final sample = next.value;
     if (sample != null) history.add(sample);
   }, fireImmediately: true);
   ref.onDispose(history.dispose);

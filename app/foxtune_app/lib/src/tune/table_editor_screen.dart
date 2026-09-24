@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:foxtune_ini/foxtune_ini.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
 
@@ -144,11 +145,7 @@ class _TableEditorScreenState extends ConsumerState<TableEditorScreen> {
   /// A live realtime channel value, or `null` when it is unavailable.
   double? _channelValue(String? channel) {
     if (channel == null) return null;
-    return watchWhileVisible(
-      ref,
-      context,
-      realtimeProvider,
-    ).valueOrNull?[channel];
+    return watchWhileVisible(ref, context, realtimeProvider).value?[channel];
   }
 
   /// Cells this session has changed but not yet burned.

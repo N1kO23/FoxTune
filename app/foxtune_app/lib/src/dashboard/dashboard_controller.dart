@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart';
 import 'package:foxtune_protocol/foxtune_protocol.dart';
 
 import '../connection/connection_controller.dart';
@@ -67,6 +68,10 @@ final realtimeErrorProvider = StreamProvider<Object>((ref) {
 /// what it last showed and its subscription lapses, since Riverpod drops
 /// whatever a build did not watch. Both are inherited, so being shown again
 /// rebuilds the widget, and it watches afresh.
+///
+/// Catching up at once relies on the feed itself running while nothing
+/// watches it, which the connected shell sees to: left alone, Riverpod pauses
+/// a provider nobody is listening to.
 ///
 /// For widgets that show live data. Providers that must keep up with the feed
 /// while nothing shows them - the graph history, autotuning, logging - listen

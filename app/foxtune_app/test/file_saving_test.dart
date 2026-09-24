@@ -7,10 +7,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:foxtune_app/src/files/file_saving.dart';
 
 /// Stands in for the platform picker, recording what it was asked.
-class _FakePicker extends FilePicker {
-  _FakePicker({this.savePath, this.picked});
+class _FakePicker extends FilePickerPlatform {
+  _FakePicker({this.saved, this.picked});
 
-  final String? savePath;
+  final Uri? saved;
   final PlatformFile? picked;
 
   FileType? lastType;
@@ -18,108 +18,153 @@ class _FakePicker extends FilePicker {
   Uint8List? lastBytes;
 
   @override
-  Future<String?> saveFile({
+  Future<Uri?> saveFile({
+    required String fileName,
+    required Uint8List bytes,
+    required String mimeType,
     String? dialogTitle,
-    String? fileName,
     String? initialDirectory,
-    FileType type = FileType.any,
-    List<String>? allowedExtensions,
-    Uint8List? bytes,
-    bool lockParentWindow = false,
+    Function(FilePickerStatus)? onFileSaving,
+    WindowsOptions windowsOptions = const WindowsOptions(),
+    LinuxOptions linuxOptions = const LinuxOptions(),
+    WebOptions webOptions = const WebOptions(),
   }) async {
-    lastType = type;
-    lastExtensions = allowedExtensions;
     lastBytes = bytes;
-    return savePath;
+    return saved;
   }
 
   @override
-  Future<FilePickerResult?> pickFiles({
+  Future<PlatformFile?> pickFile({
     String? dialogTitle,
     String? initialDirectory,
     FileType type = FileType.any,
     List<String>? allowedExtensions,
     Function(FilePickerStatus)? onFileLoading,
-    bool allowCompression = true,
-    int compressionQuality = 30,
-    bool allowMultiple = false,
-    bool withData = false,
-    bool withReadStream = false,
-    bool lockParentWindow = false,
-    bool readSequential = false,
+    int compressionQuality = 0,
+    AndroidOptions androidOptions = const AndroidOptions(),
+    DarwinOptions darwinOptions = const DarwinOptions(),
+    WindowsOptions windowsOptions = const WindowsOptions(),
+    LinuxOptions linuxOptions = const LinuxOptions(),
+    WebOptions webOptions = const WebOptions(),
   }) async {
     lastType = type;
     lastExtensions = allowedExtensions;
-    final file = picked;
-    return file == null ? null : FilePickerResult([file]);
+    return picked;
   }
 }
 
+/// A picked file held in memory, or one that fails to read if [bytes] is
+/// `null`.
+final class _MemoryFile extends PlatformFile {
+  _MemoryFile(this.name, this.bytes);
+
+  @override
+  final String name;
+  final List<int>? bytes;
+
+  @override
+  Uri get uri => Uri.file('/picked/$name');
+
+  @override
+  get xFile => throw UnimplementedError();
+
+  @override
+  int? lengthSync() => bytes?.length;
+
+  @override
+  Future<int?> length() async => bytes?.length;
+
+  @override
+  Future<Uint8List> readAsBytes() async {
+    final bytes = this.bytes;
+    if (bytes == null) throw FileSystemException('Permission denied', name);
+    return Uint8List.fromList(bytes);
+  }
+
+  @override
+  Stream<Uint8List> readAsByteStream() => Stream.fromFuture(readAsBytes());
+}
+
 void main() {
-  late Directory temp;
-
-  setUp(() => temp = Directory.systemTemp.createTempSync('foxtune_files'));
-  tearDown(() => temp.deleteSync(recursive: true));
-
   group('saving', () {
-    test(
-      'on desktop, writes the file the picker only chose a path for',
-      () async {
-        final target = '${temp.path}/tune.msq';
-        final picker = _FakePicker(savePath: target);
-        FilePicker.platform = picker;
+    test('hands the picker the bytes, and leaves the writing to it', () async {
+      // Every platform's picker writes the file itself; on Android the path
+      // behind it may not even be one this process can open.
+      final target = '${Directory.systemTemp.path}/not-for-us.msq';
+      final picker = _FakePicker(saved: Uri.file(target));
+      FilePickerPlatform.instance = picker;
 
-        final saved = await const FileSaving(mobile: false)
-            .saveText(fileName: 'tune.msq', extension: 'msq', text: '<msq/>');
+      final saved = await const FileSaving(mobile: false)
+          .saveText(fileName: 'tune.msq', extension: 'msq', text: '<msq/>');
 
-        expect(saved, 'tune.msq');
-        expect(File(target).readAsStringSync(), '<msq/>');
-        expect(picker.lastType, FileType.custom);
-        expect(picker.lastExtensions, ['msq']);
-      },
-    );
+      expect(saved, 'not-for-us.msq');
+      expect(utf8.decode(picker.lastBytes!), '<msq/>');
+      expect(File(target).existsSync(), isFalse);
+    });
 
-    test(
-      'on a phone, hands over the bytes and leaves the writing to it',
-      () async {
-        // Android's picker refuses to save without the bytes, writes them
-        // itself, and returns a path this process may not be able to open.
-        final target = '${temp.path}/not-for-us.msq';
-        final picker = _FakePicker(savePath: target);
-        FilePicker.platform = picker;
+    test('names an Android save after the document it created', () async {
+      FilePickerPlatform.instance = _FakePicker(
+        saved: Uri.parse(
+          'content://com.android.externalstorage.documents/document/'
+          'primary%3ADownload%2Fmy-tune.msq',
+        ),
+      );
 
-        await const FileSaving(mobile: true)
-            .saveText(fileName: 'tune.msq', extension: 'msq', text: '<msq/>');
+      final saved = await const FileSaving(mobile: true)
+          .saveText(fileName: 'tune.msq', extension: 'msq', text: '<msq/>');
 
-        expect(utf8.decode(picker.lastBytes!), '<msq/>');
-        expect(File(target).existsSync(), isFalse);
-        // `.msq` has no MIME type, so an Android filter would silently drop it.
-        expect(picker.lastType, FileType.any);
-        expect(picker.lastExtensions, isNull);
-      },
-    );
+      expect(saved, 'my-tune.msq');
+    });
 
-    test('a cancelled save writes nothing', () async {
-      FilePicker.platform = _FakePicker();
+    test('falls back to the offered name for an opaque document', () async {
+      FilePickerPlatform.instance = _FakePicker(
+        saved: Uri.parse(
+          'content://com.android.providers.downloads.documents/document/'
+          'msf%3A1000',
+        ),
+      );
+
+      final saved = await const FileSaving(mobile: true)
+          .saveText(fileName: 'tune.msq', extension: 'msq', text: '<msq/>');
+
+      expect(saved, 'tune.msq');
+    });
+
+    test('a cancelled save reports nothing saved', () async {
+      FilePickerPlatform.instance = _FakePicker();
 
       final saved = await const FileSaving(mobile: false)
           .saveText(fileName: 'tune.msq', extension: 'msq', text: '<msq/>');
 
       expect(saved, isNull);
-      expect(temp.listSync(), isEmpty);
     });
   });
 
   group('opening', () {
-    PlatformFile file(String name, List<int> bytes) => PlatformFile(
-      name: name,
-      size: bytes.length,
-      bytes: Uint8List.fromList(bytes),
-    );
+    test('filters by extension on desktop', () async {
+      final picker = _FakePicker();
+      FilePickerPlatform.instance = picker;
+
+      await const FileSaving(mobile: false).pickFile(extensions: const ['msq']);
+
+      expect(picker.lastType, FileType.custom);
+      expect(picker.lastExtensions, ['msq']);
+    });
+
+    test('does not filter on a phone', () async {
+      // `.msq` has no MIME type, so an Android filter would silently drop it.
+      final picker = _FakePicker();
+      FilePickerPlatform.instance = picker;
+
+      await const FileSaving(mobile: true).pickFile(extensions: const ['msq']);
+
+      expect(picker.lastType, FileType.any);
+      expect(picker.lastExtensions, isNull);
+    });
 
     test('reads a file of the right kind', () async {
-      FilePicker.platform = _FakePicker(
-        picked: file('base.MSQ', utf8.encode('<msq/>')),
+      FilePickerPlatform.instance = _FakePicker(
+        picked: _MemoryFile('base.MSQ', utf8.encode('<msq/>')),
       );
 
       final picked = await const FileSaving(mobile: true)
@@ -132,8 +177,8 @@ void main() {
     test(
       'refuses a file of another kind, which a phone cannot filter out',
       () async {
-        FilePicker.platform = _FakePicker(
-          picked: file('photo.jpg', const [0xFF, 0xD8]),
+        FilePickerPlatform.instance = _FakePicker(
+          picked: _MemoryFile('photo.jpg', const [0xFF, 0xD8]),
         );
 
         expect(
@@ -149,11 +194,28 @@ void main() {
       },
     );
 
+    test('reports a file that cannot be read', () async {
+      FilePickerPlatform.instance = _FakePicker(
+        picked: _MemoryFile('tune.msq', null),
+      );
+
+      expect(
+        const FileSaving(mobile: false).pickFile(extensions: const ['msq']),
+        throwsA(
+          isA<WrongFileTypeException>().having(
+            (e) => e.message,
+            'message',
+            contains('could not be read'),
+          ),
+        ),
+      );
+    });
+
     test('reads a Latin-1 tune that is not valid UTF-8', () async {
       // TunerStudio writes `.msq` as ISO-8859-1; a degree sign there is a
       // single 0xB0 byte, which strict UTF-8 decoding rejects.
-      FilePicker.platform = _FakePicker(
-        picked: file('tune.msq', latin1.encode('<units>°C</units>')),
+      FilePickerPlatform.instance = _FakePicker(
+        picked: _MemoryFile('tune.msq', latin1.encode('<units>°C</units>')),
       );
 
       final picked = await const FileSaving(mobile: false)

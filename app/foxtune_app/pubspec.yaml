@@ -30,7 +30,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_riverpod: ^2.6.1
+  flutter_riverpod: ^3.4.3
   foxtune_ini:
     path: ../../packages/foxtune_ini
   foxtune_protocol:
@@ -39,16 +39,12 @@ dependencies:
     path: ../../packages/foxtune_transport
   foxtune_tune:
     path: ../../packages/foxtune_tune
-  file_picker: ^8.1.7
+  file_picker: ^13.1.0
   path_provider: ^2.1.5
   # Keeps the screen on while an ECU is connected, so gauges stay visible and
   # logging keeps running on a drive rather than being throttled once the
   # screen times out.
-  #
-  # Held below 1.6.1: from there it needs win32 6, while the file_picker 8 line
-  # pins win32 5. Moving to file_picker 13 would lift this, at the cost of a
-  # major-version change to the file APIs.
-  wakelock_plus: ^1.5.2
+  wakelock_plus: ^1.8.0
   # Lets the app draw its own title bar on Linux and Windows: hides the native
   # one, and moves, minimizes and maximizes the window from Flutter. Only
   # initialized on those two platforms - see lib/src/window/.

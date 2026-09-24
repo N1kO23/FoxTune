@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:foxtune_ini/foxtune_ini.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
 
@@ -60,11 +61,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         final scope = SettingsScope(
           tune: tune,
           resolver: resolver,
-          realtime: watchWhileVisible(
-            ref,
-            context,
-            realtimeProvider,
-          ).valueOrNull,
+          realtime: watchWhileVisible(ref, context, realtimeProvider).value,
         );
 
         final permission = ref.watch(writePermissionProvider);
@@ -371,7 +368,7 @@ class SettingDetail extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final tune = ref.watch(tuneProvider).valueOrNull;
+    final tune = ref.watch(tuneProvider).value;
     final definition = connection.definition;
     if (tune == null || definition == null) {
       return const _Message(text: 'No tune loaded.');
@@ -381,7 +378,7 @@ class SettingDetail extends ConsumerWidget {
     final scope = SettingsScope(
       tune: tune,
       resolver: resolver,
-      realtime: watchWhileVisible(ref, context, realtimeProvider).valueOrNull,
+      realtime: watchWhileVisible(ref, context, realtimeProvider).value,
     );
     final editable = ref.watch(writePermissionProvider).allowed;
     final baseline = ref.watch(tuneBaselineProvider);

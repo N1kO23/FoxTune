@@ -223,7 +223,7 @@ void main() {
         closeTo(9.5, 0.05),
       );
       // The loaded tune itself went with the connection.
-      expect(container.read(tuneProvider).valueOrNull, isNull);
+      expect(container.read(tuneProvider).value, isNull);
     });
 
     test('survive a manual disconnect', () async {

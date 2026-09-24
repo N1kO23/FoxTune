@@ -38,11 +38,7 @@ class _Probe extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final rpm = watchWhileVisible(
-      ref,
-      context,
-      realtimeProvider,
-    ).valueOrNull?['rpm'];
+    final rpm = watchWhileVisible(ref, context, realtimeProvider).value?['rpm'];
     builds.add(rpm);
     return Text('rpm $rpm');
   }
@@ -90,9 +86,16 @@ void main() {
       var index = 0;
       late StateSetter show;
 
+      final container = ProviderContainer(
+        overrides: [realtimeProvider.overrideWith((ref) => feed.stream)],
+      );
+      addTearDown(container.dispose);
+      // As the connected shell keeps the feed running, whatever is shown.
+      container.listen(realtimeProvider, (_, _) {});
+
       await tester.pumpWidget(
-        ProviderScope(
-          overrides: [realtimeProvider.overrideWith((ref) => feed.stream)],
+        UncontrolledProviderScope(
+          container: container,
           child: MaterialApp(
             home: StatefulBuilder(
               builder: (context, setState) {

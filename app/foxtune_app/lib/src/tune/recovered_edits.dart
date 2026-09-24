@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
 
 import '../connection/connection_controller.dart';
@@ -44,7 +45,7 @@ final unburnedEditsGuardProvider = Provider<void>((ref) {
   TuneState? loaded;
 
   ref.listen<AsyncValue<TuneState?>>(tuneProvider, (previous, next) {
-    final tune = next.valueOrNull;
+    final tune = next.value;
     if (tune != null) loaded = tune;
   }, fireImmediately: true);
 

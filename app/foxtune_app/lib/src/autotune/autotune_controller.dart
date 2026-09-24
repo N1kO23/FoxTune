@@ -98,8 +98,13 @@ class AutotuneController extends Notifier<AutotuneSession> {
     // Deliberately not watching the tune: applying a correction changes it,
     // and a rebuild here would discard the session that made the change.
     ref.listen(realtimeProvider, (previous, next) {
-      final snapshot = next.valueOrNull;
-      if (snapshot != null) _consume(snapshot);
+      // The feed hands the last sample over again as it rebuilds - which an
+      // applied correction can cause - and one reading must not be corrected
+      // for twice.
+      final snapshot = next.value;
+      if (snapshot != null && !identical(snapshot, previous?.value)) {
+        _consume(snapshot);
+      }
     });
 
     ref.listen(connectionProvider, (previous, next) {
@@ -117,7 +122,7 @@ class AutotuneController extends Notifier<AutotuneSession> {
 
   /// Starts collecting, or records why it cannot.
   void arm() {
-    final tune = ref.read(tuneProvider).valueOrNull;
+    final tune = ref.read(tuneProvider).value;
     if (tune == null) {
       _emit(_session.copyWith(blockedReason: 'No tune is loaded yet.'));
       return;

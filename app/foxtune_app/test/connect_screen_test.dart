@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -9,6 +10,8 @@ import 'package:foxtune_app/src/connection/connect_screen.dart';
 import 'package:foxtune_app/src/connection/connection_controller.dart';
 import 'package:foxtune_app/src/connection/connection_state.dart';
 import 'package:foxtune_app/src/connection/connection_watchdog.dart';
+import 'package:foxtune_app/src/dashboard/dashboard_controller.dart';
+import 'package:foxtune_app/src/dashboard/sample_history.dart';
 import 'package:foxtune_app/src/files/file_saving.dart';
 import 'package:foxtune_app/src/tune/recovered_edits.dart';
 import 'package:foxtune_app/src/tune/tune_controller.dart';
@@ -56,21 +59,23 @@ class _NoWake implements ScreenWake {
   Future<void> release() async {}
 }
 
-class _SavingPicker extends FilePicker {
+class _SavingPicker extends FilePickerPlatform {
   Uint8List? saved;
 
   @override
-  Future<String?> saveFile({
+  Future<Uri?> saveFile({
+    required String fileName,
+    required Uint8List bytes,
+    required String mimeType,
     String? dialogTitle,
-    String? fileName,
     String? initialDirectory,
-    FileType type = FileType.any,
-    List<String>? allowedExtensions,
-    Uint8List? bytes,
-    bool lockParentWindow = false,
+    Function(FilePickerStatus)? onFileSaving,
+    WindowsOptions windowsOptions = const WindowsOptions(),
+    LinuxOptions linuxOptions = const LinuxOptions(),
+    WebOptions webOptions = const WebOptions(),
   }) async {
     saved = bytes;
-    return '/storage/emulated/0/Download/$fileName';
+    return Uri.file('/storage/emulated/0/Download/$fileName');
   }
 }
 
@@ -210,7 +215,7 @@ void main() {
       tester,
     ) async {
       final picker = _SavingPicker();
-      FilePicker.platform = picker;
+      FilePickerPlatform.instance = picker;
       final tune = dirtyTune();
 
       await pumpScreen(
@@ -241,6 +246,55 @@ void main() {
         find.textContaining('were kept when the connection ended'),
         findsNothing,
       );
+    });
+  });
+
+  group('connected shell', () {
+    testWidgets('keeps the graph history going under a pushed screen', (
+      tester,
+    ) async {
+      // A screen pushed over the tabs - a settings dialog, the 3D view -
+      // hides everything beneath it, and Riverpod pauses what hidden widgets
+      // watch. The history must not have a gap for the time it was open.
+      await tester.binding.setSurfaceSize(const Size(1400, 1000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final feed = StreamController<RealtimeSnapshot>();
+      // Not awaited: closing waits on the listener, and a paused one - the
+      // very fault this looks for - would hang the test instead of failing it.
+      addTearDown(() => unawaited(feed.close()));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            connectionProvider.overrideWith(
+              () => _FixedConnection(connected()),
+            ),
+            tuneProvider.overrideWith(() => _FixedTune(null)),
+            screenWakeProvider.overrideWithValue(_NoWake()),
+            realtimeProvider.overrideWith((ref) => feed.stream),
+          ],
+          child: const MaterialApp(home: ConnectScreen()),
+        ),
+      );
+
+      final screen = tester.element(find.byType(ConnectScreen));
+      final history = ProviderScope.containerOf(screen)
+          .read(sampleHistoryProvider);
+      unawaited(
+        Navigator.of(screen)
+            .push(MaterialPageRoute<void>(builder: (_) => const Scaffold())),
+      );
+      // Let the route finish covering the tabs. They animate for as long as
+      // they wait for data, so this cannot wait for them to settle.
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+
+      final block = Uint8List(doc.outputChannels.blockSize!);
+      for (var i = 0; i < 3; i++) {
+        feed.add(RealtimeDecoder(doc.outputChannels).decode(block));
+        await tester.pump();
+      }
+
+      expect(history.length, 3);
     });
   });
 }

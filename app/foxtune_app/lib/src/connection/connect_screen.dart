@@ -5,11 +5,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:foxtune_protocol/foxtune_protocol.dart' show EcuFamily;
 import 'package:foxtune_transport/foxtune_transport.dart';
 
+import '../autotune/autotune_controller.dart';
 import '../autotune/autotune_screen.dart';
 import '../branding/foxtune_logo.dart';
+import '../dashboard/dashboard_controller.dart';
 import '../dashboard/dashboard_screen.dart';
 import '../dashboard/gauge_status.dart';
+import '../dashboard/sample_history.dart';
 import '../definitions/choose_definition.dart';
+import '../logging/log_controller.dart';
 import '../settings/settings_screen.dart';
 import '../tune/msq_actions.dart';
 import '../tune/recovered_edits.dart';
@@ -26,17 +30,34 @@ import 'connection_watchdog.dart';
 /// Connecting alone changes nothing on the ECU. Editing requires a signature
 /// match and an explicit write-mode opt-in, and nothing is committed until a
 /// burn - see [WritePermission].
-class ConnectScreen extends ConsumerWidget {
+class ConnectScreen extends ConsumerStatefulWidget {
   const ConnectScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ConnectScreen> createState() => _ConnectScreenState();
+}
+
+class _ConnectScreenState extends ConsumerState<ConnectScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // These live as long as the app: one notices a connection ending, one
+    // keeps the screen on while there is one, and one rescues edits that were
+    // never burned.
+    //
+    // Listened to rather than watched. Riverpod pauses a widget's watch while
+    // the widget is hidden - as this screen is under any pushed route - and a
+    // provider no one is actively listening to is paused with it: its streams
+    // stop, and it rebuilds only once read again, not as what it depends on
+    // changes. A manual listen is never paused.
+    ref.listenManual(connectionWatchdogProvider, (_, _) {});
+    ref.listenManual(screenWakeWatcherProvider, (_, _) {});
+    ref.listenManual(unburnedEditsGuardProvider, (_, _) {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final connection = ref.watch(connectionProvider);
-    // Both live as long as the app: one notices a connection ending, the
-    // other keeps the screen on while there is one.
-    ref.watch(connectionWatchdogProvider);
-    ref.watch(screenWakeWatcherProvider);
-    ref.watch(unburnedEditsGuardProvider);
 
     return Scaffold(
       appBar: WindowAppBar(
@@ -438,7 +459,7 @@ class _NeedsDefinition extends ConsumerWidget {
 ///
 /// Returns whether it disconnected.
 Future<bool> confirmDisconnect(BuildContext context, WidgetRef ref) async {
-  final tune = ref.read(tuneProvider).valueOrNull;
+  final tune = ref.read(tuneProvider).value;
   if (tune != null && tune.isDirty) {
     final pages = tune.dirtyPages.length;
     final proceed = await showDialog<bool>(
@@ -726,17 +747,33 @@ class _AddressDialogState extends State<_AddressDialog> {
 }
 
 /// Dashboard and table editor, once connected.
-class _ConnectedShell extends StatefulWidget {
+class _ConnectedShell extends ConsumerStatefulWidget {
   const _ConnectedShell({required this.connection});
 
   final EcuConnected connection;
 
   @override
-  State<_ConnectedShell> createState() => _ConnectedShellState();
+  ConsumerState<_ConnectedShell> createState() => _ConnectedShellState();
 }
 
-class _ConnectedShellState extends State<_ConnectedShell> {
+class _ConnectedShellState extends ConsumerState<_ConnectedShell> {
   int _index = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // These have to keep up while connected, whatever is on screen - even
+    // with a screen pushed over the tabs, which pauses everything the tabs
+    // watch. The feed itself, so a screen shown again catches up at once
+    // rather than replaying what arrived meanwhile; the graph history, or a
+    // graph would have a gap; autotuning, which keeps correcting; and the
+    // datalogger, which closes its file when the link drops. Listened to
+    // rather than watched, as in [ConnectScreen].
+    ref.listenManual(realtimeProvider, (_, _) {});
+    ref.listenManual(sampleHistoryProvider, (_, _) {});
+    ref.listenManual(autotuneProvider, (_, _) {});
+    ref.listenManual(logSessionProvider, (_, _) {});
+  }
 
   @override
   Widget build(BuildContext context) {

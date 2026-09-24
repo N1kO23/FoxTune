@@ -69,7 +69,7 @@ class LogController extends Notifier<LogSession> {
 
     // A probe sample decides which columns the log carries, so recording
     // cannot start until data is actually flowing.
-    final probe = ref.read(realtimeProvider).valueOrNull;
+    final probe = ref.read(realtimeProvider).value;
     if (probe == null) {
       state = const LogSession(
         recording: false,
@@ -78,7 +78,7 @@ class LogController extends Notifier<LogSession> {
       return;
     }
 
-    final tune = ref.read(tuneProvider).valueOrNull;
+    final tune = ref.read(tuneProvider).value;
     final recorder = LogRecorder(
       definition: connection.definition!,
       constantResolver: tune == null ? null : TuneValueResolver(tune).resolve,

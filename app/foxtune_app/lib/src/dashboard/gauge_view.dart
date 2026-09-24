@@ -45,10 +45,10 @@ class GaugeView extends ConsumerWidget {
       ref,
       context,
       realtimeProvider.select(
-        (live) => _shown(catalog.withRealtime(live.valueOrNull)),
+        (live) => _shown(catalog.withRealtime(live.value)),
       ),
     );
-    final live = catalog.withRealtime(ref.read(realtimeProvider).valueOrNull);
+    final live = catalog.withRealtime(ref.read(realtimeProvider).value);
 
     final design = Size(
       placement.width * designCell,

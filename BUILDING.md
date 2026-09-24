@@ -6,8 +6,8 @@ The Flutter SDK, which bundles Dart. FoxTune is developed against **Flutter 3.47
 
 ```sh
 # Linux, no package manager needed
-curl -LO https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.47.4-stable.tar.xz
-tar -xf flutter_linux_3.47.4-stable.tar.xz -C ~
+curl -LO https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.47.5-stable.tar.xz
+tar -xf flutter_linux_3.47.5-stable.tar.xz -C ~
 export PATH="$HOME/flutter/bin:$PATH"   # add this to your shell profile
 flutter doctor          # must show the Linux toolchain as ✓ before building
 ```
@@ -217,7 +217,7 @@ runs at about 7 samples a second. A board over USB does not have this limit.
 
 ## Android
 
-> The Android build is pinned to **Gradle 8.14.5 / AGP 8.11.1**. Do not bump it without
+> The Android build is pinned to **Gradle 8.14.5 / AGP 8.13.2**. Do not bump it without
 > reading this.
 
 Gradle 9.0 removed the `jcenter()` repository method. `flutter_libserialport` - still at 0.6.0,
@@ -235,8 +235,8 @@ no supported way to exclude one per platform - so the whole app build has to sta
 until upstream drops jcenter.
 
 The usable window is narrow. Flutter 3.47 hard-errors below Gradle 8.14.0 and AGP 8.11.1, and
-`jcenter()` disappears at Gradle 9.0, which leaves the Gradle 8.14.x line. Flutter will print a
-version warning; that is expected.
+`jcenter()` disappears at Gradle 9.0, which leaves the Gradle 8.14.x line - and, since AGP 9
+needs Gradle 9, the AGP 8.x line. Flutter will print a version warning; that is expected.
 
 Ways out, in rough order of preference:
 

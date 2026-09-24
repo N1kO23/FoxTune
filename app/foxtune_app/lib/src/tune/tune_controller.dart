@@ -97,6 +97,17 @@ class TuneController extends AsyncNotifier<TuneState?> {
   /// Progress of the current read, or `null` when not loading.
   TuneLoadProgress? get progress => _progress;
 
+  /// Notifies on every new state, even one holding the same tune.
+  ///
+  /// A tune is edited in place, so [notifyEdited] publishes the very object
+  /// already held. Riverpod's default compares states with `==`, finds the
+  /// two equal, and would tell no one about the edit.
+  @override
+  bool updateShouldNotify(
+    AsyncValue<TuneState?> previous,
+    AsyncValue<TuneState?> next,
+  ) => !identical(previous, next);
+
   @override
   Future<TuneState?> build() async {
     final connection = ref.watch(connectionProvider);
@@ -140,7 +151,7 @@ class TuneController extends AsyncNotifier<TuneState?> {
 
   /// Signals that the tune changed, so dependents rebuild.
   void notifyEdited() {
-    final tune = state.valueOrNull;
+    final tune = state.value;
     if (tune == null) return;
     // A setting just changed, and other settings' scales, bounds and
     // visibility conditions may be expressed in terms of it.
@@ -156,7 +167,7 @@ class TuneController extends AsyncNotifier<TuneState?> {
   ///
   /// Throws [WriteRefusedException] if the guard rails forbid it.
   Future<List<CommitResult>> commitDirtyPages() async {
-    final tune = state.valueOrNull;
+    final tune = state.value;
     final connection = ref.read(connectionProvider);
     final client = ref.read(connectionProvider.notifier).client;
     if (tune == null || client == null || connection is! EcuConnected) {

@@ -274,7 +274,7 @@ class _GaugeOptions extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final controller = ref.read(dashboardLayoutProvider.notifier);
-    final layout = ref.watch(dashboardLayoutProvider).valueOrNull;
+    final layout = ref.watch(dashboardLayoutProvider).value;
     final placement = layout
         ?.pageById(pageId)
         ?.items
