@@ -5,6 +5,15 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+# A newer push to a pull request makes the run for the older one pointless.
+# Pushes to main each keep their run, and with it their artifacts.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   # Pinned rather than tracking stable. The Android build sits in a narrow
   # window - Flutter 3.47 hard-errors below Gradle 8.14.0 / AGP 8.11.1, and
@@ -12,6 +21,11 @@ env:
   # Flutter bump needs to be a deliberate change with that window rechecked.
   # See BUILDING.md.
   FLUTTER_VERSION: 3.47.5
+  # The Dart SDK that Flutter release ships, for the core job. The formatter's
+  # output changes between SDK releases, so tracking stable would let the core
+  # packages and the app disagree about what "formatted" means. Bump the two
+  # together.
+  DART_VERSION: 3.13.4
 
 jobs:
   # The core packages carry no Flutter dependency, so they build and test with
@@ -20,11 +34,14 @@ jobs:
   core:
     name: Core packages (pure Dart)
     runs-on: ubuntu-latest
+    # Every job has a timeout: a hung test or build otherwise holds a runner
+    # for six hours.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: dart-lang/setup-dart@v1
         with:
-          sdk: stable
+          sdk: ${{ env.DART_VERSION }}
 
       - name: Resolve workspace
         run: dart pub get
@@ -41,35 +58,48 @@ jobs:
   flutter:
     name: Flutter packages
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
+          cache: true
+          pub-cache: true
 
-      - name: Analyze transport
+      - name: Analyze and test transport
         working-directory: packages/foxtune_transport
         run: |
           flutter pub get
+          dart format --output=none --set-exit-if-changed lib test
           flutter analyze
+          flutter test
 
       - name: Analyze and test app
         working-directory: app/foxtune_app
         run: |
           flutter pub get
+          dart format --output=none --set-exit-if-changed lib test integration_test test_driver
           flutter analyze
           flutter test
 
   build-linux:
     name: Build Linux desktop
-    runs-on: ubuntu-latest
+    # Pinned rather than ubuntu-latest. This machine's glibc decides the oldest
+    # distribution the bundle and the AppImage will start on, and ubuntu-latest
+    # moves to each new LTS on GitHub's schedule, not ours. The glibc check
+    # below enforces the floor.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
+          cache: true
+          pub-cache: true
 
       - name: Install Linux build dependencies
         run: |
@@ -82,23 +112,36 @@ jobs:
           flutter pub get
           flutter build linux --release
 
+      - name: Check glibc floor
+        run: ./tool/check-linux-glibc.sh app/foxtune_app/build/linux/x64/release/bundle
+
       - name: Package
         run: tar -czf "foxtune-linux-x64-${GITHUB_SHA::7}.tar.gz" -C app/foxtune_app/build/linux/x64/release bundle
 
       # This appimagetool builds with the static AppImage runtime, so the
       # AppImage runs without libfuse2 on the user's system. Extract-and-run
       # lets the tool itself run here without FUSE.
+      #
+      # The tool and the runtime it embeds are both pinned and checksummed.
+      # Left to itself the tool downloads a floating "continuous" runtime, and
+      # the runtime is the first code to run on every user's machine.
       - name: Install AppImage tool
         run: |
           curl -fL -o appimagetool.AppImage \
-            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+            https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
+          curl -fL -o appimage-runtime \
+            https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64
+          printf '%s  %s\n' \
+            ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0 appimagetool.AppImage \
+            2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d appimage-runtime |
+            sha256sum -c -
           chmod +x appimagetool.AppImage
 
       - name: Package AppImage
         env:
           APPIMAGE_EXTRACT_AND_RUN: 1
+          APPIMAGE_RUNTIME: ${{ github.workspace }}/appimage-runtime
         run: |
-          chmod +x tool/package-linux-appimage.sh
           ./tool/package-linux-appimage.sh \
             app/foxtune_app/build/linux/x64/release/bundle \
             "$PWD/appimagetool.AppImage" \
@@ -125,12 +168,15 @@ jobs:
   build-windows:
     name: Build Windows desktop
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
+          cache: true
+          pub-cache: true
 
       - name: Build
         working-directory: app/foxtune_app
@@ -138,11 +184,18 @@ jobs:
           flutter pub get
           flutter build windows --release
 
+      # Flutter does not ship the MSVC runtime, so without these three DLLs a
+      # PC that has never installed the Visual C++ Redistributable cannot start
+      # the app at all.
       - name: Package
         shell: pwsh
         run: |
+          $release = "app/foxtune_app/build/windows/x64/runner/Release"
+          foreach ($dll in "msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll") {
+            Copy-Item "$env:SystemRoot\System32\$dll" $release
+          }
           $sha = $env:GITHUB_SHA.Substring(0, 7)
-          Compress-Archive -Path app/foxtune_app/build/windows/x64/runner/Release/* -DestinationPath "foxtune-windows-x64-$sha.zip"
+          Compress-Archive -Path "$release/*" -DestinationPath "foxtune-windows-x64-$sha.zip"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -155,6 +208,7 @@ jobs:
   build-android:
     name: Build Android APK
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     env:
       HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
     steps:
@@ -163,10 +217,13 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+          cache: gradle
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
+          cache: true
+          pub-cache: true
 
       - name: Decode signing keystore
         if: env.HAS_KEYSTORE == 'true'
@@ -194,3 +251,4 @@ jobs:
           archive: false
           if-no-files-found: error
           retention-days: 30
+

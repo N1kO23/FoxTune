@@ -6,9 +6,14 @@
 #
 # The appimagetool binary can be downloaded from its release page, for example:
 #   curl -fL -o /tmp/appimagetool.AppImage \
-#     https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+#     https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
 #   chmod +x /tmp/appimagetool.AppImage
 #   ./tool/package-linux-appimage.sh app/foxtune_app/build/linux/x64/release/bundle /tmp/appimagetool.AppImage
+#
+# appimagetool embeds a runtime - the part of the AppImage that runs first on
+# the user's machine - and unless told otherwise downloads it afresh from a
+# floating "continuous" release. Set APPIMAGE_RUNTIME to a runtime file to use
+# that one instead; CI does, with a pinned and checksummed release.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -59,7 +64,12 @@ cp -R "$bundle/data/icons/." "$app_dir/usr/share/icons/"
 
 cp "$bundle/data/com.foxtune.foxtune_app.desktop" "$app_dir/com.foxtune.foxtune_app.desktop"
 
+runtime_args=()
+if [ -n "${APPIMAGE_RUNTIME:-}" ]; then
+  runtime_args=(--runtime-file "$APPIMAGE_RUNTIME")
+fi
+
 rm -f "$appimage_path"
-"$appimagetool" "$app_dir" "$appimage_path"
+"$appimagetool" "${runtime_args[@]}" "$app_dir" "$appimage_path"
 
 ls -lh "$appimage_path"

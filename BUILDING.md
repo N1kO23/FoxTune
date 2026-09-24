@@ -360,16 +360,27 @@ Two rules keep it low, and the benchmark shows it when either is broken:
 
 `.github/workflows/ci.yml` runs five jobs:
 
-| Job             | What it proves                                                         |
-| --------------- | ---------------------------------------------------------------------- |
-| `core`          | The pure-Dart packages analyze, format and test with a bare Dart SDK   |
-| `flutter`       | The transport package and app analyze, and the app's widget tests pass |
-| `build-linux`   | The desktop app links, and publishes a `.tar.gz` artifact              |
-| `build-windows` | The Windows app links, and publishes a `.zip` artifact                 |
-| `build-android` | The APK compiles, is signed, and publishes an artifact                 |
+| Job             | What it proves                                                                             |
+| --------------- | ------------------------------------------------------------------------------------------ |
+| `core`          | The pure-Dart packages analyze, format and test with a bare Dart SDK                       |
+| `flutter`       | The transport package and app analyze and are formatted, and their tests pass              |
+| `build-linux`   | The desktop app links and starts on glibc 2.35+, and publishes a `.tar.gz` and an AppImage |
+| `build-windows` | The Windows app links, and publishes a `.zip` that carries the MSVC runtime                |
+| `build-android` | The APK compiles, is signed, and publishes an artifact                                     |
 
 The `core` job is the fast signal and should stay that way: it needs no device, display or
-emulator.
+emulator. It runs on the Dart SDK that the pinned Flutter ships (`DART_VERSION` in the
+workflow), since the formatter's output changes between SDK releases; bump the two together.
+
+The Linux build runs on a pinned Ubuntu release rather than `ubuntu-latest`, because the build
+machine's glibc sets the oldest distribution the bundle will start on. `tool/check-linux-glibc.sh`
+fails the job if anything in the bundle needs a glibc newer than 2.35, Ubuntu 22.04's. The same
+script explains a locally built AppImage that will not start elsewhere: built on a rolling
+distribution, libserialport alone needs that distribution's glibc.
+
+```sh
+./tool/check-linux-glibc.sh                 # checks the release bundle against 2.35
+```
 
 ## Troubleshooting
 
