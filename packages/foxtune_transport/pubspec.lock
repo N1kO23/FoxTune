@@ -137,10 +137,9 @@ packages:
   flutter_libserialport:
     dependency: "direct main"
     description:
-      name: flutter_libserialport
-      sha256: f24b5fe6f1821d1c1b3bf2be737ca53f6b0ae78657032a790aa00abb810c8759
-      url: "https://pub.dev"
-    source: hosted
+      path: "../../third_party/flutter_libserialport"
+      relative: true
+    source: path
     version: "0.6.0"
   flutter_lints:
     dependency: "direct dev"
@@ -465,10 +464,9 @@ packages:
   usb_serial:
     dependency: "direct main"
     description:
-      name: usb_serial
-      sha256: a605a600e34e7f28d4e80851ca3999ef747e42e406138887b8a88b8c382a8b07
-      url: "https://pub.dev"
-    source: hosted
+      path: "../../third_party/usb_serial"
+      relative: true
+    source: path
     version: "0.5.2"
   vector_math:
     dependency: transitive

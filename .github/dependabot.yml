@@ -2,9 +2,10 @@
 # lands. Minor and patch updates come grouped, one pull request per week for
 # each kind; a major version comes on its own, since it can need code changes.
 #
-# The Android Gradle files are left out on purpose: the build is pinned to the
-# Gradle 8 line, and every proposal to leave it would break the build. See the
-# Android section of BUILDING.md.
+# The Android Gradle files are left out on purpose: their versions follow the
+# pinned Flutter's project template and move with Flutter, not ahead of it. See
+# the Android section of BUILDING.md. The plugins vendored in third_party/ are
+# out of its sight too.
 version: 2
 updates:
   - package-ecosystem: github-actions

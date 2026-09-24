@@ -19,11 +19,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  # Pinned rather than tracking stable. The Android build sits in a narrow
-  # window - Flutter 3.47 hard-errors below Gradle 8.14.0 / AGP 8.11.1, and
-  # Gradle 9 removes the jcenter() that flutter_libserialport still calls - so a
-  # Flutter bump needs to be a deliberate change with that window rechecked.
-  # See BUILDING.md.
+  # Pinned rather than tracking stable: the Android build's Gradle, AGP and
+  # Kotlin versions follow this Flutter's project template, so a Flutter bump
+  # moves them too. See the Android section of BUILDING.md.
   FLUTTER_VERSION: 3.47.5
   # The Dart SDK that Flutter release ships, for the core job. The formatter's
   # output changes between SDK releases, so tracking stable would let the core

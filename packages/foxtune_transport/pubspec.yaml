@@ -13,12 +13,15 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  # Desktop (Linux / Windows / macOS) - libserialport via FFI.
-  flutter_libserialport: ^0.6.0
+  # Desktop (Linux / Windows / macOS) - libserialport via FFI. Vendored and
+  # patched for Gradle 9, like usb_serial: see third_party/README.md.
+  flutter_libserialport:
+    path: ../../third_party/flutter_libserialport
   foxtune_protocol:
     path: ../foxtune_protocol
   # Android - USB host mode / OTG. No-op on other platforms.
-  usb_serial: ^0.5.2
+  usb_serial:
+    path: ../../third_party/usb_serial
 
 dev_dependencies:
   flutter_lints: ^6.0.0
