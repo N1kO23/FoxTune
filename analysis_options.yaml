@@ -1,6 +1,9 @@
 include: package:lints/recommended.yaml
 
 analyzer:
+  # Vendored plugins, kept as upstream wrote them: see third_party/README.md.
+  exclude:
+    - third_party/**
   language:
     strict-casts: true
     strict-inference: true

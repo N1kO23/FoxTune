@@ -15,6 +15,9 @@ app/foxtune_app/android/.gradle/
 app/foxtune_app/android/local.properties
 app/foxtune_app/ios/Pods/
 app/foxtune_app/.flutter-plugins*
+# CMake working files the Android build writes into a plugin's own directory -
+# the vendored ones under third_party/ included.
+.cxx/
 
 # IDE
 .idea/

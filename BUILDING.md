@@ -231,34 +231,19 @@ runs at about 7 samples a second. A board over USB does not have this limit.
 
 ## Android
 
-> The Android build is pinned to **Gradle 8.14.5 / AGP 8.13.2**. Do not bump it without
-> reading this.
+The Android build uses the Gradle, Android Gradle plugin and Kotlin versions of the pinned
+Flutter's own project template - Gradle 9.3.1, AGP 9.1.0 and Kotlin 2.4.0 for Flutter 3.47.5 -
+since that is the combination Flutter tests. When Flutter is bumped, move them to what its
+template then uses: `templateDefaultGradleVersion`, `templateAndroidGradlePluginVersion` and
+`templateKotlinGradlePluginVersion` in the SDK's `packages/flutter_tools/lib/src/android/gradle_utils.dart`.
+Keep the flags the template sets in `android/gradle.properties` too; they let plugins written
+for AGP 8 build under AGP 9.
 
-Gradle 9.0 removed the `jcenter()` repository method. `flutter_libserialport` - still at 0.6.0,
-last released August 2025 - calls `jcenter()` in its `android/build.gradle`, so any Gradle 9
-build fails while evaluating that subproject:
-
-```
-* Where: .../flutter_libserialport-0.6.0/android/build.gradle line: 8
-> Could not find method jcenter() for arguments []
-```
-
-The plugin is only used on desktop; Android serial goes through `usb_serial`. But Flutter
-includes a plugin's Android module whenever the plugin declares Android support, and there is
-no supported way to exclude one per platform - so the whole app build has to stay on Gradle 8
-until upstream drops jcenter.
-
-The usable window is narrow. Flutter 3.47 hard-errors below Gradle 8.14.0 and AGP 8.11.1, and
-`jcenter()` disappears at Gradle 9.0, which leaves the Gradle 8.14.x line - and, since AGP 9
-needs Gradle 9, the AGP 8.x line. Flutter will print a version warning; that is expected.
-
-Ways out, in rough order of preference:
-
-1. Upstream drops `jcenter()` - then remove the pin.
-2. Vendor a patched copy of the plugin under `third_party/` and use a path dependency.
-3. Replace `flutter_libserialport` with the pure-Dart `libserialport` package and ship the
-   native library through the desktop build ourselves. That package has no Android module at
-   all, so the problem disappears - at the cost of doing the desktop packaging by hand.
+Two plugins would not build on Gradle 9 as published: `flutter_libserialport` and `usb_serial`
+both call `jcenter()`, which Gradle 9 removed. The app uses patched copies of both, from
+`third_party/` - see [third_party/README.md](third_party/README.md) for what changed and how to
+update them. `flutter_libserialport` is only used on desktop, but that does not spare it: Flutter
+builds a plugin's Android module whenever the plugin declares Android support.
 
 ### Permissions
 
@@ -436,7 +421,8 @@ root's; CI points out one that was missed.
 
 Dependabot proposes updates weekly as pull requests (`.github/dependabot.yml`): minor and patch
 updates grouped, each major version on its own, since that can need code changes. It leaves the
-Android Gradle files alone; see the Android section for why. It also keeps the workflow's actions
+Android Gradle files alone, since their versions move with Flutter's (see the Android section),
+and it cannot see the vendored plugins in `third_party/`. It also keeps the workflow's actions
 current, which are pinned to commits rather than tags: a tag can be moved to other code, and the
 Android job runs with the release signing key.
 
@@ -502,5 +488,5 @@ sudo usermod -aG dialout "$USER"   # log out and back in
 Android build is missing the `INTERNET` permission. See the Android permissions section; note
 that debug builds have it and release builds do not unless it is declared in the main manifest.
 
-**`Could not find method jcenter()`** - see the Android section above; the Gradle pin was
-probably bumped.
+**`Could not find method jcenter()`** - a plugin calls the repository method Gradle 9 removed.
+Vendor and patch it the way `third_party/` does for two others; see the Android section above.

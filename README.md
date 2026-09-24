@@ -95,8 +95,8 @@ auxiliary-channel aliases. The temperature scale is still fixed to Celsius in co
 See **[BUILDING.md](BUILDING.md)** for prerequisites, per-platform notes and troubleshooting.
 
 Two things that trip people up: Dart commands run from the repository root while Flutter
-commands run from the package directory, and the Android build is deliberately pinned to
-Gradle 8.
+commands run from the package directory, and the Android build's Gradle versions follow Flutter's
+own template, so they move with Flutter rather than ahead of it.
 
 ## Development
 
