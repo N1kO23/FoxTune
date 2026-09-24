@@ -374,6 +374,28 @@ To redo a failed release, delete the tag and any draft it left, then tag again:
 git push --delete origin v1.2.0 && git tag -d v1.2.0
 ```
 
+### The AUR package
+
+Publishing a release - not drafting it - also publishes `foxtune-bin` to the AUR, through
+`.github/workflows/aur.yml`. The package is `app/foxtune_app/linux/aur/PKGBUILD`: the release's
+Linux tarball, installed where the `.deb` and `.rpm` put it. The workflow sets its version and
+checksum, installs its dependencies on Arch to prove they exist, builds it, writes `.SRCINFO` and
+pushes both to the AUR. Pre-releases are skipped; AUR versions cannot carry a `-` suffix.
+
+It downloads the tarball from the public release, so the repository has to be public by then.
+If it was not, or anything else failed, **Run workflow** on the AUR workflow publishes a given
+tag again.
+
+Pushing needs an AUR account holding an SSH key, set up once:
+
+1. Create an account on [aur.archlinux.org](https://aur.archlinux.org/).
+2. Make a key for this alone, without a passphrase, since CI has to use it unattended:
+   `ssh-keygen -t ed25519 -N '' -C 'FoxTune AUR' -f aur`
+3. Paste `aur.pub` into the account's **SSH Public Key** field.
+4. Add the private key, the file `aur`, as the repository secret `AUR_SSH_PRIVATE_KEY`.
+
+The first push creates the package, with that account as its maintainer.
+
 ## Measuring dashboard performance
 
 Judge smoothness in a profile or release build, never in a plain `flutter run`: debug builds
@@ -445,6 +467,9 @@ and on demand from **Run workflow** in the Actions tab:
 The `core` job is the fast signal and should stay that way: it needs no device, display or
 emulator. It runs on the Dart SDK that the pinned Flutter ships (`DART_VERSION` in the
 workflow), since the formatter's output changes between SDK releases; bump the two together.
+
+A second workflow, `.github/workflows/aur.yml`, publishes the AUR package when a release is
+published; see "The AUR package" under Releasing.
 
 `build-macos` stays off ordinary pushes because macOS runners count ten times over against a
 private repository's Actions minutes. Run the workflow by hand to check a macOS build before

@@ -1,0 +1,110 @@
+name: AUR
+
+# Publishes foxtune-bin to the AUR when a GitHub release is published - not
+# when CI drafts it, because the package downloads the release's Linux tarball,
+# which only becomes public then. "Run workflow" publishes a release again, say
+# after a failure. See "Releasing" in BUILDING.md.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish, such as v0.1.0
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aur
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish foxtune-bin
+    # AUR versions cannot carry a pre-release suffix, so pre-releases are left
+    # out; the package follows releases.
+    if: >-
+      !github.event.release.prerelease &&
+      !contains(github.event.release.tag_name || inputs.tag, '-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # For makepkg, which checks the package builds and writes .SRCINFO.
+    container: archlinux:base-devel
+    defaults:
+      run:
+        shell: bash
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - name: Install tools
+        run: pacman -Syu --noconfirm --needed git openssh
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TAG }}
+
+      # The release's own tarball, checked against its SHA256SUMS, and its
+      # checksum written into the PKGBUILD with the version.
+      - name: Prepare the PKGBUILD
+        run: |
+          version=${TAG#v}
+          tarball=foxtune-linux-x64-$version.tar.gz
+          base=https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG
+          mkdir aur
+          cd aur
+          curl -fsSLO "$base/$tarball"
+          curl -fsSL "$base/SHA256SUMS" | grep "  $tarball\$" | sha256sum -c -
+          sum=$(sha256sum "$tarball" | cut -d' ' -f1)
+          sed -e "s/^pkgver=.*/pkgver=$version/" \
+            -e "s/^pkgrel=.*/pkgrel=1/" \
+            -e "s/^sha256sums=.*/sha256sums=('$sum')/" \
+            ../app/foxtune_app/linux/aur/PKGBUILD > PKGBUILD
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      # Installing the dependencies proves every name in the PKGBUILD exists in
+      # Arch's repositories. makepkg itself refuses to run as root.
+      - name: Build the package
+        run: |
+          mapfile -t deps < <(source aur/PKGBUILD && printf '%s\n' "${depends[@]}")
+          pacman -S --noconfirm --needed namcap "${deps[@]}"
+          useradd -m builder
+          chown -R builder aur
+          su builder -c 'cd aur && makepkg --noconfirm && makepkg --printsrcinfo > .SRCINFO'
+          namcap aur/foxtune-bin-*.pkg.tar.zst || true
+
+      - name: Publish to the AUR
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          if [ -z "$AUR_SSH_PRIVATE_KEY" ]; then
+            echo "::error::The AUR_SSH_PRIVATE_KEY secret is not set; see Releasing in BUILDING.md."
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          # The host key, trusted only if it matches the fingerprint the AUR
+          # publishes on its home page.
+          ssh-keyscan -t ed25519 aur.archlinux.org > ~/.ssh/known_hosts
+          if ! ssh-keygen -lf ~/.ssh/known_hosts |
+            grep -q "SHA256:RFzBCUItH9LZS0cKB5UE6ceAYhBD5C8GeOBip8Z11+4"; then
+            echo "::error::aur.archlinux.org's host key is not the one the AUR publishes."
+            exit 1
+          fi
+          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/aur -o IdentitiesOnly=yes"
+          # The first push creates the package.
+          git clone ssh://aur@aur.archlinux.org/foxtune-bin.git aur-repo
+          cp aur/PKGBUILD aur/.SRCINFO aur-repo/
+          cd aur-repo
+          git config user.name "FoxTune contributors"
+          git config user.email "niko.huuskonen.00@gmail.com"
+          git add PKGBUILD .SRCINFO
+          if git diff --cached --quiet; then
+            echo "The AUR already has foxtune-bin $VERSION."
+            exit 0
+          fi
+          git commit -m "Update to $VERSION"
+          git push origin HEAD:master
