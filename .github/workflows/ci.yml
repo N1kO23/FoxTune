@@ -447,16 +447,35 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Each artifact is one file, uploaded as it is. Left to itself the action
+      # unzips any artifact that is a zip - the Windows one - into the files
+      # inside it.
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: downloads
           merge-multiple: true
+          skip-decompress: true
 
+      # The release holds exactly what the build jobs publish: nothing missing,
+      # nothing else.
       - name: Checksums
+        env:
+          LABEL: ${{ needs.version.outputs.label }}
         run: |
           mkdir release
           find downloads -type f -exec mv -t release {} +
           cd release
+          expected=(
+            "foxtune-linux-x64-$LABEL.tar.gz"
+            "foxtune-linux-x64-$LABEL.AppImage"
+            "foxtune-linux-x64-$LABEL.deb"
+            "foxtune-linux-x64-$LABEL.rpm"
+            "foxtune-windows-x64-$LABEL.zip"
+            "foxtune-windows-x64-$LABEL-setup.exe"
+            "foxtune-macos-$LABEL.dmg"
+            "foxtune-android-arm64-$LABEL.apk"
+          )
+          diff <(printf '%s\n' "${expected[@]}" | sort) <(ls | sort)
           sha256sum -- * > SHA256SUMS
           cat SHA256SUMS
 

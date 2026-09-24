@@ -393,10 +393,12 @@ tag again.
 Pushing needs an AUR account holding an SSH key, set up once:
 
 1. Create an account on [aur.archlinux.org](https://aur.archlinux.org/).
-2. Make a key for this alone, without a passphrase, since CI has to use it unattended:
-   `ssh-keygen -t ed25519 -N '' -C 'FoxTune AUR' -f aur`
-3. Paste `aur.pub` into the account's **SSH Public Key** field.
-4. Add the private key, the file `aur`, as the repository secret `AUR_SSH_PRIVATE_KEY`.
+2. Make a key for this alone, without a passphrase, since CI has to use it unattended - and
+   outside the repository, where nothing would stop the private key being committed:
+   `ssh-keygen -t ed25519 -N '' -C 'FoxTune AUR' -f ~/.ssh/foxtune_aur`
+3. Paste `~/.ssh/foxtune_aur.pub` into the account's **SSH Public Key** field.
+4. Add the private key - all of `~/.ssh/foxtune_aur`, its `BEGIN` and `END` lines included - as
+   the repository secret `AUR_SSH_PRIVATE_KEY`.
 
 The first push creates the package, with that account as its maintainer.
 
