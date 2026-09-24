@@ -346,8 +346,8 @@ git push origin v1.2.0
 ```
 
 The tag runs all of CI, tests included, and then drafts a GitHub release carrying the Linux
-tarball and AppImage, the Windows zip and installer, the macOS disk image, the signed APK and a
-`SHA256SUMS` file. Nothing is public until you look the draft over and publish it from the
+tarball, AppImage, `.deb` and `.rpm`, the Windows zip and installer, the macOS disk image, the
+signed APK and a `SHA256SUMS` file. Nothing is public until you look the draft over and publish it from the
 releases page.
 
 Only the APK is signed. The desktop builds would need a code-signing certificate on Windows and a
@@ -431,16 +431,16 @@ Android job runs with the release signing key.
 `.github/workflows/ci.yml` runs on every push to `main`, every pull request, every release tag,
 and on demand from **Run workflow** in the Actions tab:
 
-| Job             | What it proves                                                                             |
-| --------------- | ------------------------------------------------------------------------------------------ |
-| `version`       | Names the build; for a release tag, first checks the tag against the app's version         |
-| `core`          | The pure-Dart packages analyze, format and test with a bare Dart SDK                       |
-| `flutter`       | The transport package and app analyze and are formatted, and their tests pass              |
-| `build-linux`   | The desktop app links and starts on glibc 2.35+, and publishes a `.tar.gz` and an AppImage |
-| `build-windows` | The Windows app links, and publishes a `.zip` and an installer, both with the MSVC runtime |
-| `build-macos`   | Release tags and manual runs only: the macOS app builds, and publishes a `.dmg`            |
-| `build-android` | The APK compiles, is signed, and publishes an artifact                                     |
-| `release`       | Release tags only: drafts a GitHub release from the artifacts, with `SHA256SUMS`           |
+| Job             | What it proves                                                                                      |
+| --------------- | --------------------------------------------------------------------------------------------------- |
+| `version`       | Names the build; for a release tag, first checks the tag against the app's version                  |
+| `core`          | The pure-Dart packages analyze, format and test with a bare Dart SDK                                |
+| `flutter`       | The transport package and app analyze and are formatted, and their tests pass                       |
+| `build-linux`   | The desktop app links and starts on glibc 2.35+; publishes a `.tar.gz`, AppImage, `.deb` and `.rpm` |
+| `build-windows` | The Windows app links, and publishes a `.zip` and an installer, both with the MSVC runtime          |
+| `build-macos`   | Release tags and manual runs only: the macOS app builds, and publishes a `.dmg`                     |
+| `build-android` | The APK compiles, is signed, and publishes an artifact                                              |
+| `release`       | Release tags only: drafts a GitHub release from the artifacts, with `SHA256SUMS`                    |
 
 The `core` job is the fast signal and should stay that way: it needs no device, display or
 emulator. It runs on the Dart SDK that the pinned Flutter ships (`DART_VERSION` in the
@@ -459,6 +459,14 @@ distribution, libserialport alone needs that distribution's glibc.
 ```sh
 ./tool/check-linux-glibc.sh                 # checks the release bundle against 2.35
 ```
+
+The `.deb` and `.rpm` come from one description, `linux/nfpm.yaml`, built with
+[nfpm](https://nfpm.goreleaser.com/) by `tool/package-linux-deb-rpm.sh`. Both install the bundle to
+`/usr/lib/foxtune` as it is, link `/usr/bin/foxtune` to it, and put the desktop entry, icons and
+AppStream metadata where desktops look for them. They depend on GTK 3 and glibc 2.35, and
+recommend the desktop portal the file dialogs need. CI installs each where it will be used - the
+`.deb` on Ubuntu 24.04 and 22.04, the `.rpm` on Fedora - with `tool/check-linux-package.sh`, which
+fails if any library the app links against does not resolve there.
 
 ## Troubleshooting
 

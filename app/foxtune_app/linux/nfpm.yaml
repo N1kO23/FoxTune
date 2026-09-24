@@ -1,0 +1,67 @@
+# The .deb and .rpm packages, built with nfpm by tool/package-linux-deb-rpm.sh.
+# That script fills in ${BUNDLE} (the Flutter release bundle), ${LINUX} (this
+# directory), ${LICENSE} (the repository's) and ${VERSION} (the app's, from its
+# pubspec).
+#
+# The bundle goes to /usr/lib/foxtune as it is: the executable finds its
+# libraries and assets beside itself, and does so through the /usr/bin link too.
+name: foxtune
+arch: amd64
+platform: linux
+version: ${VERSION}
+version_schema: semver
+release: 1
+section: electronics
+priority: optional
+maintainer: FoxTune contributors <niko.huuskonen.00@gmail.com>
+vendor: FoxTune contributors
+homepage: https://github.com/N1kO23/FoxTune
+license: GPL-3.0-only
+description: |-
+  Open source ECU tuning for Speeduino and rusEFI
+  FoxTune tunes Speeduino and rusEFI engine control units. It learns each ECU
+  from its own TunerStudio definition, so it keeps up with firmware updates:
+  a live dashboard, table and curve editing, generated settings screens, VE
+  autotuning, datalogging and .msq tunes, over USB serial or TCP.
+
+# GTK 3 is the only system library the bundle needs; glibc 2.35 is the floor
+# tool/check-linux-glibc.sh enforces. The desktop portal is what shows file
+# dialogs - see BUILDING.md.
+overrides:
+  deb:
+    depends:
+      # Renamed with Ubuntu 24.04's 64-bit time_t transition.
+      - libgtk-3-0t64 | libgtk-3-0
+      - libc6 (>= 2.35)
+    recommends:
+      - xdg-desktop-portal
+  rpm:
+    depends:
+      # By soname, which Fedora and openSUSE both resolve, though they name the
+      # package differently.
+      - libgtk-3.so.0()(64bit)
+      - glibc >= 2.35
+    recommends:
+      - xdg-desktop-portal
+
+contents:
+  - src: ${BUNDLE}/
+    dst: /usr/lib/foxtune
+    type: tree
+  - src: /usr/lib/foxtune/foxtune
+    dst: /usr/bin/foxtune
+    type: symlink
+  - src: ${LINUX}/com.foxtune.foxtune_app.desktop
+    dst: /usr/share/applications/com.foxtune.foxtune_app.desktop
+  - src: ${LINUX}/com.foxtune.foxtune_app.metainfo.xml
+    dst: /usr/share/metainfo/com.foxtune.foxtune_app.metainfo.xml
+  - src: ${LINUX}/icons/hicolor/
+    dst: /usr/share/icons/hicolor
+    type: tree
+  - src: ${LICENSE}
+    dst: /usr/share/doc/foxtune/copyright
+    packager: deb
+  - src: ${LICENSE}
+    dst: /usr/share/licenses/foxtune/LICENSE
+    type: license
+    packager: rpm
