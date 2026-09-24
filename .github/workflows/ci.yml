@@ -348,6 +348,14 @@ jobs:
           cache: true
           pub-cache: true
 
+      # flutter_libserialport's macOS side depends on the libserialport pod,
+      # which CocoaPods fetches and configures with autotools - and the runner
+      # image has neither automake nor libtool.
+      - name: Install autotools
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+        run: brew install automake libtool
+
       - name: Build
         working-directory: app/foxtune_app
         run: |
