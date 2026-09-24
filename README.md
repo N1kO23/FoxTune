@@ -23,9 +23,16 @@ codebase.
 ## Why
 
 The practical alternative today is TunerStudio: closed source, paid for the useful tiers, and
-desktop-only in practice. The open source field is thin, and there is no good mobile tuner at
-all. FoxTune's clearest reason to exist is a phone plugged into the ECU with an OTG cable, in
-the car, without a laptop.
+desktop-only in practice. The open source field is thin.
+FoxTune's clearest reason to exist is a phone or tablet plugged into the ECU with an OTG cable, in
+the car, eliminating the need of a laptop, although laptop still offers keyboard bindings.
+
+TunerStudio is still a robust software and if you don't mind having licensed closed source
+software, it is very good and gets the job done. On the mobile there also is ECU Manager,
+a pretty good and polished tuning software for Speeduino.
+
+FoxTune's goal is to not be tied to a single ECU branch. It also aims to bridge similar style UI
+for both desktop and mobile tuning.
 
 ## Design
 
