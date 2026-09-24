@@ -19,7 +19,7 @@ Per-platform build dependencies:
 | Linux   | `ninja`, `cmake`, **`clang` and `clang++` on `PATH`**, `pkg-config`, GTK 3 dev headers |
 | Android | Android SDK + JDK 17 (`flutter doctor --android-licenses`)                             |
 | Windows | Visual Studio with the Desktop C++ workload                                            |
-| macOS   | Xcode, and CocoaPods for `flutter_libserialport`                                       |
+| macOS   | Xcode; CocoaPods, automake and libtool from Homebrew, for `flutter_libserialport`      |
 
 On Gentoo that set is `dev-build/ninja dev-build/cmake llvm-core/clang dev-util/pkgconf
 x11-libs/gtk+:3` - note GTK **3**, since `gui-libs/gtk` is GTK 4 and Flutter's Linux embedder
