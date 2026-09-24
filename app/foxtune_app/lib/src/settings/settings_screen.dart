@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
 import 'package:foxtune_ini/foxtune_ini.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
 
@@ -16,8 +15,19 @@ import 'curve_editor.dart';
 import 'dialog_view.dart';
 import 'settings_scope.dart';
 
-/// Which settings screen is open.
-final selectedSettingProvider = StateProvider<String?>((ref) => null);
+/// Which settings screen is open, by id; `null` until one is picked.
+final selectedSettingProvider =
+    NotifierProvider<SelectedSettingController, String?>(
+      SelectedSettingController.new,
+    );
+
+class SelectedSettingController extends Notifier<String?> {
+  @override
+  String? build() => null;
+
+  /// Opens the settings screen with [id].
+  void select(String id) => state = id;
+}
 
 /// The ECU's settings, generated from the definition's own menu.
 ///
@@ -115,7 +125,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   void _open(BuildContext context, String target, {required bool wide}) {
-    ref.read(selectedSettingProvider.notifier).state = target;
+    ref.read(selectedSettingProvider.notifier).select(target);
     if (wide) return;
 
     Navigator.of(context).push(
@@ -388,7 +398,7 @@ class SettingDetail extends ConsumerWidget {
     void openTable(String tableId, {bool asSurface = false}) {
       final title = definition.tableNamed(tableId)?.title ?? tableId;
       if (!asSurface) {
-        ref.read(selectedTableProvider.notifier).state = tableId;
+        ref.read(selectedTableProvider.notifier).select(tableId);
       }
       Navigator.of(context).push(
         MaterialPageRoute<void>(

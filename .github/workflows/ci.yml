@@ -29,6 +29,9 @@ env:
   # together.
   DART_VERSION: 3.13.4
 
+# Every action is pinned to a commit, with its version alongside for
+# Dependabot to keep current. A tag can be moved to other code, and these run
+# with this workflow's access - in build-android, the release signing key.
 jobs:
   # Names the build: the version for a release tag, the commit otherwise. A tag
   # is checked first - against the app's version, and for the signing key - so
@@ -42,7 +45,7 @@ jobs:
     outputs:
       label: ${{ steps.label.outputs.label }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: startsWith(github.ref, 'refs/tags/v')
         with:
           # All of history and its tags, to find the previous release.
@@ -80,8 +83,8 @@ jobs:
     # for six hours.
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
-      - uses: dart-lang/setup-dart@v1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
         with:
           sdk: ${{ env.DART_VERSION }}
 
@@ -103,8 +106,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
-      - uses: subosito/flutter-action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
@@ -139,8 +142,8 @@ jobs:
     env:
       LABEL: ${{ needs.version.outputs.label }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: subosito/flutter-action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
@@ -194,7 +197,7 @@ jobs:
             "$PWD/appimagetool.AppImage" \
             app/foxtune_app/build/linux/x64/release
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: foxtune-linux-x64-tarball
           path: foxtune-linux-x64-*.tar.gz
@@ -202,7 +205,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: foxtune-linux-x64-appimage
           path: app/foxtune_app/build/linux/x64/release/foxtune-linux-x64-*.AppImage
@@ -220,8 +223,8 @@ jobs:
     env:
       LABEL: ${{ needs.version.outputs.label }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: subosito/flutter-action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
@@ -246,7 +249,7 @@ jobs:
           }
           Compress-Archive -Path "$release/*" -DestinationPath "foxtune-windows-x64-$env:LABEL.zip"
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: foxtune-windows-x64
           path: foxtune-windows-x64-*.zip
@@ -263,13 +266,13 @@ jobs:
       HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
       LABEL: ${{ needs.version.outputs.label }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-java@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: "17"
           cache: gradle
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
@@ -295,7 +298,7 @@ jobs:
           flutter build apk --release --target-platform android-arm64
           mv build/app/outputs/flutter-apk/app-release.apk "build/foxtune-android-arm64-$LABEL.apk"
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: foxtune-android-arm64
           path: app/foxtune_app/build/foxtune-*.apk
@@ -315,7 +318,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: downloads
           merge-multiple: true

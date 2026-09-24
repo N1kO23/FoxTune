@@ -76,7 +76,8 @@ void main() {
           realtimeProvider.overrideWith(
             (ref) => const Stream<RealtimeSnapshot>.empty(),
           ),
-          if (open != null) selectedSettingProvider.overrideWith((ref) => open),
+          if (open != null)
+            selectedSettingProvider.overrideWithBuild((ref, _) => open),
         ],
         child: MaterialApp(
           theme: brandTheme(Brightness.light),
