@@ -8,7 +8,8 @@
 # X11 does not need this - the runner sets the icon on the window itself.
 #
 # Usage: tool/install-linux-desktop.sh [bundle-dir]
-#   bundle-dir defaults to the release build,
+#   bundle-dir defaults to the directory this script is in when it ships inside
+#   a bundle, as in the release tarball, and otherwise to the release build,
 #   app/foxtune_app/build/linux/x64/release/bundle.
 #
 # To remove it again, delete com.foxtune.foxtune_app.desktop from
@@ -16,10 +17,14 @@
 # ~/.local/share/icons/hicolor.
 set -eu
 
-root=$(cd "$(dirname "$0")/.." && pwd)
-bundle=${1:-$root/app/foxtune_app/build/linux/x64/release/bundle}
+here=$(cd "$(dirname "$0")" && pwd)
+if [ -x "$here/foxtune" ]; then
+  bundle=${1:-$here}
+else
+  bundle=${1:-$here/../app/foxtune_app/build/linux/x64/release/bundle}
+fi
 
-if [ ! -x "$bundle/foxtune_app" ]; then
+if [ ! -x "$bundle/foxtune" ]; then
   echo "No FoxTune build in $bundle - run 'flutter build linux' first." >&2
   exit 1
 fi
@@ -29,8 +34,8 @@ data=${XDG_DATA_HOME:-$HOME/.local/share}
 mkdir -p "$data/icons" "$data/applications"
 
 cp -R "$bundle/data/icons/." "$data/icons/"
-# The shipped entry expects foxtune_app on PATH; point it at this bundle.
-sed "s|^Exec=.*|Exec=\"$bundle/foxtune_app\"|" \
+# The shipped entry expects foxtune on PATH; point it at this bundle.
+sed "s|^Exec=.*|Exec=\"$bundle/foxtune\"|" \
   "$bundle/data/com.foxtune.foxtune_app.desktop" \
   > "$data/applications/com.foxtune.foxtune_app.desktop"
 
@@ -45,4 +50,4 @@ for sycoca in kbuildsycoca6 kbuildsycoca5; do
   fi
 done
 
-echo "Installed com.foxtune.foxtune_app.desktop for $bundle/foxtune_app"
+echo "Installed com.foxtune.foxtune_app.desktop for $bundle/foxtune"

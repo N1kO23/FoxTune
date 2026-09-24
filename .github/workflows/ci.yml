@@ -6,6 +6,8 @@ on:
     # A release: see "Releasing" in BUILDING.md.
     tags: ["v*"]
   pull_request:
+  # "Run workflow" in the Actions tab: everything, macOS included.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -150,10 +152,12 @@ jobs:
           cache: true
           pub-cache: true
 
+      # appstream provides appstreamcli, which the AppImage packaging uses to
+      # check the app's metadata.
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libgtk-3-dev
+          sudo apt-get install -y ninja-build libgtk-3-dev appstream
 
       - name: Build
         working-directory: app/foxtune_app
@@ -164,8 +168,14 @@ jobs:
       - name: Check glibc floor
         run: ./tool/check-linux-glibc.sh app/foxtune_app/build/linux/x64/release/bundle
 
+      # Unpacks to foxtune/, with the script that installs its desktop entry.
       - name: Package
-        run: tar -czf "foxtune-linux-x64-$LABEL.tar.gz" -C app/foxtune_app/build/linux/x64/release bundle
+        run: |
+          tar -czf "foxtune-linux-x64-$LABEL.tar.gz" \
+            --transform 's,^bundle,foxtune,' \
+            --transform 's,^install-linux-desktop\.sh,foxtune/&,' \
+            -C app/foxtune_app/build/linux/x64/release bundle \
+            -C "$PWD/tool" install-linux-desktop.sh
 
       # This appimagetool builds with the static AppImage runtime, so the
       # AppImage runs without libfuse2 on the user's system. Extract-and-run
@@ -257,6 +267,71 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      # From the same files as the zip, MSVC runtime included. Inno Setup comes
+      # with the Windows runner image.
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path app/foxtune_app/pubspec.yaml -Pattern '^version:\s*([^+\s]+)').Matches[0].Groups[1].Value
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" "/DLabel=$env:LABEL" app/foxtune_app/windows/installer/foxtune.iss
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: foxtune-windows-x64-setup
+          path: app/foxtune_app/build/windows/installer/foxtune-windows-x64-*-setup.exe
+          archive: false
+          if-no-files-found: error
+          retention-days: 30
+
+  # Release tags and manual runs only: macOS runners count ten times over
+  # against a private repository's Actions minutes. Once the repository is
+  # public they cost nothing, and this can run on every push like the others.
+  build-macos:
+    name: Build macOS app
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    timeout-minutes: 45
+    needs: version
+    env:
+      LABEL: ${{ needs.version.outputs.label }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+          pub-cache: true
+
+      - name: Build
+        working-directory: app/foxtune_app
+        run: |
+          flutter pub get --enforce-lockfile
+          flutter build macos --release
+
+      # A disk image holding the app beside a link to Applications, to drag it
+      # onto. The app is not signed or notarized; see "Releasing" in
+      # BUILDING.md. hdiutil on hosted runners fails now and then with
+      # "Resource busy", which a retry gets past.
+      - name: Package
+        run: |
+          mkdir dmg
+          ditto app/foxtune_app/build/macos/Build/Products/Release/FoxTune.app dmg/FoxTune.app
+          ln -s /Applications dmg/Applications
+          for attempt in 1 2 3; do
+            hdiutil create -volname FoxTune -srcfolder dmg -format UDZO "foxtune-macos-$LABEL.dmg" && exit 0
+            sleep 10
+          done
+          exit 1
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: foxtune-macos
+          path: foxtune-macos-*.dmg
+          archive: false
+          if-no-files-found: error
+          retention-days: 30
+
   build-android:
     name: Build Android APK
     runs-on: ubuntu-latest
@@ -312,7 +387,8 @@ jobs:
   release:
     name: Draft release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [version, core, flutter, build-linux, build-windows, build-android]
+    needs:
+      [version, core, flutter, build-linux, build-windows, build-macos, build-android]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

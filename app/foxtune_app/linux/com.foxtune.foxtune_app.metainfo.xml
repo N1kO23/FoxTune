@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- How software centres, and AppImage tools, describe FoxTune. Named, like
+     the desktop entry, after the application ID. -->
+<component type="desktop-application">
+  <id>com.foxtune.foxtune_app</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
+
+  <name>FoxTune</name>
+  <summary>Open source ECU tuning for Speeduino and rusEFI</summary>
+  <description>
+    <p>
+      FoxTune tunes Speeduino and rusEFI engine control units. It learns each
+      ECU from its own TunerStudio definition - the settings, tables and live
+      data it has - so it keeps up with firmware updates rather than hardcoding
+      them.
+    </p>
+    <ul>
+      <li>Connects over USB serial or TCP, and finds the exact firmware's definition</li>
+      <li>A live dashboard of dials, bars, lamps and time graphs you arrange</li>
+      <li>Table and curve editing, with a 3D view of each table</li>
+      <li>Settings screens generated from the ECU's definition</li>
+      <li>VE autotuning from live wideband data</li>
+      <li>Writes verified by the ECU's own checksum before burning</li>
+      <li>Reads and writes .msq tunes, and logs to .msl</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">com.foxtune.foxtune_app.desktop</launchable>
+  <provides>
+    <binary>foxtune</binary>
+  </provides>
+
+  <developer>
+    <name>FoxTune contributors</name>
+  </developer>
+  <url type="homepage">https://github.com/N1kO23/FoxTune</url>
+  <url type="bugtracker">https://github.com/N1kO23/FoxTune/issues</url>
+
+  <content_rating type="oars-1.1"/>
+</component>

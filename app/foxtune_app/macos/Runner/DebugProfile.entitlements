@@ -2,8 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Not sandboxed. FoxTune opens serial ports, connects to ECUs and
+	     downloads definitions over the network, and reads and writes tune
+	     files wherever the user keeps them. The sandbox is what the Mac App
+	     Store requires, and FoxTune is distributed directly instead. -->
 	<key>com.apple.security.app-sandbox</key>
-	<true/>
+	<false/>
 	<key>com.apple.security.cs.allow-jit</key>
 	<true/>
 	<key>com.apple.security.network.server</key>

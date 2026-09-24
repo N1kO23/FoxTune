@@ -3,8 +3,9 @@ cmake_minimum_required(VERSION 3.14)
 project(foxtune_app LANGUAGES CXX)
 
 # The name of the executable created for the application. Change this to change
-# the on-disk name of your application.
-set(BINARY_NAME "foxtune_app")
+# the on-disk name of your application, and change OriginalFilename in
+# runner/Runner.rc with it.
+set(BINARY_NAME "FoxTune")
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.

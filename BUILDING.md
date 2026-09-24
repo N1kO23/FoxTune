@@ -19,7 +19,7 @@ Per-platform build dependencies:
 | Linux   | `ninja`, `cmake`, **`clang` and `clang++` on `PATH`**, `pkg-config`, GTK 3 dev headers |
 | Android | Android SDK + JDK 17 (`flutter doctor --android-licenses`)                             |
 | Windows | Visual Studio with the Desktop C++ workload                                            |
-| macOS   | Xcode                                                                                  |
+| macOS   | Xcode, and CocoaPods for `flutter_libserialport`                                       |
 
 On Gentoo that set is `dev-build/ninja dev-build/cmake llvm-core/clang dev-util/pkgconf
 x11-libs/gtk+:3` - note GTK **3**, since `gui-libs/gtk` is GTK 4 and Flutter's Linux embedder
@@ -126,10 +126,13 @@ flutter build linux                 # from app/foxtune_app
 ../../tool/install-linux-desktop.sh # or pass another bundle directory
 ```
 
+The release tarball carries the same script: run `./install-linux-desktop.sh` from the `foxtune/`
+directory it unpacks to.
+
 Start FoxTune from that entry: the application menu, KRunner or a pinned task. KDE's System
 Monitor names an application after whatever launched it, so a FoxTune started by double-clicking
-`foxtune_app` shows up there as the executable's path, and one started from a terminal shows up
-under the terminal.
+the `foxtune` executable shows up there as the executable's path, and one started from a terminal
+shows up under the terminal.
 
 The AppImage needs its entry installed too, for example by AppImageLauncher. That renames the
 entry, so Plasma falls back to the entry's `StartupWMClass` to match FoxTune's window to it -
@@ -310,6 +313,13 @@ go through this with the phone and a Speeduino - the bench ECU is fine, engine o
 Anything that behaves differently goes in an issue with the phone model and Android version:
 USB host support varies more between manufacturers than anywhere else on Android.
 
+## macOS
+
+The app is not sandboxed (`macos/Runner/*.entitlements`). It opens serial ports, connects to ECUs
+and downloads definitions over the network, and reads and writes tune files wherever the user
+keeps them - all of which the sandbox refuses without an exception for each. The sandbox is a
+requirement of the Mac App Store, and FoxTune is distributed directly instead.
+
 ## Release signing
 
 Release signing is driven entirely by the environment, so no keystore is ever committed:
@@ -351,8 +361,17 @@ git push origin v1.2.0
 ```
 
 The tag runs all of CI, tests included, and then drafts a GitHub release carrying the Linux
-tarball and AppImage, the Windows zip, the signed APK and a `SHA256SUMS` file. Nothing is public
-until you look the draft over and publish it from the releases page.
+tarball and AppImage, the Windows zip and installer, the macOS disk image, the signed APK and a
+`SHA256SUMS` file. Nothing is public until you look the draft over and publish it from the
+releases page.
+
+Only the APK is signed. The desktop builds would need a code-signing certificate on Windows and a
+paid Apple Developer account on macOS, so both operating systems warn the first time:
+
+- **Windows** SmartScreen stops the installer, or `FoxTune.exe` from the zip: **More info** →
+  **Run anyway**.
+- **macOS** refuses to open the app. Try once, then allow it under **System Settings** →
+  **Privacy & Security** → **Open Anyway**.
 
 Before anything is built, the tag is checked against the pubspec:
 
@@ -423,8 +442,8 @@ Android job runs with the release signing key.
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on every push to `main`, every pull request, and every release
-tag:
+`.github/workflows/ci.yml` runs on every push to `main`, every pull request, every release tag,
+and on demand from **Run workflow** in the Actions tab:
 
 | Job             | What it proves                                                                             |
 | --------------- | ------------------------------------------------------------------------------------------ |
@@ -432,13 +451,18 @@ tag:
 | `core`          | The pure-Dart packages analyze, format and test with a bare Dart SDK                       |
 | `flutter`       | The transport package and app analyze and are formatted, and their tests pass              |
 | `build-linux`   | The desktop app links and starts on glibc 2.35+, and publishes a `.tar.gz` and an AppImage |
-| `build-windows` | The Windows app links, and publishes a `.zip` that carries the MSVC runtime                |
+| `build-windows` | The Windows app links, and publishes a `.zip` and an installer, both with the MSVC runtime |
+| `build-macos`   | Release tags and manual runs only: the macOS app builds, and publishes a `.dmg`            |
 | `build-android` | The APK compiles, is signed, and publishes an artifact                                     |
 | `release`       | Release tags only: drafts a GitHub release from the artifacts, with `SHA256SUMS`           |
 
 The `core` job is the fast signal and should stay that way: it needs no device, display or
 emulator. It runs on the Dart SDK that the pinned Flutter ships (`DART_VERSION` in the
 workflow), since the formatter's output changes between SDK releases; bump the two together.
+
+`build-macos` stays off ordinary pushes because macOS runners count ten times over against a
+private repository's Actions minutes. Run the workflow by hand to check a macOS build before
+tagging; once the repository is public, its `if:` can go.
 
 The Linux build runs on a pinned Ubuntu release rather than `ubuntu-latest`, because the build
 machine's glibc sets the oldest distribution the bundle will start on. `tool/check-linux-glibc.sh`
