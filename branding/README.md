@@ -1,8 +1,9 @@
 # FoxTune brand assets
 
 Colours: pink `#FF2E6E`, black `#000000`, off-white `#FAFAFA`, white `#FFFFFF`.
-Wordmark typeface: Montserrat (Bold "Fox", Regular "Tune", Medium tagline). In every SVG and PNG
-here the text is already converted to outlines, so no font needs to be installed.
+Wordmark typeface: Chakra Petch - "Fox" Bold Italic in pink, "Tune" Medium Italic, the tagline
+SemiBold Italic. In every SVG and PNG here the text is already converted to outlines, so no font
+needs to be installed.
 
 "dark" files are for dark backgrounds, "light" files for light backgrounds. All logos have
 transparent backgrounds.
@@ -21,8 +22,8 @@ rendered from it into the app - see [Where it is used](#where-it-is-used).
 - `icon/` - the app icon as a 1024 px PNG and SVG, rounded-square and round versions. Its lines
   are slightly heavier than the master logo's so it stays readable at small sizes.
 - `splash/` - `splash-android12-*.png` is the 1152 x 1152 Android 12+ splash icon (fits the
-  768 px circle); `splash-logo-*.png` is the stacked logo for older Android and loading screens.
-  Not wired up yet.
+  768 px circle); `splash-logo-*.png` is the stacked logo for older Android and loading screens,
+  rendered from `logo/svg/` (see the end of this file). Not wired up yet.
 - `store/` - the Google Play listing icon (full square; Play rounds the corners) and the
   1024 x 500 feature graphic.
 
@@ -72,5 +73,15 @@ for scale in 1 2 3; do
   for v in dark light; do
     rsvg-convert -h $((20 * scale)) branding/logo/svg/foxtune-wordmark-$v.svg -o $dir/foxtune-wordmark-$v.png
   done
+done
+```
+
+The splash logos are the stacked logo centred on a transparent 768 x 1024 canvas. Re-render them
+whenever the stacked logo changes, from the repository root:
+
+```sh
+for v in dark light; do
+  rsvg-convert -a -w 768 -h 1024 branding/logo/svg/foxtune-stacked-$v.svg |
+    magick - -background none -gravity center -extent 768x1024 branding/splash/splash-logo-$v.png
 done
 ```
