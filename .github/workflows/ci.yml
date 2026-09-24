@@ -221,6 +221,53 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      # nfpm builds both from app/foxtune_app/linux/nfpm.yaml. Pinned and
+      # checksummed, like the AppImage tool.
+      - name: Install nfpm
+        run: |
+          curl -fL -o nfpm.tar.gz \
+            https://github.com/goreleaser/nfpm/releases/download/v2.47.0/nfpm_2.47.0_Linux_x86_64.tar.gz
+          echo "0660ca602b2d2d2ae4781a06c692b3eeb9d437ffea05b831d76e41f4a3188783  nfpm.tar.gz" |
+            sha256sum -c -
+          tar -xzf nfpm.tar.gz nfpm
+
+      - name: Package .deb and .rpm
+        env:
+          PACKAGE_LABEL: ${{ env.LABEL }}
+        run: |
+          ./tool/package-linux-deb-rpm.sh \
+            app/foxtune_app/build/linux/x64/release/bundle \
+            "$PWD/nfpm" \
+            app/foxtune_app/build/linux/x64/release
+
+      # Each installed for real: the .deb on this runner, Ubuntu 24.04, and on
+      # Ubuntu 22.04 - the glibc floor, and GTK's package under its older name -
+      # and the .rpm on Fedora. Every library the app needs has to resolve.
+      - name: Test the packages
+        run: |
+          out=app/foxtune_app/build/linux/x64/release
+          sudo ./tool/check-linux-package.sh "$PWD/$out/foxtune-linux-x64-$LABEL.deb"
+          docker run --rm -v "$PWD:/w:ro" -w /w ubuntu:22.04 \
+            ./tool/check-linux-package.sh "/w/$out/foxtune-linux-x64-$LABEL.deb"
+          docker run --rm -v "$PWD:/w:ro" -w /w fedora:latest \
+            ./tool/check-linux-package.sh "/w/$out/foxtune-linux-x64-$LABEL.rpm"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: foxtune-linux-x64-deb
+          path: app/foxtune_app/build/linux/x64/release/foxtune-linux-x64-*.deb
+          archive: false
+          if-no-files-found: error
+          retention-days: 30
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: foxtune-linux-x64-rpm
+          path: app/foxtune_app/build/linux/x64/release/foxtune-linux-x64-*.rpm
+          archive: false
+          if-no-files-found: error
+          retention-days: 30
+
   # The only place the Windows build is checked: the app draws its own title
   # bar there too, through the Win32 side of window_manager.
   build-windows:
