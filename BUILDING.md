@@ -339,7 +339,9 @@ A release is a tag. Its version comes from `app/foxtune_app/pubspec.yaml`, where
 `version: 1.2.0+7` means version 1.2.0, build number 7:
 
 ```sh
-# Set the version in app/foxtune_app/pubspec.yaml and commit it, then:
+# Set the version in app/foxtune_app/pubspec.yaml, add a <release> for it at the
+# top of app/foxtune_app/linux/com.foxtune.foxtune_app.metainfo.xml, and commit
+# both. Then, on the commit that holds them:
 ./tool/check-release-version.sh v1.2.0   # the same check CI makes
 git tag v1.2.0
 git push origin v1.2.0
@@ -368,7 +370,9 @@ Before anything is built, the tag is checked against the pubspec:
 A release also refuses to build without the signing keystore secrets: an APK signed with the
 debug key could never be updated by a properly signed one.
 
-To redo a failed release, delete the tag and any draft it left, then tag again:
+To redo a failed release, delete the tag and any draft it left, then tag again. Delete a tag that
+never became a release in any case: one that matches its pubspec looks like a release to the next
+check.
 
 ```sh
 git push --delete origin v1.2.0 && git tag -d v1.2.0
