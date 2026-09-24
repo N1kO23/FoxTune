@@ -85,12 +85,32 @@ jobs:
       - name: Package
         run: tar -czf "foxtune-linux-x64-${GITHUB_SHA::7}.tar.gz" -C app/foxtune_app/build/linux/x64/release bundle
 
+      - name: Install AppImage tool
+        run: |
+          curl -L -o appimagetool.AppImage \
+            https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool.AppImage
+
+      - name: Package AppImage
+        run: |
+          chmod +x tool/package-linux-appimage.sh
+          ./tool/package-linux-appimage.sh \
+            app/foxtune_app/build/linux/x64/release/bundle \
+            "$PWD/appimagetool.AppImage" \
+            app/foxtune_app/build/linux/x64/release
+
       - uses: actions/upload-artifact@v7
         with:
-          # Both build jobs upload, and v4+ rejects a second upload to an
-          # existing artifact name - so each needs its own.
-          name: foxtune-linux-x64
+          name: foxtune-linux-x64-tarball
           path: foxtune-linux-x64-*.tar.gz
+          archive: false
+          if-no-files-found: error
+          retention-days: 30
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: foxtune-linux-x64-appimage
+          path: app/foxtune_app/build/linux/x64/release/foxtune-linux-x64-*.AppImage
           archive: false
           if-no-files-found: error
           retention-days: 30

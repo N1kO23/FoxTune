@@ -128,11 +128,11 @@ class _PortList extends ConsumerWidget {
             icon: Icons.usb_off,
             title: 'No serial ports found',
             detail: Platform.isAndroid
-                ? 'Plug the Speeduino in with a USB OTG cable. It appears '
+                ? 'Plug the ECU in with a USB OTG cable. It appears '
                       'here on its own - and if Android offers to open '
                       'FoxTune, tick "always" so it stops asking for '
                       'permission.'
-                : 'Connect a Speeduino over USB, then rescan.\n\n'
+                : 'Connect an ECU over USB, then rescan.\n\n'
                       'On Linux you may need to be in the dialout group:\n'
                       'sudo usermod -aG dialout \$USER',
             action: Column(
