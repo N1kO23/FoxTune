@@ -64,7 +64,7 @@ void main() {
           realtimeProvider.overrideWith(
             (ref) => const Stream<RealtimeSnapshot>.empty(),
           ),
-          selectedSettingProvider.overrideWith((ref) => open),
+          selectedSettingProvider.overrideWithBuild((ref, _) => open),
         ],
         child: MaterialApp(
           home: Scaffold(

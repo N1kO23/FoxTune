@@ -1,6 +1,5 @@
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
 import 'package:foxtune_ini/foxtune_ini.dart';
 import 'package:foxtune_protocol/foxtune_protocol.dart';
 import 'package:foxtune_transport/foxtune_transport.dart';
@@ -21,7 +20,7 @@ final transportProvider = Provider<EcuTransport>((ref) {
 /// Celsius and Fahrenheit builds compute `coolant` and `iat` with different
 /// expressions, so the gauges' ranges and thresholds are derived from the same
 /// choice. See [TemperatureUnit].
-final temperatureUnitProvider = StateProvider<TemperatureUnit>(
+final temperatureUnitProvider = Provider<TemperatureUnit>(
   (ref) => TemperatureUnit.celsius,
 );
 

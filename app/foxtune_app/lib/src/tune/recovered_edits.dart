@@ -1,5 +1,4 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
 
 import '../connection/connection_controller.dart';
@@ -29,7 +28,21 @@ class RecoveredEdits {
 }
 
 /// Edits rescued from the last connection, until saved or discarded.
-final recoveredEditsProvider = StateProvider<RecoveredEdits?>((ref) => null);
+final recoveredEditsProvider =
+    NotifierProvider<RecoveredEditsController, RecoveredEdits?>(
+      RecoveredEditsController.new,
+    );
+
+class RecoveredEditsController extends Notifier<RecoveredEdits?> {
+  @override
+  RecoveredEdits? build() => null;
+
+  /// Holds [edits] until they are saved or discarded.
+  void keep(RecoveredEdits edits) => state = edits;
+
+  /// Lets go of the edits, once saved or discarded.
+  void clear() => state = null;
+}
 
 /// Rescues unburned edits when a connection ends.
 ///
@@ -55,10 +68,14 @@ final unburnedEditsGuardProvider = Provider<void>((ref) {
     loaded = null;
     if (tune == null || !tune.isDirty) return;
 
-    ref.read(recoveredEditsProvider.notifier).state = RecoveredEdits(
-      tune: tune.copy(),
-      pages: tune.dirtyPages,
-      at: DateTime.now(),
-    );
+    ref
+        .read(recoveredEditsProvider.notifier)
+        .keep(
+          RecoveredEdits(
+            tune: tune.copy(),
+            pages: tune.dirtyPages,
+            at: DateTime.now(),
+          ),
+        );
   });
 });

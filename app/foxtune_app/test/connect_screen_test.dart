@@ -186,7 +186,7 @@ void main() {
               const FileSaving(mobile: true),
             ),
             if (recovered != null)
-              recoveredEditsProvider.overrideWith((ref) => recovered),
+              recoveredEditsProvider.overrideWithBuild((ref, _) => recovered),
           ],
           child: const MaterialApp(home: ConnectScreen()),
         ),

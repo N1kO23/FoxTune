@@ -56,6 +56,17 @@ shell where swiftly is initialised and fails in one where it is not, and `flutte
 passes in the first. If a build works in one terminal and not another, compare
 `command -v clang++` between them.
 
+### File dialogs need the desktop portal
+
+On Linux, opening and saving files goes through the XDG desktop portal (its `FileChooser`
+interface, over D-Bus). The file picker has no fallback to zenity or kdialog, so without a portal
+running there is no file dialog at all: saving a tune, importing a table or choosing a definition
+fails with an error naming `org.freedesktop.portal.Desktop`.
+
+Full desktops such as Plasma and GNOME run a portal already. A bare window manager may not:
+install `xdg-desktop-portal` together with the backend for your desktop - `xdg-desktop-portal-kde`
+on Plasma, `xdg-desktop-portal-gnome` on GNOME, `xdg-desktop-portal-gtk` anywhere else.
+
 ## Where to run things
 
 This matters more than it should, and is the most common source of confusion:
@@ -406,7 +417,9 @@ root's; CI points out one that was missed.
 
 Dependabot proposes updates weekly as pull requests (`.github/dependabot.yml`): minor and patch
 updates grouped, each major version on its own, since that can need code changes. It leaves the
-Android Gradle files alone; see the Android section for why.
+Android Gradle files alone; see the Android section for why. It also keeps the workflow's actions
+current, which are pinned to commits rather than tags: a tag can be moved to other code, and the
+Android job runs with the release signing key.
 
 ## Continuous integration
 
@@ -451,6 +464,9 @@ compiler output. Run `flutter build linux` instead to see the real error. The us
 
 **`SerialPortError: Invalid argument, errno = 22`** - libserialport was handed something that
 is not a real serial device, typically a `socat` pseudo-terminal.
+
+**An error naming `org.freedesktop.portal.Desktop` when opening or saving a file** - no desktop
+portal is running. See "File dialogs need the desktop portal" above.
 
 **No serial ports listed on Linux** - your user is probably not in the `dialout` group:
 

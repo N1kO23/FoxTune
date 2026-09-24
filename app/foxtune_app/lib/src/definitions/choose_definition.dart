@@ -25,12 +25,23 @@ Future<void> chooseDefinition(BuildContext context, WidgetRef ref) async {
     ),
   );
 
-  final picked = await ref
-      .read(fileSavingProvider)
-      .pickFile(
-        extensions: const ['ini'],
-        dialogTitle: 'Definition for ${connection.identification.signature}',
-      );
+  final PickedFile? picked;
+  try {
+    picked = await ref
+        .read(fileSavingProvider)
+        .pickFile(
+          extensions: const ['ini'],
+          dialogTitle: 'Definition for ${connection.identification.signature}',
+        );
+  } on WrongFileTypeException catch (error) {
+    tell(error.message, problem: true);
+    return;
+  } on Object catch (error) {
+    // On Linux the dialog comes from the desktop portal, and without one there
+    // is no dialog at all - which has to be said, not silently shrugged off.
+    tell('Could not open a file: $error', problem: true);
+    return;
+  }
   if (picked == null) return;
 
   try {

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
 import 'package:foxtune_ini/foxtune_ini.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
 
@@ -15,8 +14,19 @@ import 'surface_view.dart';
 import 'table_grid.dart';
 import 'tune_controller.dart';
 
-/// Which table is being edited.
-final selectedTableProvider = StateProvider<String?>((ref) => null);
+/// Which table is being edited, by id; `null` until one is picked.
+final selectedTableProvider =
+    NotifierProvider<SelectedTableController, String?>(
+      SelectedTableController.new,
+    );
+
+class SelectedTableController extends Notifier<String?> {
+  @override
+  String? build() => null;
+
+  /// Opens the table with [id] in the editor.
+  void select(String id) => state = id;
+}
 
 /// The table editor.
 ///
@@ -76,7 +86,7 @@ class _TableEditorScreenState extends ConsumerState<TableEditorScreen> {
               onToggleSurface: () =>
                   setState(() => _showSurface = !_showSurface),
               onSelect: (id) {
-                ref.read(selectedTableProvider.notifier).state = id;
+                ref.read(selectedTableProvider.notifier).select(id);
                 setState(() => _selection = const CellSelection.single(0, 0));
               },
             ),

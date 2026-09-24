@@ -120,7 +120,8 @@ void main() {
           realtimeProvider.overrideWith(
             (ref) => Stream<RealtimeSnapshot>.value(snapshot),
           ),
-          if (open != null) selectedSettingProvider.overrideWith((ref) => open),
+          if (open != null)
+            selectedSettingProvider.overrideWithBuild((ref, _) => open),
         ],
         child: MaterialApp(home: Scaffold(body: screen)),
       ),
@@ -218,7 +219,7 @@ void main() {
             realtimeProvider.overrideWith(
               (ref) => const Stream<RealtimeSnapshot>.empty(),
             ),
-            selectedTableProvider.overrideWith((ref) => table.id),
+            selectedTableProvider.overrideWithBuild((ref, _) => table.id),
           ],
           child: MaterialApp(
             home: Scaffold(body: TableEditorScreen(connection: connection())),

@@ -97,7 +97,7 @@ class SurfaceScreen extends ConsumerWidget {
             children: [
               TextButton.icon(
                 onPressed: () {
-                  ref.read(selectedTableProvider.notifier).state = tableId;
+                  ref.read(selectedTableProvider.notifier).select(tableId);
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) => Scaffold(

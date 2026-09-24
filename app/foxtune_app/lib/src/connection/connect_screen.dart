@@ -563,8 +563,7 @@ class _WithRecoveredEdits extends ConsumerWidget {
                           recovered.tune,
                         );
                         if (saved) {
-                          ref.read(recoveredEditsProvider.notifier).state =
-                              null;
+                          ref.read(recoveredEditsProvider.notifier).clear();
                         }
                       },
                       icon: const Icon(Icons.save_alt),
@@ -572,8 +571,7 @@ class _WithRecoveredEdits extends ConsumerWidget {
                     ),
                     TextButton(
                       onPressed: () =>
-                          ref.read(recoveredEditsProvider.notifier).state =
-                              null,
+                          ref.read(recoveredEditsProvider.notifier).clear(),
                       child: const Text('Discard'),
                     ),
                   ],
