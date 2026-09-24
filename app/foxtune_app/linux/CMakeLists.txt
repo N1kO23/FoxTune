@@ -7,6 +7,9 @@ project(runner LANGUAGES CXX)
 set(BINARY_NAME "foxtune_app")
 # The unique GTK application identifier for this application. See:
 # https://wiki.gnome.org/HowDoI/ChooseApplicationID
+# The runner also makes it the program name, so it is the Wayland app ID and
+# the X11 WM_CLASS too: linux/<id>.desktop is named after it, and that entry's
+# StartupWMClass must match it.
 set(APPLICATION_ID "com.foxtune.foxtune_app")
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent

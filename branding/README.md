@@ -33,20 +33,31 @@ All paths below are under `app/foxtune_app/`.
 | Where                | Files                                                                    | From                                                                                           |
 | -------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
 | Android launcher     | `android/app/src/main/res/mipmap-*`, `values/ic_launcher_background.xml` | The brand bundle's drop-in `android/res/`: legacy, round, adaptive and Android 13 themed icons |
-| Linux                | `linux/icons/hicolor/*/apps/foxtune.*`                                   | The brand bundle's pre-rendered 16-512 px set                                                  |
+| Linux                | `linux/icons/hicolor/*/apps/foxtune.*`                                   | The brand bundle's pre-rendered 16-512 px set, and a flattened SVG (see below)                 |
 | Windows              | `windows/runner/resources/app_icon.ico`                                  | The Linux 16-256 px renders, one layer each; the 256 px layer is stored as PNG                 |
 | macOS                | `macos/Runner/Assets.xcassets/AppIcon.appiconset/`                       | The Linux renders, and `icon/foxtune-icon-1024.png`                                            |
 | In the app (app bar) | `assets/branding/`                                                       | Rendered from the SVGs, see below                                                              |
 | In the app (colours) | `lib/src/branding/brand_theme.dart`                                      | The pink as the accent, on neutral surfaces                                                    |
 
-The Linux set is PNG only, with no `scalable/` SVG. KDE draws icons with Qt, whose SVG renderer
-supports only SVG Tiny: it skips nested `<svg>` elements and ignores clip paths, and every SVG
-here is built from both. As a desktop icon, KDE would draw it as a plain black square or with
-the lines in the wrong colours. Browsers and librsvg draw these SVGs correctly.
+KDE draws icons with Qt, whose SVG renderer supports only SVG Tiny: it skips nested `<svg>`
+elements and ignores clip paths, and every SVG here is built from both. As a desktop icon, KDE
+draws `icon/foxtune-icon.svg` as a plain black square, or with every line pink once the nesting
+is removed (checked with Qt 6.11). Browsers and librsvg draw these SVGs correctly. So the Linux
+set's `scalable/apps/foxtune.svg` is a flattened copy: plain filled paths, with the clip paths
+already cut into their outlines. It is made with [picosvg](https://github.com/googlefonts/picosvg);
+to regenerate it after changing the icon, from the repository root:
+
+```sh
+pipx run picosvg --output_file app/foxtune_app/linux/icons/hicolor/scalable/apps/foxtune.svg \
+  branding/icon/foxtune-icon.svg
+```
+
+Check the result in something that draws with Qt, such as Gwenview, before committing it.
 
 On Linux the build copies the icons and `linux/com.foxtune.foxtune_app.desktop` into the bundle.
 X11 gets the window icon from there directly. Wayland only shows it once the desktop entry is
-installed: `tool/install-linux-desktop.sh` does that for the current user.
+installed: `tool/install-linux-desktop.sh` does that for the current user, and AppImageLauncher
+does it for the AppImage.
 
 The app bar shows the app icon and the wordmark rather than the bare emblem, whose line art
 does not survive being drawn 36 px tall. Both are rendered at exactly their on-screen size, so

@@ -41,18 +41,34 @@ static void my_application_activate(GApplication *application)
 
   gtk_window_set_default_size(window, 1280, 720);
 
-  // The icon X11 shows in the task manager, from the bundle next to the
-  // executable. Wayland ignores it - there the icon comes from the installed
-  // .desktop entry (tool/install-linux-desktop.sh). Missing is not an error:
-  // the window just keeps a generic icon.
+  // The icons X11 shows in the task manager, from the bundle next to the
+  // executable; the window manager picks the size it needs. Wayland ignores
+  // them - there the icon comes from the installed .desktop entry
+  // (tool/install-linux-desktop.sh). Missing is not an error: the window just
+  // keeps a generic icon.
   g_autofree gchar *executable = g_file_read_link("/proc/self/exe", nullptr);
   if (executable != nullptr)
   {
     g_autofree gchar *bundle = g_path_get_dirname(executable);
-    g_autofree gchar *icon =
-        g_build_filename(bundle, "data", "icons", "hicolor", "256x256", "apps",
-                         "foxtune.png", nullptr);
-    gtk_window_set_icon_from_file(window, icon, nullptr);
+    // Not 512 px: X11 keeps the icons uncompressed on the window, and that size
+    // alone would take 1 MiB.
+    static const gchar *size_names[] = {"16x16", "24x24", "32x32",
+                                        "48x48", "64x64", "128x128",
+                                        "256x256", nullptr};
+    GList *icons = nullptr;
+    for (const gchar **size = size_names; *size != nullptr; ++size)
+    {
+      g_autofree gchar *path =
+          g_build_filename(bundle, "data", "icons", "hicolor", *size, "apps",
+                           "foxtune.png", nullptr);
+      GdkPixbuf *icon = gdk_pixbuf_new_from_file(path, nullptr);
+      if (icon != nullptr)
+      {
+        icons = g_list_append(icons, icon);
+      }
+    }
+    gtk_window_set_icon_list(window, icons);
+    g_list_free_full(icons, g_object_unref);
   }
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();

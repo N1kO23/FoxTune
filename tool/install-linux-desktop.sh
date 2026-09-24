@@ -29,9 +29,6 @@ data=${XDG_DATA_HOME:-$HOME/.local/share}
 mkdir -p "$data/icons" "$data/applications"
 
 cp -R "$bundle/data/icons/." "$data/icons/"
-# Earlier builds also shipped a scalable SVG icon, which KDE prefers and draws
-# with Qt - whose SVG renderer ignores the clip paths the artwork is built from.
-rm -f "$data/icons/hicolor/scalable/apps/foxtune.svg"
 # The shipped entry expects foxtune_app on PATH; point it at this bundle.
 sed "s|^Exec=.*|Exec=\"$bundle/foxtune_app\"|" \
   "$bundle/data/com.foxtune.foxtune_app.desktop" \

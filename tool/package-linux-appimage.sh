@@ -2,12 +2,11 @@
 # Package a Flutter Linux bundle as an AppImage.
 #
 # Usage:
-#   tool/package-linux-appimage.sh [bundle-dir] [appimagetool-path]
+#   tool/package-linux-appimage.sh [bundle-dir] [appimagetool-path] [output-dir]
 #
-# The appimagetool binary can be downloaded from the AppImageKit release page,
-# for example:
-#   curl -L -o /tmp/appimagetool.AppImage \
-#     https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+# The appimagetool binary can be downloaded from its release page, for example:
+#   curl -fL -o /tmp/appimagetool.AppImage \
+#     https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
 #   chmod +x /tmp/appimagetool.AppImage
 #   ./tool/package-linux-appimage.sh app/foxtune_app/build/linux/x64/release/bundle /tmp/appimagetool.AppImage
 set -euo pipefail
@@ -50,12 +49,13 @@ exec "$HERE/foxtune_app" "$@"
 EOF
 chmod +x "$app_dir/AppRun"
 
-# The generated desktop entry expects an icon named "foxtune" in the AppDir
-# root, while the bundle keeps PNG assets under data/icons.
-icon_src=$(find "$bundle/data/icons" -path '*/apps/foxtune.png' | sort | tail -n 1)
-if [ -n "$icon_src" ]; then
-  cp "$icon_src" "$app_dir/foxtune.png"
-fi
+# appimagetool wants the entry's icon ("foxtune") in the AppDir root, and makes
+# it the .DirIcon that file managers show. AppImageLauncher installs the icons
+# it finds under usr/share/icons - every size, and the SVG - and falls back to
+# that single .DirIcon only when there are none.
+cp "$bundle/data/icons/hicolor/512x512/apps/foxtune.png" "$app_dir/foxtune.png"
+mkdir -p "$app_dir/usr/share/icons"
+cp -R "$bundle/data/icons/." "$app_dir/usr/share/icons/"
 
 cp "$bundle/data/com.foxtune.foxtune_app.desktop" "$app_dir/com.foxtune.foxtune_app.desktop"
 

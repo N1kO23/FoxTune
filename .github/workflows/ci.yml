@@ -85,15 +85,18 @@ jobs:
       - name: Package
         run: tar -czf "foxtune-linux-x64-${GITHUB_SHA::7}.tar.gz" -C app/foxtune_app/build/linux/x64/release bundle
 
+      # This appimagetool builds with the static AppImage runtime, so the
+      # AppImage runs without libfuse2 on the user's system. Extract-and-run
+      # lets the tool itself run here without FUSE.
       - name: Install AppImage tool
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libfuse2
-          curl -L -o appimagetool.AppImage \
-            https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          curl -fL -o appimagetool.AppImage \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool.AppImage
 
       - name: Package AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: 1
         run: |
           chmod +x tool/package-linux-appimage.sh
           ./tool/package-linux-appimage.sh \
