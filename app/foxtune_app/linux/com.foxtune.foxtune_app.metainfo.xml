@@ -31,7 +31,7 @@
     <binary>foxtune</binary>
   </provides>
 
-  <developer>
+  <developer id="io.github.n1ko23">
     <name>FoxTune contributors</name>
   </developer>
   <url type="homepage">https://github.com/N1kO23/FoxTune</url>
