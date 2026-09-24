@@ -1,0 +1,29 @@
+# Dependency updates arrive as pull requests, so CI tests each one before it
+# lands. Minor and patch updates come grouped, one pull request per week for
+# each kind; a major version comes on its own, since it can need code changes.
+#
+# The Android Gradle files are left out on purpose: the build is pinned to the
+# Gradle 8 line, and every proposal to leave it would break the build. See the
+# Android section of BUILDING.md.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        update-types: [minor, patch]
+
+  # The workspace root holds the core packages' lockfile; the app and the
+  # transport package resolve on their own.
+  - package-ecosystem: pub
+    directories:
+      - /
+      - /app/foxtune_app
+      - /packages/foxtune_transport
+    schedule:
+      interval: weekly
+    groups:
+      pub:
+        update-types: [minor, patch]

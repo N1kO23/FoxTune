@@ -3,6 +3,8 @@ name: CI
 on:
   push:
     branches: [main]
+    # A release: see "Releasing" in BUILDING.md.
+    tags: ["v*"]
   pull_request:
 
 permissions:
@@ -28,6 +30,46 @@ env:
   DART_VERSION: 3.13.4
 
 jobs:
+  # Names the build: the version for a release tag, the commit otherwise. A tag
+  # is checked first - against the app's version, and for the signing key - so
+  # nothing gets built, let alone published, that could not be released.
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+    outputs:
+      label: ${{ steps.label.outputs.label }}
+    steps:
+      - uses: actions/checkout@v7
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          # All of history and its tags, to find the previous release.
+          fetch-depth: 0
+
+      - name: Check release version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: ./tool/check-release-version.sh "$GITHUB_REF_NAME"
+
+      # A release signed with the debug key could never be updated by a properly
+      # signed one - Android refuses a change of signature - so a release
+      # without the keystore stops here rather than ship.
+      - name: Require the release keystore
+        if: startsWith(github.ref, 'refs/tags/v') && env.HAS_KEYSTORE != 'true'
+        run: |
+          echo "::error::A release needs the ANDROID_KEYSTORE_BASE64 secret and its passwords."
+          exit 1
+
+      - name: Label
+        id: label
+        run: |
+          if [[ $GITHUB_REF == refs/tags/v* ]]; then
+            echo "label=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "label=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
   # The core packages carry no Flutter dependency, so they build and test with
   # a bare Dart SDK - no device, no display, no emulator. This job is the fast
   # signal and should stay that way.
@@ -43,8 +85,9 @@ jobs:
         with:
           sdk: ${{ env.DART_VERSION }}
 
+      # Every lockfile is committed, and CI builds exactly what it pins.
       - name: Resolve workspace
-        run: dart pub get
+        run: dart pub get --enforce-lockfile
 
       - name: Verify formatting
         run: dart format --output=none --set-exit-if-changed packages/foxtune_ini packages/foxtune_protocol packages/foxtune_tune
@@ -71,7 +114,7 @@ jobs:
       - name: Analyze and test transport
         working-directory: packages/foxtune_transport
         run: |
-          flutter pub get
+          flutter pub get --enforce-lockfile
           dart format --output=none --set-exit-if-changed lib test
           flutter analyze
           flutter test
@@ -79,7 +122,7 @@ jobs:
       - name: Analyze and test app
         working-directory: app/foxtune_app
         run: |
-          flutter pub get
+          flutter pub get --enforce-lockfile
           dart format --output=none --set-exit-if-changed lib test integration_test test_driver
           flutter analyze
           flutter test
@@ -92,6 +135,9 @@ jobs:
     # below enforces the floor.
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    needs: version
+    env:
+      LABEL: ${{ needs.version.outputs.label }}
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
@@ -109,14 +155,14 @@ jobs:
       - name: Build
         working-directory: app/foxtune_app
         run: |
-          flutter pub get
+          flutter pub get --enforce-lockfile
           flutter build linux --release
 
       - name: Check glibc floor
         run: ./tool/check-linux-glibc.sh app/foxtune_app/build/linux/x64/release/bundle
 
       - name: Package
-        run: tar -czf "foxtune-linux-x64-${GITHUB_SHA::7}.tar.gz" -C app/foxtune_app/build/linux/x64/release bundle
+        run: tar -czf "foxtune-linux-x64-$LABEL.tar.gz" -C app/foxtune_app/build/linux/x64/release bundle
 
       # This appimagetool builds with the static AppImage runtime, so the
       # AppImage runs without libfuse2 on the user's system. Extract-and-run
@@ -141,6 +187,7 @@ jobs:
         env:
           APPIMAGE_EXTRACT_AND_RUN: 1
           APPIMAGE_RUNTIME: ${{ github.workspace }}/appimage-runtime
+          APPIMAGE_LABEL: ${{ env.LABEL }}
         run: |
           ./tool/package-linux-appimage.sh \
             app/foxtune_app/build/linux/x64/release/bundle \
@@ -169,6 +216,9 @@ jobs:
     name: Build Windows desktop
     runs-on: windows-latest
     timeout-minutes: 30
+    needs: version
+    env:
+      LABEL: ${{ needs.version.outputs.label }}
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
@@ -181,7 +231,7 @@ jobs:
       - name: Build
         working-directory: app/foxtune_app
         run: |
-          flutter pub get
+          flutter pub get --enforce-lockfile
           flutter build windows --release
 
       # Flutter does not ship the MSVC runtime, so without these three DLLs a
@@ -194,8 +244,7 @@ jobs:
           foreach ($dll in "msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll") {
             Copy-Item "$env:SystemRoot\System32\$dll" $release
           }
-          $sha = $env:GITHUB_SHA.Substring(0, 7)
-          Compress-Archive -Path "$release/*" -DestinationPath "foxtune-windows-x64-$sha.zip"
+          Compress-Archive -Path "$release/*" -DestinationPath "foxtune-windows-x64-$env:LABEL.zip"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -209,8 +258,10 @@ jobs:
     name: Build Android APK
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    needs: version
     env:
       HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+      LABEL: ${{ needs.version.outputs.label }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
@@ -240,9 +291,9 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          flutter pub get
+          flutter pub get --enforce-lockfile
           flutter build apk --release --target-platform android-arm64
-          mv build/app/outputs/flutter-apk/app-release.apk "build/foxtune-${GITHUB_SHA::7}.apk"
+          mv build/app/outputs/flutter-apk/app-release.apk "build/foxtune-android-arm64-$LABEL.apk"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -252,3 +303,39 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  # Only for a release tag, and only once everything above has passed. The
+  # artifacts and their checksums become a draft release, to be looked over
+  # and published by hand.
+  release:
+    name: Draft release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [version, core, flutter, build-linux, build-windows, build-android]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: downloads
+          merge-multiple: true
+
+      - name: Checksums
+        run: |
+          mkdir release
+          find downloads -type f -exec mv -t release {} +
+          cd release
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: FoxTune ${{ needs.version.outputs.label }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --draft \
+            --title "$TITLE" \
+            --generate-notes

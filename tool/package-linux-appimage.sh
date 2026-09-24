@@ -14,6 +14,10 @@
 # the user's machine - and unless told otherwise downloads it afresh from a
 # floating "continuous" release. Set APPIMAGE_RUNTIME to a runtime file to use
 # that one instead; CI does, with a pinned and checksummed release.
+#
+# The AppImage is named foxtune-linux-x64-<label>.AppImage. The label is
+# APPIMAGE_LABEL if set - CI sets the version for a release - and otherwise
+# the commit.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -39,8 +43,8 @@ fi
 bundle=$(cd "$bundle" && pwd)
 output_dir=$(mkdir -p "$output_dir" && cd "$output_dir" && pwd)
 app_dir="$output_dir/AppDir"
-sha=$(git -C "$root" rev-parse --short HEAD 2>/dev/null || echo "local")
-appimage_path="$output_dir/foxtune-linux-x64-${sha}.AppImage"
+label=${APPIMAGE_LABEL:-$(git -C "$root" rev-parse --short HEAD 2>/dev/null || echo "local")}
+appimage_path="$output_dir/foxtune-linux-x64-${label}.AppImage"
 
 rm -rf "$app_dir"
 mkdir -p "$app_dir"

@@ -2,7 +2,8 @@
 .dart_tool/
 .packages
 build/
-pubspec.lock
+# pubspec.lock is committed, not ignored: CI builds and releases exactly the
+# dependency versions it pins. See "Dependencies" in BUILDING.md.
 *.dill
 doc/api/
 

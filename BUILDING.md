@@ -327,6 +327,38 @@ export ANDROID_KEYSTORE_PASSWORD=... ANDROID_KEY_ALIAS=... ANDROID_KEY_PASSWORD=
 flutter build apk --release
 ```
 
+## Releasing
+
+A release is a tag. Its version comes from `app/foxtune_app/pubspec.yaml`, where
+`version: 1.2.0+7` means version 1.2.0, build number 7:
+
+```sh
+# Set the version in app/foxtune_app/pubspec.yaml and commit it, then:
+./tool/check-release-version.sh v1.2.0   # the same check CI makes
+git tag v1.2.0
+git push origin v1.2.0
+```
+
+The tag runs all of CI, tests included, and then drafts a GitHub release carrying the Linux
+tarball and AppImage, the Windows zip, the signed APK and a `SHA256SUMS` file. Nothing is public
+until you look the draft over and publish it from the releases page.
+
+Before anything is built, the tag is checked against the pubspec:
+
+- **The tag must match the version:** `v1.2.0` for `version: 1.2.0+7`.
+- **The build number must be higher than the last release's.** It is Android's version code, and
+  Android will not install a build over one with a higher code. Once a release is installed, a
+  lower number cannot follow it.
+
+A release also refuses to build without the signing keystore secrets: an APK signed with the
+debug key could never be updated by a properly signed one.
+
+To redo a failed release, delete the tag and any draft it left, then tag again:
+
+```sh
+git push --delete origin v1.2.0 && git tag -d v1.2.0
+```
+
 ## Measuring dashboard performance
 
 Judge smoothness in a profile or release build, never in a plain `flutter run`: debug builds
@@ -356,17 +388,40 @@ Two rules keep it low, and the benchmark shows it when either is broken:
 - **A dashboard gauge watches only what it shows** (`realtimeProvider.select`), so a lamp that
   holds its state and the page around it are not rebuilt per sample.
 
+## Dependencies
+
+Every `pubspec.lock` is committed - the workspace root's, the app's and the transport package's -
+and CI resolves with `--enforce-lockfile`. It builds exactly the versions they pin, and fails if a
+pubspec asks for something they do not, so updating is always a change you commit:
+
+```sh
+dart pub upgrade                                       # from the root: the core packages
+(cd app/foxtune_app && flutter pub upgrade)
+(cd packages/foxtune_transport && flutter pub upgrade)
+```
+
+The app and the transport package resolve the core packages' dependencies too. After changing a
+core package's pubspec, run `flutter pub get` in both and commit their lockfiles along with the
+root's; CI points out one that was missed.
+
+Dependabot proposes updates weekly as pull requests (`.github/dependabot.yml`): minor and patch
+updates grouped, each major version on its own, since that can need code changes. It leaves the
+Android Gradle files alone; see the Android section for why.
+
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs five jobs:
+`.github/workflows/ci.yml` runs on every push to `main`, every pull request, and every release
+tag:
 
 | Job             | What it proves                                                                             |
 | --------------- | ------------------------------------------------------------------------------------------ |
+| `version`       | Names the build; for a release tag, first checks the tag against the app's version         |
 | `core`          | The pure-Dart packages analyze, format and test with a bare Dart SDK                       |
 | `flutter`       | The transport package and app analyze and are formatted, and their tests pass              |
 | `build-linux`   | The desktop app links and starts on glibc 2.35+, and publishes a `.tar.gz` and an AppImage |
 | `build-windows` | The Windows app links, and publishes a `.zip` that carries the MSVC runtime                |
 | `build-android` | The APK compiles, is signed, and publishes an artifact                                     |
+| `release`       | Release tags only: drafts a GitHub release from the artifacts, with `SHA256SUMS`           |
 
 The `core` job is the fast signal and should stay that way: it needs no device, display or
 emulator. It runs on the Dart SDK that the pinned Flutter ships (`DART_VERSION` in the
