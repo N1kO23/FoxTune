@@ -39,20 +39,29 @@ if [ "$tag" != "v$name" ]; then
   exit 1
 fi
 
-# The newest other release tag the tagged commit builds on.
+# The highest build number of the release tags the tagged commit builds on. A
+# tag whose pubspec does not match it could never have passed this check, so
+# it was never released - a botched tag left behind - and does not count.
 ref=$tag
 git -C "$root" rev-parse -q --verify "$tag^{commit}" > /dev/null || ref=HEAD
-previous=$(git -C "$root" describe --tags --abbrev=0 --match 'v*' \
-  --exclude "$tag" "$ref" 2> /dev/null || true)
-
-if [ -n "$previous" ]; then
-  previous_version=$(git -C "$root" show "$previous:$pubspec" | version_of)
-  previous_build=${previous_version##*+}
-  if [[ $previous_build =~ ^[0-9]+$ ]] && [ "$build" -le "$previous_build" ]; then
-    echo "Build number $build is not above $previous_build, which $previous shipped with." >&2
-    echo "Each release needs a higher one; raise the number after the + in $pubspec." >&2
-    exit 1
+previous=""
+previous_build=0
+while read -r other; do
+  [ "$other" != "$tag" ] || continue
+  other_version=$(git -C "$root" show "$other:$pubspec" 2> /dev/null | version_of || true)
+  [[ $other_version =~ ^([0-9]+\.[0-9]+\.[0-9]+[^+]*)\+([0-9]+)$ ]] || continue
+  [ "$other" = "v${BASH_REMATCH[1]}" ] || continue
+  if [ -z "$previous" ] || [ "${BASH_REMATCH[2]}" -gt "$previous_build" ]; then
+    previous=$other
+    previous_build=${BASH_REMATCH[2]}
   fi
+done < <(git -C "$root" tag --merged "$ref" --list 'v*')
+
+if [ -n "$previous" ] && [ "$build" -le "$previous_build" ]; then
+  echo "Build number $build is not above $previous_build, which $previous was tagged with." >&2
+  echo "Each release needs a higher one; raise the number after the + in $pubspec." >&2
+  echo "If $previous never became a release, delete that tag instead." >&2
+  exit 1
 fi
 
 echo "Releasing $name, build $build${previous:+, after $previous}."
