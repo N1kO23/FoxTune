@@ -94,7 +94,10 @@ jobs:
             echo "::error::aur.archlinux.org's host key is not the one the AUR publishes."
             exit 1
           fi
-          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/aur -o IdentitiesOnly=yes"
+          # Named outright: in a container job HOME is /github/home, but ssh
+          # looks for its files in root's home from the system's user database.
+          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/aur -o IdentitiesOnly=yes \
+            -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o StrictHostKeyChecking=yes"
           # The first push creates the package.
           git clone ssh://aur@aur.archlinux.org/foxtune-bin.git aur-repo
           cp aur/PKGBUILD aur/.SRCINFO aur-repo/
