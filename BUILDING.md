@@ -126,10 +126,13 @@ flutter build linux                 # from app/foxtune_app
 ../../tool/install-linux-desktop.sh # or pass another bundle directory
 ```
 
+The release tarball carries the same script: run `./install-linux-desktop.sh` from the `foxtune/`
+directory it unpacks to.
+
 Start FoxTune from that entry: the application menu, KRunner or a pinned task. KDE's System
 Monitor names an application after whatever launched it, so a FoxTune started by double-clicking
-`foxtune_app` shows up there as the executable's path, and one started from a terminal shows up
-under the terminal.
+the `foxtune` executable shows up there as the executable's path, and one started from a terminal
+shows up under the terminal.
 
 The AppImage needs its entry installed too, for example by AppImageLauncher. That renames the
 entry, so Plasma falls back to the entry's `StartupWMClass` to match FoxTune's window to it -

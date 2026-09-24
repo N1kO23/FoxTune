@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.foxtune" "\0"
-            VALUE "FileDescription", "foxtune_app" "\0"
+            VALUE "CompanyName", "FoxTune contributors" "\0"
+            VALUE "FileDescription", "FoxTune" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "foxtune_app" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.foxtune. All rights reserved." "\0"
-            VALUE "OriginalFilename", "foxtune_app.exe" "\0"
-            VALUE "ProductName", "foxtune_app" "\0"
+            VALUE "InternalName", "FoxTune" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 FoxTune contributors. Licensed under the GNU GPL v3." "\0"
+            VALUE "OriginalFilename", "FoxTune.exe" "\0"
+            VALUE "ProductName", "FoxTune" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

@@ -398,7 +398,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.foxtune.foxtuneApp.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/foxtune_app.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/foxtune_app";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/FoxTune.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/FoxTune";
 			};
 			name = Debug;
 		};
@@ -412,7 +412,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.foxtune.foxtuneApp.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/foxtune_app.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/foxtune_app";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/FoxTune.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/FoxTune";
 			};
 			name = Release;
 		};
@@ -426,7 +426,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.foxtune.foxtuneApp.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/foxtune_app.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/foxtune_app";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/FoxTune.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/FoxTune";
 			};
 			name = Profile;
 		};

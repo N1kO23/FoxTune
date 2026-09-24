@@ -19,7 +19,7 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 bundle=${1:-"$root/app/foxtune_app/build/linux/x64/release/bundle"}
 max=${2:-2.35}
 
-if [ ! -x "$bundle/foxtune_app" ]; then
+if [ ! -x "$bundle/foxtune" ]; then
   echo "No FoxTune build in $bundle - run 'flutter build linux' first." >&2
   exit 1
 fi
@@ -34,7 +34,7 @@ while IFS= read -r -d '' file; do
     echo "${file#"$bundle"/} needs glibc $needed, newer than $max" >&2
     status=1
   fi
-done < <(find "$bundle" -type f \( -name foxtune_app -o -name '*.so' \) -print0)
+done < <(find "$bundle" -type f \( -name foxtune -o -name '*.so' \) -print0)
 
 if [ "$status" -eq 0 ]; then
   echo "The bundle runs on glibc $max and newer."
