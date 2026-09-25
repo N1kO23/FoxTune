@@ -7,6 +7,7 @@ import 'model/fields.dart';
 import 'model/sections.dart';
 import 'preprocessor.dart';
 import 'tokenizer.dart';
+import 'tools_sections.dart';
 import 'ui_sections.dart';
 
 /// Parses a TunerStudio ECU definition into an [IniDocument].
@@ -259,6 +260,9 @@ class IniParser {
       veAnalyze: analyzeCollector.result,
       gauges: gaugeCollector.gauges,
       frontPage: frontPageCollector.frontPage,
+      // Kept raw as well, as they always were.
+      loggers: parseLoggers(rawSections['LoggerDefinition'] ?? const []),
+      referenceTables: parseReferenceTables(rawSections['ReferenceTables']),
       settingHelp: settingHelp,
       defaultValues: defaultValues,
       requiresPowerCycle: requiresPowerCycle,

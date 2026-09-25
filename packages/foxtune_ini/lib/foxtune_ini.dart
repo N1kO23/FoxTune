@@ -26,6 +26,7 @@ export 'src/model/fields.dart';
 export 'src/model/gauges.dart';
 export 'src/model/menus.dart';
 export 'src/model/sections.dart';
+export 'src/model/tools.dart';
 export 'src/parser.dart';
 export 'src/preprocessor.dart'
     show IniPreprocessor, PreprocessResult, SourceLine;

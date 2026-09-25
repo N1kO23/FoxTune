@@ -43,9 +43,34 @@ abstract final class SpeeduinoCommand {
   /// Template: `d%2i`.
   static const int pageCrc = 0x64; // 'd'
 
-  /// CRC-32 of a byte range within a page. Template: `k\$tsCanId%2i%2o%2c`.
-  /// Only available when the firmware is in "new mode".
+  /// CRC-32 of a sensor calibration table, as last saved: `k`, the CAN id
+  /// and the table's number. Not a page command - [pageCrc] is that.
   static const int tableCrc = 0x6B; // 'k'
+
+  /// Writes part of a sensor calibration table, which the ECU saves as it
+  /// arrives: `t`, the CAN id, the table's number, then offset and length
+  /// high byte first, then the data.
+  static const int tableWrite = 0x74; // 't'
+
+  /// Start and stop the tooth logger.
+  static const int toothLoggerStart = 0x48; // 'H'
+  static const int toothLoggerStop = 0x68; // 'h'
+
+  /// Start and stop the composite logger: crank and first cam.
+  static const int compositeLoggerStart = 0x4A; // 'J'
+  static const int compositeLoggerStop = 0x6A; // 'j'
+
+  /// Start and stop the composite logger with the second cam.
+  static const int compositeLogger2Start = 0x4F; // 'O'
+  static const int compositeLogger2Stop = 0x6F; // 'o'
+
+  /// Start and stop the composite logger of both cams.
+  static const int compositeLogger3Start = 0x58; // 'X'
+  static const int compositeLogger3Stop = 0x78; // 'x'
+
+  /// Reads whichever log is running: 127 records, padded if it has not
+  /// filled.
+  static const int loggerRead = 0x54; // 'T'
 
   /// New-generation realtime data. Template: `r\$tsCanId\x30%2o%2c`.
   /// The field layout comes from `[OutputChannels]`, never from fixed offsets.

@@ -47,8 +47,9 @@ class IniMenuItem {
   /// Whether the target is one of TunerStudio's own built-in editors.
   ///
   /// These are sensor-calibration wizards and an SD-card browser that live in
-  /// TunerStudio rather than in the definition, so there is nothing here to
-  /// generate a screen from.
+  /// TunerStudio rather than in the definition. Of those, the definition
+  /// describes only what the calibrations are made from, in
+  /// `[ReferenceTables]`.
   bool get isBuiltIn => target.startsWith('std_') && !isSeparator;
 
   /// [label] with the `&` accelerator marker removed.

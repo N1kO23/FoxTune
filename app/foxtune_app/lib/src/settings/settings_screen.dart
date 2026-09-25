@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:foxtune_ini/foxtune_ini.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
 
+import '../calibration/sensor_calibration_panel.dart';
+import '../calibration/tps_calibration_panel.dart';
 import '../connection/connection_state.dart';
 import '../dashboard/dashboard_controller.dart';
 import '../dashboard/gauge_status.dart';
@@ -140,9 +142,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   String _titleFor(String target) {
     final definition = widget.connection.definition!;
+    if (target == TpsCalibrationPanel.target) return TpsCalibrationPanel.title;
     return definition.dialogNamed(target)?.title.ifNotEmpty ??
         definition.tableNamed(target)?.title ??
         definition.curveNamed(target)?.title ??
+        definition.referenceTables?.tableNamed(target)?.label ??
         target;
   }
 }
@@ -260,7 +264,13 @@ class _MenuList extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 16),
             children: [
               for (final menu in scope.definition.menus)
-                ..._menuSection(context, menu, searching, needle),
+                ..._menuSection(
+                  context,
+                  menu,
+                  searching,
+                  needle,
+                  withTps: identical(menu, _tpsMenu),
+                ),
             ],
           ),
         ),
@@ -268,34 +278,64 @@ class _MenuList extends StatelessWidget {
     );
   }
 
+  /// The menu FoxTune's own throttle calibration goes in: the one holding
+  /// the definition's sensor calibrations, as TunerStudio's Tools menu does,
+  /// or else one called Tools.
+  IniMenu? get _tpsMenu {
+    final definition = scope.definition;
+    if (!TpsCalibrationPanel.availableFor(definition)) return null;
+    final tables = definition.referenceTables;
+    return definition.menus.where((menu) {
+          return menu.leaves.any((i) => tables?.tableNamed(i.target) != null);
+        }).firstOrNull ??
+        definition.menus
+            .where((menu) => menu.displayLabel.trim().toLowerCase() == 'tools')
+            .firstOrNull;
+  }
+
+  bool _isCalibration(String target) =>
+      target == TpsCalibrationPanel.target ||
+      scope.definition.referenceTables?.tableNamed(target) != null;
+
   List<Widget> _menuSection(
     BuildContext context,
     IniMenu menu,
     bool searching,
-    String needle,
-  ) {
+    String needle, {
+    bool withTps = false,
+  }) {
     final entries = <Widget>[];
 
-    void addLeaf(IniMenuItem item, {int indent = 0}) {
+    /// Where the last sensor calibration went, for the throttle's to follow.
+    int? afterCalibrations;
+
+    Widget? leaf(IniMenuItem item, {int indent = 0}) {
       // A menu entry whose condition is false describes hardware that is not
       // fitted or a mode that is not selected, so it is not offered - the
       // same as TunerStudio.
-      if (!scope.test(item.condition)) return;
+      if (!scope.test(item.condition)) return null;
       final label = item.displayLabel.isEmpty ? item.target : item.displayLabel;
-      if (searching && !label.toLowerCase().contains(needle)) return;
+      if (searching && !label.toLowerCase().contains(needle)) return null;
 
-      entries.add(
-        ListTile(
-          dense: true,
-          selected: selected == item.target,
-          contentPadding: EdgeInsets.only(left: 16.0 + indent * 14, right: 12),
-          title: Text(label, overflow: TextOverflow.ellipsis),
-          trailing: item.isBuiltIn
-              ? const Icon(Icons.block, size: 15)
-              : _kindIcon(item.target),
-          onTap: () => onSelect(item.target),
-        ),
+      return ListTile(
+        dense: true,
+        selected: selected == item.target,
+        contentPadding: EdgeInsets.only(left: 16.0 + indent * 14, right: 12),
+        title: Text(label, overflow: TextOverflow.ellipsis),
+        trailing: _isCalibration(item.target)
+            ? const Icon(Icons.sensors, size: 15)
+            : item.isBuiltIn
+            ? const Icon(Icons.block, size: 15)
+            : _kindIcon(item.target),
+        onTap: () => onSelect(item.target),
       );
+    }
+
+    void addLeaf(IniMenuItem item, {int indent = 0}) {
+      final tile = leaf(item, indent: indent);
+      if (tile == null) return;
+      entries.add(tile);
+      if (_isCalibration(item.target)) afterCalibrations = entries.length;
     }
 
     for (final item in menu.items) {
@@ -334,6 +374,16 @@ class _MenuList extends StatelessWidget {
         continue;
       }
       addLeaf(item);
+    }
+
+    if (withTps) {
+      final tps = leaf(
+        const IniMenuItem(
+          target: TpsCalibrationPanel.target,
+          label: TpsCalibrationPanel.title,
+        ),
+      );
+      if (tps != null) entries.insert(afterCalibrations ?? entries.length, tps);
     }
 
     if (entries.isEmpty) return const [];
@@ -394,6 +444,16 @@ class SettingDetail extends ConsumerWidget {
     final baseline = ref.watch(tuneBaselineProvider);
 
     void edited() => ref.read(tuneProvider.notifier).notifyEdited();
+
+    if (target == TpsCalibrationPanel.target) {
+      return _ToolPane(
+        child: TpsCalibrationPanel(
+          scope: scope,
+          editable: editable,
+          onEdit: edited,
+        ),
+      );
+    }
 
     void openTable(String tableId, {bool asSurface = false}) {
       final title = definition.tableNamed(tableId)?.title ?? tableId;
@@ -478,18 +538,48 @@ class SettingDetail extends ConsumerWidget {
         );
 
       case IniTargetKind.builtIn:
+        final reference = definition.referenceTables?.tableNamed(target);
+        if (reference != null) {
+          return _ToolPane(
+            child: SensorCalibrationPanel(
+              // One per table: its choices are the table's own.
+              key: ValueKey(target),
+              reference: reference,
+              connection: connection,
+            ),
+          );
+        }
         return const _Message(
           text:
-              'This is one of TunerStudio\'s own editors - a sensor '
-              'calibration wizard or the SD card browser. It lives in '
-              'TunerStudio rather than in the ECU definition, so there is '
-              'nothing here to generate a screen from.',
+              'This is one of TunerStudio\'s own tools, such as its SD card '
+              'browser. It lives in TunerStudio rather than in the ECU '
+              'definition, so there is nothing here to generate a screen '
+              'from.',
         );
 
       case IniTargetKind.unknown:
         return _Message(text: 'The definition does not describe "$target".');
     }
   }
+}
+
+/// A calibration tool, scrolled and kept to a readable width.
+class _ToolPane extends StatelessWidget {
+  const _ToolPane({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => SingleChildScrollView(
+    padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+    child: Align(
+      alignment: Alignment.topLeft,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 680),
+        child: child,
+      ),
+    ),
+  );
 }
 
 class _OpenTablePane extends StatelessWidget {

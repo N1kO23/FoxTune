@@ -4,6 +4,7 @@ import 'fields.dart';
 import 'gauges.dart';
 import 'menus.dart';
 import 'sections.dart';
+import 'tools.dart';
 
 /// Identification block from `[MegaTune]` and `[TunerStudio]`.
 ///
@@ -106,6 +107,8 @@ class IniDocument {
     this.veAnalyze,
     this.gauges = const [],
     this.frontPage = const IniFrontPage(),
+    this.loggers = const [],
+    this.referenceTables,
   });
 
   /// Signature and version information.
@@ -172,6 +175,13 @@ class IniDocument {
 
   /// The default dashboard, from `[FrontPage]`.
   final IniFrontPage frontPage;
+
+  /// The high-speed loggers the ECU offers, from `[LoggerDefinition]`.
+  final List<IniLogger> loggers;
+
+  /// The sensor calibrations and how they are sent, from
+  /// `[ReferenceTables]`; `null` where the definition has none.
+  final IniReferenceTables? referenceTables;
 
   /// Looks up a gauge by name.
   IniGauge? gaugeNamed(String name) {

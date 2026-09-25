@@ -95,6 +95,8 @@ added without disturbing anything above it.
 | **Tables**        | Editable grid with keyboard navigation, interpolate, smooth, scale                                                                                 |
 | **Settings**      | Trigger setup, engine constants, ASE, WUE and the rest - screens generated from the definition's `[Menu]` and `[UserDefined]`, not hand-written    |
 | **Curves**        | Editable point list and plot, with the live operating point marked                                                                                 |
+| **Calibration**   | Coolant, air and O2 sensor tables made from the definition's own choices, checked by the ECU's checksum; TPS from the sensor                       |
+| **Trigger logs**  | Tooth and composite loggers from `[LoggerDefinition]`: tooth times as bars with the gap picked out, edges as traces, CSV                           |
 | **Autotune**      | VE table tuned against the AFR/lambda target from live wideband data, filtered by the definition's own `[VeAnalyze]` rules                         |
 | **Live position** | The operating cell ringed, the four interpolation neighbours marked, and a dot at the exact interpolated point - in the grid and on the 3D surface |
 | **3D surface**    | Orbitable isometric mesh, no GL dependency                                                                                                         |
@@ -102,10 +104,10 @@ added without disturbing anything above it.
 | **Tune files**    | `.msq` read and write, matched by name                                                                                                             |
 | **Logging**       | MegaLogViewer-compatible `.msl`, columns from `[Datalog]`                                                                                          |
 
-Not yet: autotuning on rusEFI, rusEFI's bench tests, Lua and trigger loggers, replaying a
-recorded `.msl` log into the autotuner, warmup autotuning, `commandButton` actions such as sensor
-calibration, TunerStudio's own built-in dialogs, and the `string` PC variables used for
-auxiliary-channel aliases.
+Not yet: autotuning on rusEFI, rusEFI's bench tests and Lua, a sensor calibration from an `.inc`
+file, replaying a recorded `.msl` log into the autotuner, warmup autotuning, `commandButton`
+actions, TunerStudio's SD card browser, and the `string` PC variables used for auxiliary-channel
+aliases.
 
 ## Building
 
@@ -253,8 +255,9 @@ simulated Speeduino had copied the mistake, which is why no test caught it.
 verified, burned, read back after reconnecting, and restored. The simulator answers every
 request about 40 ms late, whoever asks, so live data from it runs at about 7 samples a second;
 that is the simulator, not the link. Not yet: a rusEFI board, autotuning (its `[VeAnalyze]`
-rules have not been checked, so it is not offered), and rusEFI's bench tests, Lua and trigger
-loggers.
+rules have not been checked, so it is not offered), rusEFI's bench tests and Lua, and running
+its trigger loggers - they are offered, decoded from its definition, but have not been run
+against its simulator.
 
 ## Computed channels
 
@@ -382,15 +385,68 @@ deliberately left out.
 Some things are deliberately left out. `commandButton` entries render disabled: they fire
 actions at the ECU, several of which start a calibration, and shipping an untested write path
 to hardware is not worth the completeness. The same goes for the real-time clock panel
-(`std_ms3Rtc`), whose one job is sending the ECU a new time. TunerStudio's own menu-level editors
-
-- the sensor calibration wizards and the SD card browser - live in TunerStudio rather than in
-  the definition, so there is nothing here to generate a screen from.
+(`std_ms3Rtc`), whose one job is sending the ECU a new time, and TunerStudio's SD card browser.
+TunerStudio's sensor calibration wizards are FoxTune's own - see
+[Sensor calibration](#sensor-calibration).
 
 Gauge limits and a few similar values are `[PcVariables]`: they live on the tuning computer
 rather than on the ECU, are seeded from the definition's factory values, and are marked as such
 in the UI. They are not burned; FoxTune keeps them on the device between sessions, per ECU family,
 so a firmware update does not reset them.
+
+## Sensor calibration
+
+Speeduino keeps its coolant, air temperature and O2 sensor calibrations outside its pages, as
+tables TunerStudio makes with wizards of its own. The definition's `[ReferenceTables]` says what
+they can be made from, and FoxTune's Tools menu offers the same choices:
+
+- **Temperature sensors**: a thermistor the definition lists (GM, Bosch, Ford...) or three points
+  of your own, fitted with the Steinhart-Hart equation. The table is 32 values from 0 V to 5 V,
+  in tenths of a degree Fahrenheit, as the firmware expects. Values outside the definition's
+  limits - an open or shorted sensor - hold its fallback instead, as TunerStudio does.
+- **The O2 sensor**: a wideband controller's formula from the definition, or a straight line
+  through two points of your own - 1024 values of AFR. A formula that reads its table from an
+  `.inc` file is shown but cannot be chosen yet.
+- **The throttle position sensor**: `tpsMin` and `tpsMax`, the closed and wide-open readings,
+  each taken from the live reading or typed in. TunerStudio offers this without the definition
+  describing it, so FoxTune adds it to the same menu. These are ordinary changes to the tune,
+  and are burned with it.
+
+The ECU saves a calibration the moment it arrives - there is no burn step - so sending one
+needs write mode and is confirmed first. It is sent as the firmware reads it (`comms.cpp`), not
+by rendering the definition's `tableWriteCommand`, whose `%2i` and byte order do not match what
+the firmware takes. It goes in pieces of the definition's `tableBlockingFactor` exactly: up to
+202305, the firmware saves the O2 table only when the piece that starts where its own chunking
+puts the last one arrives. Afterwards the ECU is asked for the CRC-32 it keeps of what it saved,
+and that is compared with the table sent. The same checksum tells which of the choices the ECU
+has now. Speeduino before 202501 kept a broken checksum for the O2 table, so there it is sent
+without that check.
+
+Calibrations are sent only to a Speeduino: another ECU with `[ReferenceTables]` lays the command
+out differently, and it has not been tried.
+
+## Trigger logs
+
+The Triggers tab runs the ECU's own tooth and composite loggers, as `[LoggerDefinition]`
+describes them, to show what the ECU sees of the trigger wheel. A tooth log is the time from
+each tooth to the next, drawn as bars: on a missing-tooth wheel the gap should be the one tall
+bar, once a turn. A composite log is every edge on the trigger inputs, drawn as a trace per
+input, which shows where the cam falls against the crank.
+
+The commands, the flag that says a capture is ready, and the layout of each record all come
+from the definition. A record is read as one big-endian number with bit 0 the lowest bit of its
+last byte - how both Speeduino and rusEFI lay them out. FoxTune watches the ready flag in the
+live data it already polls, and reads each capture once it is set; after the definition's
+timeout it reads what there is, which from an engine that is not turning is nothing. Speeduino
+pads a capture it has not filled, and the padding is left out. A capture can be saved as CSV.
+
+A logger runs until stopped, and stops when you leave the tab or disconnect: Speeduino's takes
+over the trigger inputs' interrupts while it runs, so it is not left running.
+
+**How far they have been tested.** Both, against the simulated Speeduino, which keeps
+calibrations as the firmware does and runs its loggers on a simulated 36-1 wheel. Not yet: a
+real Speeduino, and rusEFI's loggers, which are decoded from its definition but have not been
+run against its simulator.
 
 ## Autotuning
 
@@ -443,7 +499,7 @@ The definition computes `coolant` and `iat` with _different expressions_ dependi
 it is parsed with `CELSIUS` defined. That makes the scale a parsing decision, not a display
 one: choosing it wrong does not mislabel a number, it produces a different number. FoxTune
 ties the choice, the parse and the gauge thresholds to a single `TemperatureUnit` so they
-cannot drift apart. It defaults to Celsius and is not yet exposed in the UI.
+cannot drift apart. It defaults to Celsius, and is chosen in App settings.
 
 ## Safety
 
@@ -462,6 +518,9 @@ has to _earn_:
 5. **Bounded when automatic.** Autotuning moves a cell by a small step at a time and never
    further from where it started than the session limit, refuses to run on a sensor that cannot
    measure what it needs, and still cannot reach the ECU without a burn.
+6. **Confirmed when there is no burn.** A sensor calibration is saved by the ECU the moment it
+   arrives. Sending one needs write mode as well, is confirmed first, and is checked against
+   the checksum the ECU keeps of what it saved.
 
 ## License
 

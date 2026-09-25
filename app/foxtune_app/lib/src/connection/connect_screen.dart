@@ -18,6 +18,8 @@ import '../definitions/choose_definition.dart';
 import '../definitions/definition_library.dart';
 import '../definitions/definitions_screen.dart';
 import '../logging/log_controller.dart';
+import '../loggers/trigger_logger_controller.dart';
+import '../loggers/trigger_logger_screen.dart';
 import '../settings/settings_screen.dart';
 import '../tune/msq_actions.dart';
 import '../tune/recovered_edits.dart';
@@ -520,6 +522,9 @@ Future<bool> confirmDisconnect(BuildContext context, WidgetRef ref) async {
     );
     if (proceed != true) return false;
   }
+  // Stopped while the link is still there to tell the ECU: Speeduino's
+  // logger stands in for its trigger interrupts until it is told to stop.
+  await ref.read(triggerLoggerProvider.notifier).stop();
   await ref.read(connectionProvider.notifier).disconnect();
   return true;
 }
@@ -778,7 +783,7 @@ class _AddressDialogState extends State<_AddressDialog> {
   );
 }
 
-/// Dashboard and table editor, once connected.
+/// Dashboard, tables, settings and the rest, once connected.
 class _ConnectedShell extends ConsumerStatefulWidget {
   const _ConnectedShell({required this.connection});
 
@@ -807,47 +812,66 @@ class _ConnectedShellState extends ConsumerState<_ConnectedShell> {
     ref.listenManual(logSessionProvider, (_, _) {});
   }
 
+  /// Where the trigger logger's tab is, when the definition has loggers.
+  static const _triggersTab = 4;
+
   @override
   Widget build(BuildContext context) {
+    final triggers = triggerLoggersOf(widget.connection.definition).isNotEmpty;
     final pages = [
       DashboardScreen(connection: widget.connection),
       TableEditorScreen(connection: widget.connection),
       SettingsScreen(connection: widget.connection),
       AutotuneScreen(connection: widget.connection),
+      if (triggers) TriggerLoggerScreen(connection: widget.connection),
     ];
+    final index = _index < pages.length ? _index : 0;
 
     return Column(
       children: [
         Expanded(
           // Kept alive so switching tabs does not restart polling or discard
           // an in-progress edit.
-          child: IndexedStack(index: _index, children: pages),
+          child: IndexedStack(index: index, children: pages),
         ),
         NavigationBar(
-          selectedIndex: _index,
+          selectedIndex: index,
           height: 60,
-          onDestinationSelected: (i) => setState(() => _index = i),
-          destinations: const [
-            NavigationDestination(
+          onDestinationSelected: (i) {
+            // A running logger shares the link with the live data, so it
+            // does not carry on unseen.
+            if (index == _triggersTab && i != _triggersTab) {
+              ref.read(triggerLoggerProvider.notifier).stop();
+            }
+            setState(() => _index = i);
+          },
+          destinations: [
+            const NavigationDestination(
               icon: Icon(Icons.speed_outlined),
               selectedIcon: Icon(Icons.speed),
               label: 'Dashboard',
             ),
-            NavigationDestination(
+            const NavigationDestination(
               icon: Icon(Icons.grid_on_outlined),
               selectedIcon: Icon(Icons.grid_on),
               label: 'Tables',
             ),
-            NavigationDestination(
+            const NavigationDestination(
               icon: Icon(Icons.tune_outlined),
               selectedIcon: Icon(Icons.tune),
               label: 'Settings',
             ),
-            NavigationDestination(
+            const NavigationDestination(
               icon: Icon(Icons.auto_graph_outlined),
               selectedIcon: Icon(Icons.auto_graph),
               label: 'Autotune',
             ),
+            if (triggers)
+              const NavigationDestination(
+                icon: Icon(Icons.monitor_heart_outlined),
+                selectedIcon: Icon(Icons.monitor_heart),
+                label: 'Triggers',
+              ),
           ],
         ),
       ],

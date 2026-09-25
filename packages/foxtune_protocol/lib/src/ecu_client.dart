@@ -285,8 +285,11 @@ class EcuClient {
 
   /// Sends an arbitrary payload and returns the response data.
   ///
-  /// Exposed for commands this class does not model yet.
-  Future<Uint8List> send(List<int> payload) => _command(payload);
+  /// Exposed for commands this class does not model yet. [timeout] replaces
+  /// [EcuClient.timeout] for this one command, for one the ECU answers only
+  /// once it has done something slow - saved to its EEPROM, say.
+  Future<Uint8List> send(List<int> payload, {Duration? timeout}) =>
+      _command(payload, timeout: timeout);
 
   /// Closes the client. Does not close the underlying link.
   Future<void> close() async {
@@ -305,11 +308,11 @@ class EcuClient {
 
   // --- Request plumbing ----------------------------------------------------
 
-  Future<Uint8List> _command(List<int> payload) {
+  Future<Uint8List> _command(List<int> payload, {Duration? timeout}) {
     if (_closed) {
       return Future.error(EcuProtocolException('Client is closed'));
     }
-    final request = _PendingRequest(payload);
+    final request = _PendingRequest(payload, timeout: timeout);
     _queue.add(request);
     _pump();
     return request.future;
@@ -338,11 +341,12 @@ class EcuClient {
       return;
     }
 
-    request.timer = Timer(timeout, () {
+    final wait = request.timeout ?? timeout;
+    request.timer = Timer(wait, () {
       if (!identical(_inFlight, request)) return;
       _inFlight = null;
       request.fail(EcuProtocolException(
-          'Timed out after ${timeout.inMilliseconds}ms waiting for a reply'
+          'Timed out after ${wait.inMilliseconds}ms waiting for a reply'
           '${_frameErrors.isEmpty ? '' : ' (${_frameErrors.length} bad frame(s))'}',
           response: SerialResponse.timeout));
       _pump();
@@ -400,9 +404,12 @@ class EcuClient {
 }
 
 class _PendingRequest {
-  _PendingRequest(this.payload);
+  _PendingRequest(this.payload, {this.timeout});
 
   final List<int> payload;
+
+  /// How long to wait for this one's reply, where not the client's usual.
+  final Duration? timeout;
   final _completer = Completer<Uint8List>();
 
   Timer? timer;

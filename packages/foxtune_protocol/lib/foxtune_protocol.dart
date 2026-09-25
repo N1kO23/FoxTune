@@ -14,4 +14,7 @@ export 'src/frame.dart';
 export 'src/realtime_decoder.dart';
 export 'src/realtime_monitor.dart';
 export 'src/response_code.dart';
+export 'src/sensor_tables.dart';
 export 'src/speeduino_constants.dart';
+export 'src/trigger_log.dart';
+export 'src/trigger_logger.dart';

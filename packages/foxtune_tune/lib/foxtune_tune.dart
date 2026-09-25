@@ -17,6 +17,7 @@ export 'src/label_expressions.dart';
 export 'src/log_recorder.dart';
 export 'src/msl_writer.dart';
 export 'src/msq_codec.dart';
+export 'src/sensor_calibration.dart';
 export 'src/setting_view.dart';
 export 'src/table_file.dart';
 export 'src/table_view.dart';
