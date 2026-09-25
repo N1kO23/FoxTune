@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:foxtune_protocol/foxtune_protocol.dart';
 
+import '../app_settings/app_settings.dart';
 import '../connection/connection_controller.dart';
 import '../connection/connection_state.dart';
 import '../dashboard/dashboard_editor.dart' show confirm;
@@ -9,6 +11,7 @@ import '../files/file_saving.dart';
 import '../window/window_app_bar.dart';
 import 'choose_definition.dart';
 import 'definition_library.dart';
+import 'download_definition.dart';
 
 /// Every ECU definition FoxTune has, and where to add, save and remove them.
 ///
@@ -26,9 +29,11 @@ class DefinitionsScreen extends ConsumerStatefulWidget {
   ConsumerState<DefinitionsScreen> createState() => _DefinitionsScreenState();
 }
 
+/// What the screen is busy with, if anything.
+enum _Work { adding, downloading }
+
 class _DefinitionsScreenState extends ConsumerState<DefinitionsScreen> {
-  /// Whether a file is being read - a rusEFI definition takes a moment.
-  bool _adding = false;
+  _Work? _working;
 
   @override
   Widget build(BuildContext context) {
@@ -38,6 +43,9 @@ class _DefinitionsScreenState extends ConsumerState<DefinitionsScreen> {
     final inUse = connection is EcuConnected
         ? connection.definition?.identity.signature
         : null;
+    final downloads = ref.watch(
+      appSettingsProvider.select((s) => s.downloadDefinitionsFor),
+    );
 
     return Scaffold(
       appBar: const WindowAppBar(title: Text('ECU definitions')),
@@ -68,11 +76,34 @@ class _DefinitionsScreenState extends ConsumerState<DefinitionsScreen> {
                         'An ECU is read through the definition for its exact '
                         'firmware build, matched by the signature it reports. '
                         'FoxTune looks for it built in first, then among those '
-                        'kept on this device, then - if App settings allow - '
+                        'kept on this device, then - where allowed below - '
                         'downloads it.',
                         style: theme.textTheme.bodySmall,
                       ),
                     ),
+                    const _Heading('Download automatically'),
+                    for (final (family, subtitle) in const [
+                      (
+                        EcuFamily.speeduino,
+                        'From speeduino.com, for the release a connected '
+                            'Speeduino reports',
+                      ),
+                      (
+                        EcuFamily.rusefi,
+                        'From rusefi.com, for the exact build a connected '
+                            'rusEFI reports',
+                      ),
+                    ])
+                      SwitchListTile(
+                        title: Text(
+                          family == EcuFamily.rusefi ? 'rusEFI' : 'Speeduino',
+                        ),
+                        subtitle: Text(subtitle),
+                        value: downloads.contains(family),
+                        onChanged: (on) => ref
+                            .read(appSettingsProvider.notifier)
+                            .update((s) => s.withDownloadsFor(family, on: on)),
+                      ),
                     const _Heading('Built in'),
                     for (final entry in list)
                       if (entry.isBuiltIn)
@@ -81,19 +112,28 @@ class _DefinitionsScreenState extends ConsumerState<DefinitionsScreen> {
                           inUse: entry.signature == inUse,
                           onSave: () => _save(entry),
                         ),
-                    _Heading(
-                      'On this device',
-                      trailing: FilledButton.tonalIcon(
-                        onPressed: _adding ? null : _add,
-                        icon: _adding
-                            ? const SizedBox.square(
-                                dimension: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.add),
-                        label: const Text('Add from file'),
+                    const _Heading('On this device'),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          FilledButton.tonalIcon(
+                            onPressed: _working == null ? _add : null,
+                            icon: _working == _Work.adding
+                                ? const _Spinner()
+                                : const Icon(Icons.add),
+                            label: const Text('Add from file'),
+                          ),
+                          FilledButton.tonalIcon(
+                            onPressed: _working == null ? _download : null,
+                            icon: _working == _Work.downloading
+                                ? const _Spinner()
+                                : const Icon(Icons.cloud_download_outlined),
+                            label: const Text('Download'),
+                          ),
+                        ],
                       ),
                     ),
                     if (kept.isEmpty)
@@ -140,41 +180,68 @@ class _DefinitionsScreenState extends ConsumerState<DefinitionsScreen> {
       title: 'Add a definition',
     );
     if (picked == null || !mounted) return;
-    await _keep(picked, messenger);
+    final library = ref.read(definitionLibraryProvider);
+    await _keep(
+      ({required replace}) => library.add(
+        decodeDefinition(picked.bytes),
+        fileName: picked.name,
+        replace: replace,
+      ),
+      messenger,
+      work: _Work.adding,
+      source: picked.name,
+      replacement: picked.name,
+      done: 'Added',
+    );
   }
 
-  /// Runs [work] with the Add button showing it is busy.
+  Future<void> _download() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final choice = await DownloadDefinitionDialog.ask(context);
+    if (choice == null || !mounted) return;
+    final library = ref.read(definitionLibraryProvider);
+    final rusEfi = choice.family == EcuFamily.rusefi;
+    await _keep(
+      ({required replace}) => rusEfi
+          ? library.downloadRusEfi(choice.version, replace: replace)
+          : library.downloadSpeeduino(choice.version, replace: replace),
+      messenger,
+      work: _Work.downloading,
+      source: choice.version,
+      replacement: 'the one from ${rusEfi ? 'rusefi.com' : 'speeduino.com'}',
+      done: 'Downloaded',
+    );
+  }
+
+  /// Runs [work] with its button showing it is busy.
   ///
   /// Reading a definition holds up the screen while it runs - a rusEFI one is
   /// some 13,000 lines - so the button is drawn busy before it starts, to say
   /// why.
-  Future<T> _busy<T>(Future<T> Function() work) async {
-    setState(() => _adding = true);
+  Future<T> _busy<T>(_Work work, Future<T> Function() run) async {
+    setState(() => _working = work);
     await WidgetsBinding.instance.endOfFrame;
     try {
-      return await work();
+      return await run();
     } finally {
-      if (mounted) setState(() => _adding = false);
+      if (mounted) setState(() => _working = null);
     }
   }
 
-  /// Keeps [picked], asking first before it replaces one kept already.
+  /// Keeps the definition [keep] reads or downloads, from [source], asking
+  /// first before it replaces one kept already with [replacement].
   Future<void> _keep(
-    PickedFile picked,
+    Future<DefinitionEntry> Function({required bool replace}) keep,
     ScaffoldMessengerState messenger, {
+    required _Work work,
+    required String source,
+    required String replacement,
+    required String done,
     bool replace = false,
   }) async {
     final DefinitionEntry entry;
     try {
-      entry = await _busy(
-        () => ref
-            .read(definitionLibraryProvider)
-            .add(
-              decodeDefinition(picked.bytes),
-              fileName: picked.name,
-              replace: replace,
-            ),
-      );
+      entry = await _busy(work, () => keep(replace: replace));
     } on DefinitionExistsException catch (error) {
       if (!mounted) return;
       final proceed = await confirm(
@@ -182,18 +249,28 @@ class _DefinitionsScreenState extends ConsumerState<DefinitionsScreen> {
         title: 'Replace the kept definition?',
         message:
             'A definition for "${error.signature}" is kept already. '
-            'Replace it with ${picked.name}?',
+            'Replace it with $replacement?',
         action: 'Replace',
       );
-      if (proceed) await _keep(picked, messenger, replace: true);
+      if (proceed) {
+        await _keep(
+          keep,
+          messenger,
+          work: work,
+          source: source,
+          replacement: replacement,
+          done: done,
+          replace: true,
+        );
+      }
       return;
     } on DefinitionRefusedException catch (error) {
-      _complain(messenger, '${picked.name}: ${error.message}');
+      _complain(messenger, '$source: ${error.message}');
       return;
     } on Object catch (error) {
       _complain(
         messenger,
-        '${picked.name} is not a definition FoxTune can read: $error',
+        '$source is not a definition FoxTune can read: $error',
       );
       return;
     }
@@ -205,9 +282,9 @@ class _DefinitionsScreenState extends ConsumerState<DefinitionsScreen> {
         !connection.definitionMatches &&
         connection.identification.signature.trim() == entry.signature) {
       await ref.read(connectionProvider.notifier).retryDefinition();
-      _tell(messenger, 'Added ${entry.name}, and it is now in use.');
+      _tell(messenger, '$done ${entry.name}, and it is now in use.');
     } else {
-      _tell(messenger, 'Added ${entry.name}.');
+      _tell(messenger, '$done ${entry.name}.');
     }
   }
 
@@ -254,28 +331,20 @@ class _DefinitionsScreenState extends ConsumerState<DefinitionsScreen> {
 }
 
 class _Heading extends StatelessWidget {
-  const _Heading(this.text, {this.trailing});
+  const _Heading(this.text);
 
   final String text;
-  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              text,
-              style: theme.textTheme.titleSmall?.copyWith(
-                color: theme.colorScheme.primary,
-              ),
-            ),
-          ),
-          ?trailing,
-        ],
+      child: Text(
+        text,
+        style: theme.textTheme.titleSmall?.copyWith(
+          color: theme.colorScheme.primary,
+        ),
       ),
     );
   }
@@ -371,6 +440,17 @@ class _EntryTile extends StatelessWidget {
       : '${(bytes / 1024).toStringAsFixed(0)} kB';
 
   static String _two(int value) => value.toString().padLeft(2, '0');
+}
+
+/// Small enough to stand in for a button's icon.
+class _Spinner extends StatelessWidget {
+  const _Spinner();
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.square(
+    dimension: 16,
+    child: CircularProgressIndicator(strokeWidth: 2),
+  );
 }
 
 /// Marks the definition the connected ECU is being read through.

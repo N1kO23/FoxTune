@@ -36,9 +36,12 @@ class TcpEcuTransport implements EcuTransport {
       EcuPort(address: address.trim(), description: 'Network ECU');
 
   @override
-  Future<EcuLink> open(EcuPort port,
-      {int baudRate = kSpeeduinoBaudRate}) async {
-    // baudRate is meaningless over TCP; the bridge owns the serial side.
+  Future<EcuLink> open(
+    EcuPort port, {
+    int baudRate = kSpeeduinoBaudRate,
+    Duration delayAfterOpen = kDelayAfterPortOpen,
+  }) async {
+    // Both are meaningless over TCP; the bridge owns the serial side.
     final (host, tcpPort) = parseAddress(port.address, defaultPort);
     try {
       return await SocketEcuLink.connect(host, tcpPort);

@@ -65,11 +65,16 @@ codec does sits above the `EcuLink` byte pipe, so it can be driven by an in-memo
 | iOS                | BLE                             | Not started                     |
 
 On Android, plugging a Speeduino in offers to open FoxTune; ticking "always" stops the USB
-permission prompt from coming back. The screen stays on while connected. A pulled cable is
-noticed at once and reported as a lost connection, and any edits not yet burned are kept so they
+permission prompt from coming back. The screen stays on while connected, unless App settings say
+otherwise. A pulled cable is noticed at once and reported as a lost connection, and any edits not yet burned are kept so they
 can be saved as a `.msq`. Tunes, table exports and datalogs leave the phone through Android's own
 "Save to" picker. [BUILDING.md](BUILDING.md#testing-on-a-phone) has the checklist for trying
 it on a real phone.
+
+A serial link runs at 115200 baud, as Speeduino's does over USB, and waits a second after the
+port opens for an Arduino Mega to restart. Both are in **App settings** - the gear at the end of
+the top bar - for a Bluetooth module set to another speed or a board that does not restart,
+along with how often live data is read.
 
 iOS exposes no generic USB serial API - the External Accessory framework requires Apple MFi
 licensing - so an iPhone can only ever reach a Speeduino over WiFi (an ESP8266/ESP32 bridge on
@@ -215,11 +220,13 @@ A downloaded or chosen definition must match the ECU's signature exactly, and is
 not asked for again. A Speeduino development build is not published: choose its definition
 (`reference/speeduino.ini` in its source) and it is kept.
 
-Downloading can be turned off in **App settings**, the gear at the end of the top bar; the
-Download button beside an ECU that needs its definition still fetches one when asked. **ECU
-definitions**, also in App settings, lists every definition FoxTune has and where each came
-from, and adds, removes or saves a copy of one. Adding one before heading somewhere without
-internet lets the ECU it is for connect there.
+**ECU definitions**, in App settings, lists every definition FoxTune has and where each came
+from, and adds, removes or saves a copy of one. It downloads ahead of time too: any Speeduino
+version from speeduino.com's list, or a rusEFI build by its signature - rusEFI publishes one per
+board and build, so there is no list to choose from. A definition kept before heading somewhere
+without internet lets the ECU it is for connect there. Automatic downloads are switched on or
+off there for each firmware; the Download button beside an ECU that needs its definition still
+fetches one when asked.
 
 **Commands from the definition.** Page reads, writes, burns, CRC checks and live data are sent
 as the definition's own templates - `R%2i%2o%2c` for a rusEFI page read, `p%2i%2o%2c` for a

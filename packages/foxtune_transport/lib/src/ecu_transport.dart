@@ -79,6 +79,15 @@ class EcuPortEvent {
       'EcuPortEvent(${attached ? 'attached' : 'detached'} $address)';
 }
 
+/// How long a serial port is left to settle after opening, by default.
+///
+/// Opening a port asserts DTR, which resets an Arduino-based board: its
+/// bootloader runs for about a second before the firmware answers, and talking
+/// to it instead yields silence or garbage. Speeduino's definition asks for the
+/// same with `delayAfterPortOpen=1000` - but the port is open before any
+/// definition is known, so the wait cannot come from there.
+const kDelayAfterPortOpen = Duration(milliseconds: 1000);
+
 /// Enumerates serial ports and opens links to them.
 ///
 /// Implementations are platform-specific; obtain the right one with
@@ -107,8 +116,16 @@ abstract class EcuTransport {
 
   /// Opens [port] and returns a link ready for [EcuClient].
   ///
+  /// A serial port is set to [baudRate], and left [delayAfterOpen] to settle
+  /// before the link is handed over - see [kDelayAfterPortOpen]. Neither means
+  /// anything to a network link, whose bridge owns the serial side.
+  ///
   /// The caller owns the returned link and must close it.
-  Future<EcuLink> open(EcuPort port, {int baudRate = kSpeeduinoBaudRate});
+  Future<EcuLink> open(
+    EcuPort port, {
+    int baudRate = kSpeeduinoBaudRate,
+    Duration delayAfterOpen = kDelayAfterPortOpen,
+  });
 }
 
 /// Thrown when a port cannot be opened.

@@ -158,7 +158,9 @@ void main() {
     published[url] = rusEfiSource;
     await start(
       FakeRusEfi.fromDefinition(rusEfi),
-      settings: const AppSettings(downloadDefinitions: false),
+      settings: const AppSettings(
+        downloadDefinitionsFor: {EcuFamily.speeduino},
+      ),
     );
 
     final waiting = connected();

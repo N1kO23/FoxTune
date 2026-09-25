@@ -44,8 +44,11 @@ class SerialPortTransport implements EcuTransport {
   }
 
   @override
-  Future<EcuLink> open(EcuPort port,
-      {int baudRate = kSpeeduinoBaudRate}) async {
+  Future<EcuLink> open(
+    EcuPort port, {
+    int baudRate = kSpeeduinoBaudRate,
+    Duration delayAfterOpen = kDelayAfterPortOpen,
+  }) async {
     final serial = SerialPort(port.address);
     if (!serial.openReadWrite()) {
       serial.dispose();
@@ -67,10 +70,9 @@ class SerialPortTransport implements EcuTransport {
       throw EcuTransportException('Could not configure port: $e', port: port);
     }
 
-    // Opening a port asserts DTR, which resets an Arduino-based board. The
-    // .ini's delayAfterPortOpen exists for exactly this: talking to the
-    // bootloader instead of the firmware yields silence or garbage.
-    await Future<void>.delayed(const Duration(milliseconds: 1000));
+    // Opening a port asserts DTR, which resets an Arduino-based board - see
+    // kDelayAfterPortOpen.
+    await Future<void>.delayed(delayAfterOpen);
 
     return _SerialPortLink(serial, port.address);
   }

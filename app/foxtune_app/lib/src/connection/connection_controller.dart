@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:foxtune_protocol/foxtune_protocol.dart';
 import 'package:foxtune_transport/foxtune_transport.dart';
 
+import '../app_settings/app_settings.dart';
 import '../definitions/definition_library.dart';
 import 'connection_state.dart';
 
@@ -56,7 +57,12 @@ class ConnectionController extends Notifier<EcuConnectionState> {
     _lastTransport = resolved;
 
     try {
-      final link = await resolved.open(port);
+      final settings = ref.read(appSettingsProvider);
+      final link = await resolved.open(
+        port,
+        baudRate: settings.baudRate,
+        delayAfterOpen: settings.delayAfterOpen,
+      );
       _link = link;
 
       final client = EcuClient(link);

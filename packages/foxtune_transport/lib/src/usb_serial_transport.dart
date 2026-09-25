@@ -48,8 +48,11 @@ class UsbSerialTransport implements EcuTransport {
   }
 
   @override
-  Future<EcuLink> open(EcuPort port,
-      {int baudRate = kSpeeduinoBaudRate}) async {
+  Future<EcuLink> open(
+    EcuPort port, {
+    int baudRate = kSpeeduinoBaudRate,
+    Duration delayAfterOpen = kDelayAfterPortOpen,
+  }) async {
     final devices = await UsbSerial.listDevices();
     final device =
         devices.where((d) => d.deviceName == port.address).firstOrNull;
@@ -87,7 +90,7 @@ class UsbSerialTransport implements EcuTransport {
 
     // As on desktop: asserting DTR resets an Arduino-based board, so give the
     // bootloader time to hand over to the firmware.
-    await Future<void>.delayed(const Duration(milliseconds: 1000));
+    await Future<void>.delayed(delayAfterOpen);
 
     return _UsbSerialLink(usbPort, port.label);
   }

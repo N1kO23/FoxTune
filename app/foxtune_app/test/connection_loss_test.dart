@@ -47,7 +47,11 @@ class _TestTransport implements EcuTransport {
   }
 
   @override
-  Future<EcuLink> open(EcuPort port, {int baudRate = kSpeeduinoBaudRate}) {
+  Future<EcuLink> open(
+    EcuPort port, {
+    int baudRate = kSpeeduinoBaudRate,
+    Duration delayAfterOpen = kDelayAfterPortOpen,
+  }) {
     opened++;
     return SocketEcuLink.connect('127.0.0.1', ecuPort);
   }

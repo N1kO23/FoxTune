@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
 import 'package:foxtune_protocol/foxtune_protocol.dart';
 
+import '../app_settings/app_settings.dart';
 import '../connection/connection_controller.dart';
 import '../connection/connection_state.dart';
 import '../tune/tune_controller.dart';
@@ -30,13 +31,19 @@ final realtimeMonitorProvider = Provider<RealtimeMonitor?>((ref) {
   // and each one would dispose this monitor and start a fresh one mid-poll.
   final tuneController = ref.read(tuneProvider.notifier);
 
+  // Watched, so a new rate takes effect at once: the poller is started afresh
+  // at it.
+  final interval = ref.watch(
+    appSettingsProvider.select((s) => s.liveDataInterval),
+  );
+
   final monitor = RealtimeMonitor(
     client: client,
     decoder: RealtimeDecoder(
       definition.outputChannels,
       constantResolver: (name) => tuneController.resolver?.resolve(name),
     ),
-    interval: const Duration(milliseconds: 33),
+    interval: interval,
   );
   monitor.start();
   ref.onDispose(monitor.dispose);

@@ -132,30 +132,39 @@ bool _isSpeeduinoRelease(String signature) =>
 /// `null` if none.
 ///
 /// A release reports just its year and month, and goes on reporting it through
-/// its point releases: the definition speeduino.com has for `202501.7`
-/// declares `speeduino 202501`. So the newest point release of that month
-/// stands for it. A development build - `speeduino 202504-dev` - is not
-/// published at all.
+/// its revisions: the definition speeduino.com has for `202501.7` declares
+/// `speeduino 202501`, as the one for `201902b` declares `speeduino 201902`.
+/// So the newest revision of that month stands for it. A development build -
+/// `speeduino 202504-dev` - is not published at all.
 String? speeduinoRelease(String signature, Iterable<String> versions) {
   final match = _speeduinoSignature.firstMatch(signature.trim());
   if (match == null || match.group(2)!.isNotEmpty) return null;
   final month = match.group(1)!;
 
   String? newest;
-  var newestPoint = -1;
+  var newestRevision = -1;
   for (final line in versions) {
     final version = line.trim();
-    final point = version == month
-        ? 0
-        : version.startsWith('$month.')
-        ? int.tryParse(version.substring(month.length + 1))
-        : null;
-    if (point != null && point > newestPoint) {
+    if (!version.startsWith(month)) continue;
+    final revision = _revisionOf(version.substring(month.length));
+    if (revision != null && revision > newestRevision) {
       newest = version;
-      newestPoint = point;
+      newestRevision = revision;
     }
   }
   return newest;
+}
+
+/// Which revision of its month a speeduino.com version's [suffix] names: `0`
+/// for none, `7` for `.7`, and `2` for `b`, as it lettered them once. `null`
+/// for anything else.
+int? _revisionOf(String suffix) {
+  if (suffix.isEmpty) return 0;
+  if (suffix.startsWith('.')) return int.tryParse(suffix.substring(1));
+  if (RegExp(r'^[a-z]$').hasMatch(suffix)) {
+    return suffix.codeUnitAt(0) - 'a'.codeUnitAt(0) + 1;
+  }
+  return null;
 }
 
 /// The site [ecu]'s definition can be downloaded from, or `null` when there is
@@ -287,7 +296,7 @@ class DefinitionLibrary {
     required this._fetch,
     this._bundledSource,
     this._symbols = const {},
-    this._autoDownload = true,
+    this._autoDownload = const {EcuFamily.speeduino, EcuFamily.rusefi},
   });
 
   final Future<IniDocument> Function() _bundled;
@@ -296,8 +305,8 @@ class DefinitionLibrary {
   final DefinitionFetcher _fetch;
   final Set<String> _symbols;
 
-  /// Whether [find] downloads a definition unasked.
-  final bool _autoDownload;
+  /// The firmwares [find] downloads a definition for unasked.
+  final Set<EcuFamily> _autoDownload;
 
   /// The Speeduino definition FoxTune ships with.
   Future<IniDocument> bundled() => _bundled();
@@ -332,10 +341,11 @@ class DefinitionLibrary {
     }
 
     final site = definitionDownloadSite(ecu);
-    if (site != null && !(download ?? _autoDownload)) {
+    if (site != null && !(download ?? _autoDownload.contains(ecu.family))) {
       return DefinitionMissing(
         'No definition for this firmware version is on this device, and '
-        'downloading one from $site is turned off in App settings.',
+        'downloading one from $site is turned off - see ECU definitions, in '
+        'App settings.',
       );
     }
     return _download(ecu);
@@ -501,12 +511,111 @@ class DefinitionLibrary {
     String source, {
     required String fileName,
     bool replace = false,
+  }) => _store(
+    source,
+    from: DefinitionSource.picked,
+    fileName: fileName,
+    replace: replace,
+  );
+
+  /// The versions speeduino.com has definitions for, newest first: its
+  /// releases, then `master` - the development build as it stands.
+  ///
+  /// Its list names more than definitions - `EEPROM_clear` is a firmware that
+  /// wipes the settings - so only those are given.
+  Future<List<String>> speeduinoVersions() async {
+    final String? list;
+    try {
+      list = await _fetch(speeduinoVersionsUrl);
+    } on Object catch (error) {
+      throw DefinitionRefusedException(
+        'Could not reach speeduino.com ($error).',
+      );
+    }
+    if (list == null) {
+      throw const DefinitionRefusedException(
+        'speeduino.com has no list of versions.',
+      );
+    }
+    final versions = [
+      for (final line in const LineSplitter().convert(list)) line.trim(),
+    ];
+    return [
+      for (final version in versions)
+        if (RegExp(r'^\d{6}').hasMatch(version)) version,
+      if (versions.contains('master')) 'master',
+    ];
+  }
+
+  /// Downloads and keeps the definition speeduino.com has for [version], one
+  /// of [speeduinoVersions]. As [add] for [replace].
+  Future<DefinitionEntry> downloadSpeeduino(
+    String version, {
+    bool replace = false,
+  }) => _fetchAndKeep(speeduinoDefinitionUrl(version), replace: replace);
+
+  /// Downloads and keeps the definition rusEFI publishes for the build that
+  /// reports [signature]. As [add] for [replace].
+  Future<DefinitionEntry> downloadRusEfi(
+    String signature, {
+    bool replace = false,
+  }) async {
+    final url = rusEfiDefinitionUrl(signature);
+    if (url == null) {
+      throw DefinitionRefusedException(
+        '"${signature.trim()}" is not a signature rusEFI publishes '
+        'definitions under.',
+      );
+    }
+    return _fetchAndKeep(url, replace: replace, expected: signature.trim());
+  }
+
+  Future<DefinitionEntry> _fetchAndKeep(
+    Uri url, {
+    required bool replace,
+    String? expected,
+  }) async {
+    final String? source;
+    try {
+      source = await _fetch(url);
+    } on Object catch (error) {
+      throw DefinitionRefusedException('Could not reach ${url.host} ($error).');
+    }
+    if (source == null) {
+      throw DefinitionRefusedException(
+        '${url.host} has no definition for that build.',
+      );
+    }
+    return _store(
+      source,
+      from: DefinitionSource.downloaded,
+      url: url,
+      replace: replace,
+      expected: expected,
+    );
+  }
+
+  /// Keeps [source], with no ECU to check it against - see [add].
+  ///
+  /// Where [expected] is given, the definition has to be for that signature.
+  Future<DefinitionEntry> _store(
+    String source, {
+    required DefinitionSource from,
+    required bool replace,
+    String? fileName,
+    Uri? url,
+    String? expected,
   }) async {
     final definition = _parse(source);
     final signature = definition.identity.signature?.trim() ?? '';
     if (signature.isEmpty) {
       throw const DefinitionRefusedException(
         'It declares no signature, so no ECU could ever be matched to it.',
+      );
+    }
+    if (expected != null && signature != expected) {
+      throw DefinitionRefusedException(
+        'It is the definition for "$signature", not "$expected".',
       );
     }
     if ((await _bundled()).matchesSignature(signature)) {
@@ -521,7 +630,8 @@ class DefinitionLibrary {
     final file = await _keep(
       signature,
       source,
-      from: DefinitionSource.picked,
+      from: from,
+      url: url,
       fileName: fileName,
     );
     return _entryFor(file, file.parent);
@@ -790,7 +900,7 @@ final definitionLibraryProvider = Provider<DefinitionLibrary>((ref) {
     fetch: ref.watch(definitionFetcherProvider),
     symbols: unit.iniSymbols,
     autoDownload: ref.watch(
-      appSettingsProvider.select((s) => s.downloadDefinitions),
+      appSettingsProvider.select((s) => s.downloadDefinitionsFor),
     ),
   );
 });

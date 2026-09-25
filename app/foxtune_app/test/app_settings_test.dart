@@ -11,6 +11,7 @@ import 'package:foxtune_app/src/connection/connect_screen.dart';
 import 'package:foxtune_app/src/connection/connection_controller.dart';
 import 'package:foxtune_app/src/connection/connection_state.dart';
 import 'package:foxtune_app/src/connection/connection_watchdog.dart';
+import 'package:foxtune_app/src/dashboard/dashboard_controller.dart';
 import 'package:foxtune_app/src/dashboard/gauge_status.dart';
 import 'package:foxtune_app/src/definitions/definition_library.dart';
 import 'package:foxtune_app/src/definitions/definitions_screen.dart';
@@ -18,6 +19,7 @@ import 'package:foxtune_app/src/storage/json_store.dart';
 import 'package:foxtune_app/src/window/window_controls.dart';
 import 'package:foxtune_ini/foxtune_ini.dart';
 import 'package:foxtune_protocol/foxtune_protocol.dart';
+import 'package:foxtune_protocol/testing.dart';
 import 'package:foxtune_transport/foxtune_transport.dart';
 
 const _connected = EcuConnected(
@@ -36,6 +38,30 @@ class _FixedConnection extends ConnectionController {
 
   @override
   EcuConnectionState build() => _initial;
+}
+
+/// Notes how each port was asked to be opened, and opens none.
+class _RecordingTransport implements EcuTransport {
+  final opened = <(int, Duration)>[];
+
+  @override
+  String get name => 'recording';
+
+  @override
+  Stream<EcuPortEvent> get portEvents => const Stream.empty();
+
+  @override
+  Future<List<EcuPort>> listPorts() async => const [];
+
+  @override
+  Future<EcuLink> open(
+    EcuPort port, {
+    int baudRate = kSpeeduinoBaudRate,
+    Duration delayAfterOpen = kDelayAfterPortOpen,
+  }) async {
+    opened.add((baudRate, delayAfterOpen));
+    throw EcuTransportException('not a real port', port: port);
+  }
 }
 
 class _RecordingWake implements ScreenWake {
@@ -82,8 +108,11 @@ void main() {
       const settings = AppSettings(
         themeMode: ThemeMode.dark,
         temperatureUnit: TemperatureUnit.fahrenheit,
-        downloadDefinitions: false,
+        downloadDefinitionsFor: {EcuFamily.rusefi},
         keepScreenOn: false,
+        baudRate: 57600,
+        delayAfterOpen: Duration.zero,
+        liveDataRate: 15,
       );
       expect(AppSettings.fromJson(settings.toJson()), settings);
     });
@@ -95,9 +124,32 @@ void main() {
           'theme': 'purple',
           'temperature': 'kelvin',
           'keepScreenOn': 'yes',
-          'downloadDefinitions': false,
+          'downloadDefinitions': {'rusefi': false, 'speeduino': 'maybe'},
+          'baudRate': -9600,
+          'delayAfterOpenMs': 'long',
+          'liveDataRate': 0,
         }),
-        const AppSettings(downloadDefinitions: false),
+        const AppSettings(downloadDefinitionsFor: {EcuFamily.speeduino}),
+      );
+    });
+
+    test('reads the one switch for every download it once had', () {
+      expect(
+        AppSettings.fromJson({'downloadDefinitions': false})
+            .downloadDefinitionsFor,
+        isEmpty,
+      );
+      expect(
+        AppSettings.fromJson({'downloadDefinitions': true})
+            .downloadDefinitionsFor,
+        AppSettings.downloadable,
+      );
+    });
+
+    test('turns a live data rate into the time between reads', () {
+      expect(
+        const AppSettings(liveDataRate: 20).liveDataInterval,
+        const Duration(milliseconds: 50),
       );
     });
   });
@@ -128,15 +180,36 @@ void main() {
 
       await tester.tap(find.text('Dark'));
       await tester.tap(find.text('°F'));
-      await tester.tap(find.text('Keep the screen on while connected'));
-      await tester.tap(find.text('Download definitions automatically'));
+      await tester.pumpAndSettle();
+
+      /// Opens the setting called [title] and picks [choice] from its list.
+      Future<void> pick(String title, String choice) async {
+        final setting = find.text(title);
+        await tester.ensureVisible(setting);
+        await tester.pumpAndSettle();
+        await tester.tap(setting);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(choice));
+        await tester.pumpAndSettle();
+      }
+
+      await pick('Baud rate', '57600');
+      await pick('Wait after opening a port', 'None');
+      await pick('Live data rate', '15 times a second');
+
+      final keepOn = find.text('Keep the screen on while connected');
+      await tester.ensureVisible(keepOn);
+      await tester.pumpAndSettle();
+      await tester.tap(keepOn);
       await tester.pumpAndSettle();
 
       const expected = AppSettings(
         themeMode: ThemeMode.dark,
         temperatureUnit: TemperatureUnit.fahrenheit,
-        downloadDefinitions: false,
         keepScreenOn: false,
+        baudRate: 57600,
+        delayAfterOpen: Duration.zero,
+        liveDataRate: 15,
       );
       expect(container.read(appSettingsProvider), expected);
       expect(
@@ -170,8 +243,9 @@ void main() {
 
     testWidgets('leads to the ECU definitions', (tester) async {
       await pumpSettings(tester);
+      // Far enough down that the list has not built it yet.
       final tile = find.widgetWithText(ListTile, 'ECU definitions');
-      await tester.ensureVisible(tile);
+      await tester.scrollUntilVisible(tile, 100);
       await tester.pumpAndSettle();
       expect(find.text('1 built in, 0 on this device'), findsOneWidget);
 
@@ -233,6 +307,73 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(AppSettingsScreen), findsOneWidget);
   });
+
+  test(
+    'a serial port is opened at the speed and with the wait chosen',
+    () async {
+      final transport = _RecordingTransport();
+      final container = ProviderContainer(
+        overrides: [
+          initialAppSettingsProvider.overrideWithValue(
+            const AppSettings(
+              baudRate: 57600,
+              delayAfterOpen: Duration(milliseconds: 500),
+            ),
+          ),
+          transportProvider.overrideWithValue(transport),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container
+          .read(connectionProvider.notifier)
+          .connect(const EcuPort(address: '/dev/ttyUSB0'));
+      expect(transport.opened, [(57600, const Duration(milliseconds: 500))]);
+    },
+  );
+
+  test(
+    'live data is read at the chosen rate, and a new one applies at once',
+    () async {
+      final ecu = FakeSpeeduino(
+        signature: speeduino.identity.signature!,
+        pageSizes: speeduino.constants.pageSizes,
+        realtimeBlockSize: speeduino.outputChannels.blockSize!,
+        blockingFactor: speeduino.constants.blockingFactor!,
+        channels: speeduino.outputChannels,
+      );
+      final port = await ecu.start();
+      final container = ProviderContainer(
+        overrides: [
+          initialAppSettingsProvider.overrideWithValue(
+            const AppSettings(liveDataRate: 10),
+          ),
+          bundledDefinitionProvider.overrideWith((ref) async => speeduino),
+          appStorageDirectoryProvider.overrideWith((ref) async => storage),
+        ],
+      );
+      addTearDown(() async {
+        container.dispose();
+        await ecu.stop();
+      });
+
+      await container
+          .read(connectionProvider.notifier)
+          .connectToNetwork('127.0.0.1:$port');
+      expect(
+        container.read(realtimeMonitorProvider)!.interval,
+        const Duration(milliseconds: 100),
+      );
+
+      container
+          .read(appSettingsProvider.notifier)
+          .update((s) => s.copyWith(liveDataRate: 20));
+      expect(
+        container.read(realtimeMonitorProvider)!.interval,
+        const Duration(milliseconds: 50),
+      );
+    },
+  );
 
   test('turning off keeping the screen on lets go of it at once', () {
     final wake = _RecordingWake();

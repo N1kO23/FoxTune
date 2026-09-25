@@ -1,7 +1,10 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:foxtune_protocol/foxtune_protocol.dart';
+import 'package:foxtune_transport/foxtune_transport.dart';
 
 import '../dashboard/gauge_status.dart';
 import '../storage/json_store.dart';
@@ -16,39 +19,106 @@ class AppSettings {
   const AppSettings({
     this.themeMode = ThemeMode.system,
     this.temperatureUnit = TemperatureUnit.celsius,
-    this.downloadDefinitions = true,
+    this.downloadDefinitionsFor = downloadable,
     this.keepScreenOn = true,
+    this.baudRate = kSpeeduinoBaudRate,
+    this.delayAfterOpen = kDelayAfterPortOpen,
+    this.liveDataRate = 30,
   });
+
+  /// The firmwares whose projects publish their definitions to download.
+  static const downloadable = {EcuFamily.speeduino, EcuFamily.rusefi};
+
+  /// The serial speeds offered: from a Bluetooth module's usual 9600 up.
+  /// Speeduino talks at 115200; rusEFI's serial speed is itself a setting.
+  static const baudRates = [
+    9600,
+    19200,
+    38400,
+    57600,
+    115200,
+    230400,
+    460800,
+    921600,
+  ];
+
+  /// The waits after opening a serial port that are offered.
+  static const delaysAfterOpen = [
+    Duration.zero,
+    Duration(milliseconds: 500),
+    Duration(seconds: 1),
+    Duration(seconds: 2),
+  ];
+
+  /// The live data rates offered, in reads a second.
+  static const liveDataRates = [10, 15, 20, 30, 50];
 
   final ThemeMode themeMode;
 
   /// The scale definitions are parsed for. See [TemperatureUnit].
   final TemperatureUnit temperatureUnit;
 
-  /// Whether a definition missing from this device is fetched from the
-  /// firmware project's website on connecting.
-  final bool downloadDefinitions;
+  /// The firmwares whose definitions are downloaded, when one missing from
+  /// this device is needed on connecting. See [downloadable].
+  final Set<EcuFamily> downloadDefinitionsFor;
 
   /// Whether the screen is held on while an ECU is connected.
   final bool keepScreenOn;
 
+  /// The speed a serial port is opened at. Means nothing to a network bridge,
+  /// which sets its own.
+  final int baudRate;
+
+  /// How long a serial port is left to settle after opening, for a board that
+  /// restarts as it opens. See [kDelayAfterPortOpen].
+  final Duration delayAfterOpen;
+
+  /// How many times a second live data is read, at most. A slow link manages
+  /// what it can.
+  final int liveDataRate;
+
+  /// The time between live data reads [liveDataRate] asks for.
+  Duration get liveDataInterval =>
+      Duration(microseconds: Duration.microsecondsPerSecond ~/ liveDataRate);
+
   AppSettings copyWith({
     ThemeMode? themeMode,
     TemperatureUnit? temperatureUnit,
-    bool? downloadDefinitions,
+    Set<EcuFamily>? downloadDefinitionsFor,
     bool? keepScreenOn,
+    int? baudRate,
+    Duration? delayAfterOpen,
+    int? liveDataRate,
   }) => AppSettings(
     themeMode: themeMode ?? this.themeMode,
     temperatureUnit: temperatureUnit ?? this.temperatureUnit,
-    downloadDefinitions: downloadDefinitions ?? this.downloadDefinitions,
+    downloadDefinitionsFor:
+        downloadDefinitionsFor ?? this.downloadDefinitionsFor,
     keepScreenOn: keepScreenOn ?? this.keepScreenOn,
+    baudRate: baudRate ?? this.baudRate,
+    delayAfterOpen: delayAfterOpen ?? this.delayAfterOpen,
+    liveDataRate: liveDataRate ?? this.liveDataRate,
   );
+
+  /// These settings, with definitions for [family] downloaded or not.
+  AppSettings withDownloadsFor(EcuFamily family, {required bool on}) =>
+      copyWith(
+        downloadDefinitionsFor: on
+            ? {...downloadDefinitionsFor, family}
+            : downloadDefinitionsFor.difference({family}),
+      );
 
   Map<String, Object?> toJson() => {
     'theme': themeMode.name,
     'temperature': temperatureUnit.name,
-    'downloadDefinitions': downloadDefinitions,
+    'downloadDefinitions': {
+      for (final family in downloadable)
+        family.name: downloadDefinitionsFor.contains(family),
+    },
     'keepScreenOn': keepScreenOn,
+    'baudRate': baudRate,
+    'delayAfterOpenMs': delayAfterOpen.inMilliseconds,
+    'liveDataRate': liveDataRate,
   };
 
   /// Reads what [toJson] wrote.
@@ -60,15 +130,33 @@ class AppSettings {
     const defaults = AppSettings();
     if (json is! Map) return defaults;
     bool? flag(Object? value) => value is bool ? value : null;
+    int? within(Object? value, int low, int high) =>
+        value is int && value >= low && value <= high ? value : null;
+    final delayMs = within(json['delayAfterOpenMs'], 0, 10000);
     return AppSettings(
       themeMode:
           ThemeMode.values.asNameMap()[json['theme']] ?? defaults.themeMode,
       temperatureUnit:
           TemperatureUnit.values.asNameMap()[json['temperature']] ??
           defaults.temperatureUnit,
-      downloadDefinitions:
-          flag(json['downloadDefinitions']) ?? defaults.downloadDefinitions,
+      downloadDefinitionsFor: switch (json['downloadDefinitions']) {
+        // Saved before each firmware had its own: one for all of them.
+        final bool all => all ? downloadable : const {},
+        final Map<Object?, Object?> each => {
+          for (final family in downloadable)
+            if (flag(each[family.name]) ??
+                defaults.downloadDefinitionsFor.contains(family))
+              family,
+        },
+        _ => defaults.downloadDefinitionsFor,
+      },
       keepScreenOn: flag(json['keepScreenOn']) ?? defaults.keepScreenOn,
+      baudRate: within(json['baudRate'], 300, 4000000) ?? defaults.baudRate,
+      delayAfterOpen: delayMs == null
+          ? defaults.delayAfterOpen
+          : Duration(milliseconds: delayMs),
+      liveDataRate:
+          within(json['liveDataRate'], 1, 100) ?? defaults.liveDataRate,
     );
   }
 
@@ -77,15 +165,21 @@ class AppSettings {
       other is AppSettings &&
       other.themeMode == themeMode &&
       other.temperatureUnit == temperatureUnit &&
-      other.downloadDefinitions == downloadDefinitions &&
-      other.keepScreenOn == keepScreenOn;
+      setEquals(other.downloadDefinitionsFor, downloadDefinitionsFor) &&
+      other.keepScreenOn == keepScreenOn &&
+      other.baudRate == baudRate &&
+      other.delayAfterOpen == delayAfterOpen &&
+      other.liveDataRate == liveDataRate;
 
   @override
   int get hashCode => Object.hash(
     themeMode,
     temperatureUnit,
-    downloadDefinitions,
+    Object.hashAllUnordered(downloadDefinitionsFor),
     keepScreenOn,
+    baudRate,
+    delayAfterOpen,
+    liveDataRate,
   );
 }
 

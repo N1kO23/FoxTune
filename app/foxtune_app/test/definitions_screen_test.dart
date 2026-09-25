@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:foxtune_app/src/app_settings/app_settings.dart';
 import 'package:foxtune_app/src/connection/connection_controller.dart';
 import 'package:foxtune_app/src/connection/connection_state.dart';
 import 'package:foxtune_app/src/definitions/definition_library.dart';
@@ -72,9 +73,13 @@ void main() {
   late _Files files;
   late _FixedConnection connection;
 
+  /// What the stubbed websites serve, by address.
+  late Map<Uri, String> served;
+
   setUp(() {
     storage = Directory.systemTemp.createTempSync('foxtune_definitions_ui');
     files = _Files();
+    served = {};
   });
 
   tearDown(() => storage.deleteSync(recursive: true));
@@ -114,6 +119,9 @@ void main() {
           ),
           appStorageDirectoryProvider.overrideWith((ref) async => storage),
           fileSavingProvider.overrideWithValue(files),
+          definitionFetcherProvider.overrideWithValue(
+            (url) async => served[url],
+          ),
           connectionProvider.overrideWith(() => connection),
         ],
         child: const MaterialApp(home: DefinitionsScreen()),
@@ -132,9 +140,13 @@ void main() {
   Finder tileOf(String name) => find.widgetWithText(ListTile, name);
 
   Future<void> openMenuOf(WidgetTester tester, String name) async {
-    await tester.tap(
-      find.descendant(of: tileOf(name), matching: find.byTooltip('Definition')),
+    final menu = find.descendant(
+      of: tileOf(name),
+      matching: find.byTooltip('Definition'),
     );
+    await tester.ensureVisible(menu);
+    await tester.pumpAndSettle();
+    await tester.tap(menu);
     await tester.pumpAndSettle();
   }
 
@@ -297,5 +309,83 @@ void main() {
 
     expect(connection.retries, 0);
     expect(find.text('Added speeduino 202402.'), findsOneWidget);
+  });
+
+  testWidgets('turns automatic downloads on and off for each firmware', (
+    tester,
+  ) async {
+    await pumpScreen(tester);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(DefinitionsScreen)),
+    );
+
+    await tester.tap(find.widgetWithText(SwitchListTile, 'rusEFI'));
+    await tester.pumpAndSettle();
+    expect(container.read(appSettingsProvider).downloadDefinitionsFor, {
+      EcuFamily.speeduino,
+    });
+  });
+
+  group('downloading', () {
+    Finder inDialog(Finder finder) =>
+        find.descendant(of: find.byType(AlertDialog), matching: finder);
+
+    testWidgets('a Speeduino release is chosen from speeduino.com\'s list', (
+      tester,
+    ) async {
+      served[speeduinoVersionsUrl] =
+          '202501.7\n202402.2\nmaster\nEEPROM_clear\n';
+      served[speeduinoDefinitionUrl('202501.7')] = definitionFor(
+        'speeduino 202501',
+      );
+      await pumpScreen(tester);
+
+      await tester.tap(find.text('Download'));
+      await tester.pumpAndSettle();
+      expect(inDialog(find.text('202402.2')), findsOneWidget);
+      expect(inDialog(find.text('master')), findsOneWidget);
+      // A firmware that wipes the settings, not a definition.
+      expect(inDialog(find.text('EEPROM_clear')), findsNothing);
+
+      await tester.tap(inDialog(find.text('202501.7')));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(tileOf('speeduino 202501'), findsOneWidget);
+      expect(
+        find.textContaining('Downloaded from speeduino.com'),
+        findsOneWidget,
+      );
+      expect(find.text('Downloaded speeduino 202501.'), findsOneWidget);
+    });
+
+    testWidgets('a rusEFI build is downloaded by its signature', (
+      tester,
+    ) async {
+      const signature = 'rusEFI master.2026.09.21.uaefi.419928595';
+      served[rusEfiDefinitionUrl(signature)!] = File(
+        '../../packages/foxtune_ini/test/fixtures/rusefi_uaefi.ini',
+      ).readAsStringSync();
+      await pumpScreen(tester);
+
+      await tester.tap(find.text('Download'));
+      await tester.pumpAndSettle();
+      await tester.tap(inDialog(find.text('rusEFI')));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(inDialog(find.byType(TextField)), 'rusEFI 1.0');
+      await tester.pump();
+      expect(
+        inDialog(find.textContaining('Not a signature rusEFI publishes')),
+        findsOneWidget,
+      );
+
+      await tester.enterText(inDialog(find.byType(TextField)), signature);
+      await tester.pump();
+      await tester.tap(inDialog(find.widgetWithText(FilledButton, 'Download')));
+      await tester.pumpAndSettle();
+
+      expect(tileOf(signature), findsOneWidget);
+      expect(find.textContaining('Downloaded from rusefi.com'), findsOneWidget);
+    });
   });
 }
