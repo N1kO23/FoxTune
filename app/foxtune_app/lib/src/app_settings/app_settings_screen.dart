@@ -9,8 +9,11 @@ import '../connection/connection_state.dart';
 import '../dashboard/gauge_status.dart';
 import '../definitions/definition_library.dart';
 import '../definitions/definitions_screen.dart';
+import '../files/file_saving.dart';
+import '../storage/json_store.dart';
 import '../window/window_app_bar.dart';
 import 'app_settings.dart';
+import 'wallpaper.dart';
 
 /// FoxTune's own settings, as against the ECU's in the Settings tab - and the
 /// way to the ECU definitions it has.
@@ -66,6 +69,7 @@ class AppSettingsScreen extends ConsumerWidget {
                     (s) => s.copyWith(temperatureUnit: unit),
                   ),
                 ),
+                const _WallpaperSettings(),
                 const _Heading('Connection'),
                 _Picked<int>(
                   title: 'Baud rate',
@@ -142,6 +146,297 @@ class AppSettingsScreen extends ConsumerWidget {
                   onTap: () => DefinitionsScreen.open(context),
                 ),
               ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The wallpaper: which one, how an image is laid out, how strongly it shows
+/// - and a preview of the result.
+class _WallpaperSettings extends ConsumerStatefulWidget {
+  const _WallpaperSettings();
+
+  @override
+  ConsumerState<_WallpaperSettings> createState() => _WallpaperSettingsState();
+}
+
+class _WallpaperSettingsState extends ConsumerState<_WallpaperSettings> {
+  /// The strength while the slider is being dragged. The preview follows it;
+  /// the setting is saved once the slider is let go, rather than with every
+  /// step of the drag.
+  double? _dragging;
+
+  void _change(Wallpaper Function(Wallpaper current) change) => ref
+      .read(appSettingsProvider.notifier)
+      .update((s) => s.copyWith(wallpaper: change(s.wallpaper)));
+
+  /// Asks for an image, keeps a copy of it and shows it.
+  Future<void> _chooseImage() async {
+    final messenger = ScaffoldMessenger.of(context);
+    void complain(String message) => messenger.showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: StatusPalette.critical),
+    );
+
+    final PickedFile? picked;
+    try {
+      picked = await ref
+          .read(fileSavingProvider)
+          .pickFile(
+            extensions: wallpaperImageExtensions,
+            dialogTitle: 'Choose a wallpaper',
+          );
+    } on WrongFileTypeException catch (error) {
+      complain(error.message);
+      return;
+    } on Object catch (error) {
+      complain('Could not open a file: $error');
+      return;
+    }
+    if (picked == null) return;
+    if (!looksLikeImage(picked.bytes)) {
+      complain('${picked.name} is not an image FoxTune can show.');
+      return;
+    }
+
+    final name = picked.name;
+    try {
+      final root = await ref.read(appStorageDirectoryProvider.future);
+      final kept = keepWallpaperImage(
+        root,
+        picked,
+        replacing: ref.read(appSettingsProvider).wallpaper.image,
+      );
+      _change(
+        (w) => w.copyWith(
+          kind: WallpaperKind.image,
+          image: kept.path,
+          imageName: name,
+        ),
+      );
+    } on Object catch (error) {
+      complain('Could not keep the image: $error');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final wallpaper = ref.watch(appSettingsProvider.select((s) => s.wallpaper));
+    final shown = wallpaper.copyWith(strength: _dragging);
+    final percent = '${(shown.strength * 100).round()}%';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _Choice<WallpaperKind>(
+          title: 'Wallpaper',
+          detail: 'Drawn behind the main screen.',
+          selected: wallpaper.kind,
+          choices: const {
+            WallpaperKind.none: 'None',
+            WallpaperKind.branding: 'FoxTune',
+            WallpaperKind.image: 'Image',
+          },
+          onChanged: (kind) {
+            // With no image yet, choosing one comes first - and the wallpaper
+            // changes only once there is one to show.
+            if (kind == WallpaperKind.image && wallpaper.image == null) {
+              _chooseImage();
+            } else {
+              _change((w) => w.copyWith(kind: kind));
+            }
+          },
+        ),
+        if (wallpaper.kind == WallpaperKind.image) ...[
+          ListTile(
+            title: const Text('Image'),
+            subtitle: Text(
+              wallpaper.imageName ?? 'Chosen image',
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: OutlinedButton(
+              onPressed: _chooseImage,
+              child: const Text('Choose...'),
+            ),
+          ),
+          _Choice<WallpaperFit>(
+            title: 'Layout',
+            selected: wallpaper.fit,
+            choices: {for (final fit in WallpaperFit.values) fit: fit.label},
+            onChanged: (fit) => _change((w) => w.copyWith(fit: fit)),
+          ),
+          _Position(
+            selected: wallpaper.alignment,
+            onChanged: (alignment) =>
+                _change((w) => w.copyWith(alignment: alignment)),
+          ),
+        ],
+        if (wallpaper.kind != WallpaperKind.none) ...[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: Row(
+              children: [
+                Text('Strength', style: theme.textTheme.bodyLarge),
+                Expanded(
+                  child: Slider(
+                    value: shown.strength,
+                    divisions: 20,
+                    label: percent,
+                    onChanged: (strength) =>
+                        setState(() => _dragging = strength),
+                    onChangeEnd: (strength) {
+                      setState(() => _dragging = null);
+                      _change((w) => w.copyWith(strength: strength));
+                    },
+                  ),
+                ),
+                SizedBox(
+                  width: 44,
+                  child: Text(percent, textAlign: TextAlign.end),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Text(
+              'It is faded into the background colour rather than darkened, '
+              'so what sits on it stays readable in the light theme as in '
+              'the dark.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          _Preview(wallpaper: shown),
+        ],
+      ],
+    );
+  }
+}
+
+/// Where a wallpaper image is anchored, from a grid of the nine places.
+class _Position extends StatelessWidget {
+  const _Position({required this.selected, required this.onChanged});
+
+  final Alignment selected;
+  final ValueChanged<Alignment> onChanged;
+
+  static const _rows = [
+    [
+      (Alignment.topLeft, 'Top left'),
+      (Alignment.topCenter, 'Top'),
+      (Alignment.topRight, 'Top right'),
+    ],
+    [
+      (Alignment.centerLeft, 'Left'),
+      (Alignment.center, 'Centre'),
+      (Alignment.centerRight, 'Right'),
+    ],
+    [
+      (Alignment.bottomLeft, 'Bottom left'),
+      (Alignment.bottomCenter, 'Bottom'),
+      (Alignment.bottomRight, 'Bottom right'),
+    ],
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Position', style: theme.textTheme.bodyLarge),
+                const SizedBox(height: 2),
+                Text(
+                  'Where the image sits - or, where it is cropped, which '
+                  'part of it is kept.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final row in _rows)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final (alignment, name) in row)
+                      IconButton(
+                        tooltip: name,
+                        isSelected: alignment == selected,
+                        icon: const Icon(Icons.crop_square),
+                        selectedIcon: const Icon(Icons.square_rounded),
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => onChanged(alignment),
+                      ),
+                  ],
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// [wallpaper] as the main screen would show it, with text on it to judge
+/// by - and shaped like the window, so a fill or a fit crops as it will there.
+class _Preview extends StatelessWidget {
+  const _Preview({required this.wallpaper});
+
+  final Wallpaper wallpaper;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final window = MediaQuery.sizeOf(context);
+    final radius = BorderRadius.circular(12);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: SizedBox(
+          height: 180,
+          child: AspectRatio(
+            aspectRatio: window.height > 0 ? window.width / window.height : 1,
+            child: DecoratedBox(
+              position: DecorationPosition.foreground,
+              decoration: BoxDecoration(
+                borderRadius: radius,
+                border: Border.all(color: theme.colorScheme.outlineVariant),
+              ),
+              child: ClipRRect(
+                borderRadius: radius,
+                child: ColoredBox(
+                  color: theme.scaffoldBackgroundColor,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      WallpaperView(wallpaper: wallpaper),
+                      Center(
+                        child: Text(
+                          'Text on the wallpaper',
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
           ),
         ),

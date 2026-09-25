@@ -8,6 +8,7 @@ import 'package:foxtune_transport/foxtune_transport.dart';
 
 import '../dashboard/gauge_status.dart';
 import '../storage/json_store.dart';
+import 'wallpaper.dart';
 
 /// Choices about FoxTune itself, as against the ECU's own settings.
 ///
@@ -24,6 +25,7 @@ class AppSettings {
     this.baudRate = kSpeeduinoBaudRate,
     this.delayAfterOpen = kDelayAfterPortOpen,
     this.liveDataRate = 30,
+    this.wallpaper = const Wallpaper(),
   });
 
   /// The firmwares whose projects publish their definitions to download.
@@ -77,6 +79,9 @@ class AppSettings {
   /// what it can.
   final int liveDataRate;
 
+  /// What is drawn behind the main screen.
+  final Wallpaper wallpaper;
+
   /// The time between live data reads [liveDataRate] asks for.
   Duration get liveDataInterval =>
       Duration(microseconds: Duration.microsecondsPerSecond ~/ liveDataRate);
@@ -89,6 +94,7 @@ class AppSettings {
     int? baudRate,
     Duration? delayAfterOpen,
     int? liveDataRate,
+    Wallpaper? wallpaper,
   }) => AppSettings(
     themeMode: themeMode ?? this.themeMode,
     temperatureUnit: temperatureUnit ?? this.temperatureUnit,
@@ -98,6 +104,7 @@ class AppSettings {
     baudRate: baudRate ?? this.baudRate,
     delayAfterOpen: delayAfterOpen ?? this.delayAfterOpen,
     liveDataRate: liveDataRate ?? this.liveDataRate,
+    wallpaper: wallpaper ?? this.wallpaper,
   );
 
   /// These settings, with definitions for [family] downloaded or not.
@@ -119,6 +126,7 @@ class AppSettings {
     'baudRate': baudRate,
     'delayAfterOpenMs': delayAfterOpen.inMilliseconds,
     'liveDataRate': liveDataRate,
+    'wallpaper': wallpaper.toJson(),
   };
 
   /// Reads what [toJson] wrote.
@@ -157,6 +165,9 @@ class AppSettings {
           : Duration(milliseconds: delayMs),
       liveDataRate:
           within(json['liveDataRate'], 1, 100) ?? defaults.liveDataRate,
+      wallpaper: json.containsKey('wallpaper')
+          ? Wallpaper.fromJson(json['wallpaper'])
+          : defaults.wallpaper,
     );
   }
 
@@ -169,7 +180,8 @@ class AppSettings {
       other.keepScreenOn == keepScreenOn &&
       other.baudRate == baudRate &&
       other.delayAfterOpen == delayAfterOpen &&
-      other.liveDataRate == liveDataRate;
+      other.liveDataRate == liveDataRate &&
+      other.wallpaper == wallpaper;
 
   @override
   int get hashCode => Object.hash(
@@ -180,6 +192,7 @@ class AppSettings {
     baudRate,
     delayAfterOpen,
     liveDataRate,
+    wallpaper,
   );
 }
 

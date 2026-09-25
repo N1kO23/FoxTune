@@ -6,6 +6,7 @@ import 'package:foxtune_protocol/foxtune_protocol.dart' show EcuFamily;
 import 'package:foxtune_transport/foxtune_transport.dart';
 
 import '../app_settings/app_settings_screen.dart';
+import '../app_settings/wallpaper_background.dart';
 import '../autotune/autotune_controller.dart';
 import '../autotune/autotune_screen.dart';
 import '../branding/foxtune_logo.dart';
@@ -101,23 +102,27 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
           ),
         ],
       ),
-      body: SafeArea(
-        child: switch (connection) {
-          EcuConnecting(:final port, :final stage) => _Busy(
-            message:
-                stage ??
-                'FOX1: Commencing operation. Connecting to ${port.label}...',
-          ),
-          EcuConnected(definition: null) => _NeedsDefinition(state: connection),
-          EcuConnected() => _ConnectedShell(connection: connection),
-          EcuConnectionFailed() => _WithRecoveredEdits(
-            child: _FailedView(state: connection),
-          ),
-          EcuConnectionLost() => _WithRecoveredEdits(
-            child: _LostView(state: connection),
-          ),
-          EcuDisconnected() => const _WithRecoveredEdits(child: _PortList()),
-        },
+      body: WallpaperBackground(
+        child: SafeArea(
+          child: switch (connection) {
+            EcuConnecting(:final port, :final stage) => _Busy(
+              message:
+                  stage ??
+                  'FOX1: Commencing operation. Connecting to ${port.label}...',
+            ),
+            EcuConnected(definition: null) => _NeedsDefinition(
+              state: connection,
+            ),
+            EcuConnected() => _ConnectedShell(connection: connection),
+            EcuConnectionFailed() => _WithRecoveredEdits(
+              child: _FailedView(state: connection),
+            ),
+            EcuConnectionLost() => _WithRecoveredEdits(
+              child: _LostView(state: connection),
+            ),
+            EcuDisconnected() => const _WithRecoveredEdits(child: _PortList()),
+          },
+        ),
       ),
     );
   }

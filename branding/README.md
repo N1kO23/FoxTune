@@ -31,14 +31,15 @@ rendered from it into the app - see [Where it is used](#where-it-is-used).
 
 All paths below are under `app/foxtune_app/`.
 
-| Where                | Files                                                                    | From                                                                                           |
-| -------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| Android launcher     | `android/app/src/main/res/mipmap-*`, `values/ic_launcher_background.xml` | The brand bundle's drop-in `android/res/`: legacy, round, adaptive and Android 13 themed icons |
-| Linux                | `linux/icons/hicolor/*/apps/foxtune.*`                                   | The brand bundle's pre-rendered 16-512 px set, and a flattened SVG (see below)                 |
-| Windows              | `windows/runner/resources/app_icon.ico`                                  | The Linux 16-256 px renders, one layer each; the 256 px layer is stored as PNG                 |
-| macOS                | `macos/Runner/Assets.xcassets/AppIcon.appiconset/`                       | The Linux renders, and `icon/foxtune-icon-1024.png`                                            |
-| In the app (app bar) | `assets/branding/`                                                       | Rendered from the SVGs, see below                                                              |
-| In the app (colours) | `lib/src/branding/brand_theme.dart`                                      | The pink as the accent, on neutral surfaces                                                    |
+| Where                  | Files                                                                    | From                                                                                           |
+| ---------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| Android launcher       | `android/app/src/main/res/mipmap-*`, `values/ic_launcher_background.xml` | The brand bundle's drop-in `android/res/`: legacy, round, adaptive and Android 13 themed icons |
+| Linux                  | `linux/icons/hicolor/*/apps/foxtune.*`                                   | The brand bundle's pre-rendered 16-512 px set, and a flattened SVG (see below)                 |
+| Windows                | `windows/runner/resources/app_icon.ico`                                  | The Linux 16-256 px renders, one layer each; the 256 px layer is stored as PNG                 |
+| macOS                  | `macos/Runner/Assets.xcassets/AppIcon.appiconset/`                       | The Linux renders, and `icon/foxtune-icon-1024.png`                                            |
+| In the app (app bar)   | `assets/branding/foxtune-icon.svg`, `foxtune-wordmark-*.svg`             | The flattened Linux icon, and the wordmark SVGs as they are - see below                        |
+| In the app (wallpaper) | `assets/branding/foxtune-emblem-mono.svg`                                | `logo/svg/foxtune-emblem-mono-black.svg`, flattened - see below                                |
+| In the app (colours)   | `lib/src/branding/brand_theme.dart`                                      | The pink as the accent, on neutral surfaces                                                    |
 
 KDE draws icons with Qt, whose SVG renderer supports only SVG Tiny: it skips nested `<svg>`
 elements and ignores clip paths, and every SVG here is built from both. As a desktop icon, KDE
@@ -61,19 +62,25 @@ installed: `tool/install-linux-desktop.sh` does that for the current user, and A
 does it for the AppImage.
 
 The app bar shows the app icon and the wordmark rather than the bare emblem, whose line art
-does not survive being drawn 36 px tall. Both are rendered at exactly their on-screen size, so
-they stay sharp instead of being scaled down at runtime. To re-render them, from the repository
-root:
+does not survive being drawn 36 px tall. The default wallpaper draws the single-colour emblem,
+in the theme's own text colour.
+
+The app draws all of these from SVGs, with flutter_svg, so they are sharp at any size and pixel
+density - where a PNG is sharp only at the densities it was rendered for. flutter_svg shares
+Qt's blind spot: it skips nested `<svg>` elements, and everything in them, without a word. So
+the app's copies are flattened too: the icon is the flattened Linux one, the emblem is flattened
+the same way, and the wordmarks, which nest nothing, are copied as they are. picosvg leaves an
+empty `<defs/>` behind, which flutter_svg complains about on every load, so that is taken out.
+The app's `test/branding_assets_test.dart` fails for any bundled SVG that still nests, or draws
+nothing. To update them, from the repository root:
 
 ```sh
 out=app/foxtune_app/assets/branding
-for scale in 1 2 3; do
-  dir=$out; [ $scale -gt 1 ] && dir=$out/$scale.0x
-  rsvg-convert -w $((36 * scale)) -h $((36 * scale)) branding/icon/foxtune-icon.svg -o $dir/foxtune-icon.png
-  for v in dark light; do
-    rsvg-convert -h $((20 * scale)) branding/logo/svg/foxtune-wordmark-$v.svg -o $dir/foxtune-wordmark-$v.png
-  done
-done
+cp app/foxtune_app/linux/icons/hicolor/scalable/apps/foxtune.svg $out/foxtune-icon.svg
+cp branding/logo/svg/foxtune-wordmark-dark.svg branding/logo/svg/foxtune-wordmark-light.svg $out/
+pipx run picosvg --output_file $out/foxtune-emblem-mono.svg \
+  branding/logo/svg/foxtune-emblem-mono-black.svg
+sed -i '/^\s*<defs\/>\s*$/d' $out/foxtune-icon.svg $out/foxtune-emblem-mono.svg
 ```
 
 The splash logos are the stacked logo centred on a transparent 768 x 1024 canvas. Re-render them

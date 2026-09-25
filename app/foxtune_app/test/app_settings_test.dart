@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:foxtune_app/main.dart';
 import 'package:foxtune_app/src/app_settings/app_settings.dart';
 import 'package:foxtune_app/src/app_settings/app_settings_screen.dart';
+import 'package:foxtune_app/src/app_settings/wallpaper.dart';
 import 'package:foxtune_app/src/connection/connect_screen.dart';
 import 'package:foxtune_app/src/connection/connection_controller.dart';
 import 'package:foxtune_app/src/connection/connection_state.dart';
@@ -15,6 +17,7 @@ import 'package:foxtune_app/src/dashboard/dashboard_controller.dart';
 import 'package:foxtune_app/src/dashboard/gauge_status.dart';
 import 'package:foxtune_app/src/definitions/definition_library.dart';
 import 'package:foxtune_app/src/definitions/definitions_screen.dart';
+import 'package:foxtune_app/src/files/file_saving.dart';
 import 'package:foxtune_app/src/storage/json_store.dart';
 import 'package:foxtune_app/src/window/window_controls.dart';
 import 'package:foxtune_ini/foxtune_ini.dart';
@@ -62,6 +65,24 @@ class _RecordingTransport implements EcuTransport {
     opened.add((baudRate, delayAfterOpen));
     throw EcuTransportException('not a real port', port: port);
   }
+}
+
+/// A one-pixel PNG.
+final _png = base64Decode(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+);
+
+/// Hands out [next] when asked for a file.
+class _Files extends FileSaving {
+  _Files() : super(mobile: false);
+
+  PickedFile? next;
+
+  @override
+  Future<PickedFile?> pickFile({
+    required List<String> extensions,
+    String? dialogTitle,
+  }) async => next;
 }
 
 class _RecordingWake implements ScreenWake {
@@ -155,6 +176,9 @@ void main() {
   });
 
   group('screen', () {
+    late _Files files;
+    setUp(() => files = _Files());
+
     Future<ProviderContainer> pumpSettings(
       WidgetTester tester, {
       EcuConnectionState connection = const EcuDisconnected(),
@@ -165,6 +189,7 @@ void main() {
             appStorageDirectoryProvider.overrideWith((ref) async => storage),
             bundledDefinitionProvider.overrideWith((ref) async => speeduino),
             connectionProvider.overrideWith(() => _FixedConnection(connection)),
+            fileSavingProvider.overrideWithValue(files),
           ],
           child: const MaterialApp(home: AppSettingsScreen()),
         ),
@@ -185,11 +210,16 @@ void main() {
       /// Opens the setting called [title] and picks [choice] from its list.
       Future<void> pick(String title, String choice) async {
         final setting = find.text(title);
-        await tester.ensureVisible(setting);
+        await tester.scrollUntilVisible(setting, 100);
         await tester.pumpAndSettle();
         await tester.tap(setting);
         await tester.pumpAndSettle();
-        await tester.tap(find.text(choice));
+        await tester.tap(
+          find.descendant(
+            of: find.byType(SimpleDialog),
+            matching: find.text(choice),
+          ),
+        );
         await tester.pumpAndSettle();
       }
 
@@ -198,7 +228,7 @@ void main() {
       await pick('Live data rate', '15 times a second');
 
       final keepOn = find.text('Keep the screen on while connected');
-      await tester.ensureVisible(keepOn);
+      await tester.scrollUntilVisible(keepOn, 100);
       await tester.pumpAndSettle();
       await tester.tap(keepOn);
       await tester.pumpAndSettle();
@@ -252,6 +282,110 @@ void main() {
       await tester.tap(tile);
       await tester.pumpAndSettle();
       expect(find.byType(DefinitionsScreen), findsOneWidget);
+    });
+
+    group('wallpaper', () {
+      Wallpaper wallpaperOf(ProviderContainer container) =>
+          container.read(appSettingsProvider).wallpaper;
+
+      testWidgets('an image is chosen, kept, and laid out as set', (
+        tester,
+      ) async {
+        final container = await pumpSettings(tester);
+        files.next = PickedFile(name: 'dash.png', bytes: _png);
+
+        await tester.tap(find.text('Image'));
+        await tester.pumpAndSettle();
+        final chosen = wallpaperOf(container);
+        expect(chosen.kind, WallpaperKind.image);
+        expect(chosen.imageName, 'dash.png');
+        expect(File(chosen.image!).parent.path, '${storage.path}/wallpapers');
+        expect(find.text('dash.png'), findsOneWidget);
+
+        final tile = find.text('Tile');
+        await tester.scrollUntilVisible(tile, 100);
+        await tester.pumpAndSettle();
+        await tester.tap(tile);
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('Top left'));
+        await tester.pumpAndSettle();
+
+        final laidOut = wallpaperOf(container);
+        expect(laidOut.fit, WallpaperFit.tile);
+        expect(laidOut.alignment, Alignment.topLeft);
+        final saved = AppSettings.fromJson(
+          jsonDecode(File('${storage.path}/settings.json').readAsStringSync()),
+        );
+        expect(saved.wallpaper, laidOut);
+      });
+
+      testWidgets('a file that is no image is refused', (tester) async {
+        final container = await pumpSettings(tester);
+        files.next = PickedFile(
+          name: 'notes.png',
+          bytes: Uint8List.fromList(utf8.encode('not a picture')),
+        );
+
+        await tester.tap(find.text('Image'));
+        await tester.pumpAndSettle();
+        expect(
+          find.text('notes.png is not an image FoxTune can show.'),
+          findsOneWidget,
+        );
+        expect(wallpaperOf(container).kind, WallpaperKind.branding);
+      });
+
+      testWidgets('none leaves nothing to set', (tester) async {
+        final container = await pumpSettings(tester);
+        expect(find.text('Strength'), findsOneWidget);
+
+        await tester.tap(find.text('None'));
+        await tester.pumpAndSettle();
+        expect(wallpaperOf(container).kind, WallpaperKind.none);
+        expect(find.text('Strength'), findsNothing);
+        expect(find.byType(WallpaperView), findsNothing);
+      });
+
+      testWidgets('the preview follows the slider as it is dragged', (
+        tester,
+      ) async {
+        final container = await pumpSettings(tester);
+        final slider = find.byType(Slider);
+        await tester.scrollUntilVisible(slider, 100);
+        await tester.pumpAndSettle();
+        double previewed() => tester
+            .widget<WallpaperView>(find.byType(WallpaperView))
+            .wallpaper
+            .strength;
+
+        final drag = await tester.startGesture(tester.getCenter(slider));
+        await drag.moveBy(const Offset(100, 0));
+        await tester.pump();
+        final dragged = previewed();
+        expect(dragged, isNot(Wallpaper.defaultStrength));
+        // Kept to the preview until the slider is let go.
+        expect(wallpaperOf(container).strength, Wallpaper.defaultStrength);
+
+        await drag.up();
+        await tester.pumpAndSettle();
+        expect(wallpaperOf(container).strength, dragged);
+        expect(previewed(), dragged);
+      });
+
+      testWidgets('its strength is saved once the slider is let go', (
+        tester,
+      ) async {
+        final container = await pumpSettings(tester);
+        final slider = find.byType(Slider);
+        await tester.scrollUntilVisible(slider, 100);
+        await tester.pumpAndSettle();
+
+        await tester.drag(slider, const Offset(200, 0));
+        await tester.pumpAndSettle();
+        final strength = wallpaperOf(container).strength;
+        expect(strength, greaterThan(Wallpaper.defaultStrength));
+        expect(find.text('${(strength * 100).round()}%'), findsOneWidget);
+      });
     });
   });
 

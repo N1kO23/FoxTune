@@ -49,6 +49,10 @@ dependencies:
   # one, and moves, minimizes and maximizes the window from Flutter. Only
   # initialized on those two platforms - see lib/src/window/.
   window_manager: ^0.5.2
+  # Draws the brand artwork from its SVGs, sharp at whatever size and pixel
+  # density it lands on - which pre-rendered PNGs are only at the densities
+  # they were rendered for.
+  flutter_svg: ^2.3.0
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -86,8 +90,10 @@ flutter:
     # lets the app verify a connected ECU's signature out of the box; loading a
     # user-supplied .ini comes later.
     - assets/speeduino.ini
-    # The logo in the app bar. Only what the app shows is bundled here; the
-    # full artwork lives in branding/ at the repository root.
+    # The app bar's icon and wordmark, and the emblem the default wallpaper
+    # draws - as SVGs, flattened for flutter_svg (see branding/README.md).
+    # Only what the app shows is bundled here; the full artwork lives in
+    # branding/ at the repository root.
     - assets/branding/
 
   # To add assets to your application, add an assets section, like this:

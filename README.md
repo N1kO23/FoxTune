@@ -74,7 +74,9 @@ it on a real phone.
 A serial link runs at 115200 baud, as Speeduino's does over USB, and waits a second after the
 port opens for an Arduino Mega to restart. Both are in **App settings** - the gear at the end of
 the top bar - for a Bluetooth module set to another speed or a board that does not restart,
-along with how often live data is read.
+along with how often live data is read. So are the theme, the temperature scale and the
+wallpaper behind the main screen: the FoxTune emblem as a faint watermark by default, an image
+of your own, or none.
 
 iOS exposes no generic USB serial API - the External Accessory framework requires Apple MFi
 licensing - so an iPhone can only ever reach a Speeduino over WiFi (an ESP8266/ESP32 bridge on
