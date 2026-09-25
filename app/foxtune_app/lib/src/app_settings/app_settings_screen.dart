@@ -281,16 +281,23 @@ class _WallpaperSettingsState extends ConsumerState<_WallpaperSettings> {
               children: [
                 Text('Strength', style: theme.textTheme.bodyLarge),
                 Expanded(
-                  child: Slider(
-                    value: shown.strength,
-                    divisions: 20,
-                    label: percent,
-                    onChanged: (strength) =>
-                        setState(() => _dragging = strength),
-                    onChangeEnd: (strength) {
-                      setState(() => _dragging = null);
-                      _change((w) => w.copyWith(strength: strength));
-                    },
+                  // In whole percent. A tick mark for each would be a dotted
+                  // line, so there are none.
+                  child: SliderTheme(
+                    data: SliderTheme.of(
+                      context,
+                    ).copyWith(tickMarkShape: SliderTickMarkShape.noTickMark),
+                    child: Slider(
+                      value: shown.strength,
+                      divisions: 100,
+                      label: percent,
+                      onChanged: (strength) =>
+                          setState(() => _dragging = strength),
+                      onChangeEnd: (strength) {
+                        setState(() => _dragging = null);
+                        _change((w) => w.copyWith(strength: strength));
+                      },
+                    ),
                   ),
                 ),
                 SizedBox(

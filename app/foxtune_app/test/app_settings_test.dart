@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:foxtune_app/main.dart';
@@ -370,6 +371,24 @@ void main() {
         await tester.pumpAndSettle();
         expect(wallpaperOf(container).strength, dragged);
         expect(previewed(), dragged);
+      });
+
+      testWidgets('its strength steps by whole percents - from a keyboard or '
+          'a screen reader as well as a drag', (tester) async {
+        final semantics = tester.ensureSemantics();
+        final container = await pumpSettings(tester);
+        await tester.scrollUntilVisible(find.byType(Slider), 100);
+        await tester.pumpAndSettle();
+
+        tester.semantics.performAction(
+          find.semantics.byAction(SemanticsAction.increase),
+          SemanticsAction.increase,
+        );
+        await tester.pumpAndSettle();
+        // Saved as it is, one step on - not held for a drag to end.
+        expect(wallpaperOf(container).strength, closeTo(0.16, 1e-9));
+        expect(find.text('16%'), findsOneWidget);
+        semantics.dispose();
       });
 
       testWidgets('its strength is saved once the slider is let go', (
