@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
 
+import '../app_settings/map_colours.dart';
+
 /// Projects a point on the table onto the isometric view.
 ///
 /// [row] 0 is the LOWEST Y and must render at the front, matching the 2D grid
@@ -170,8 +172,8 @@ class _SurfaceViewState extends State<SurfaceView> {
             tilt: _tilt,
             cursor: widget.cursor,
             precise: widget.preciseCursor,
-            lowColor: scheme.surfaceContainerHighest,
-            highColor: scheme.primary,
+            colours: MapColours.of(context),
+            base: scheme.surfaceContainerHighest,
             edgeColor: scheme.outlineVariant,
             cursorColor: scheme.tertiary,
             markerHalo: scheme.surface,
@@ -190,8 +192,8 @@ class _SurfacePainter extends CustomPainter {
     required this.tilt,
     required this.cursor,
     required this.precise,
-    required this.lowColor,
-    required this.highColor,
+    required this.colours,
+    required this.base,
     required this.edgeColor,
     required this.cursorColor,
     required this.markerHalo,
@@ -202,8 +204,10 @@ class _SurfacePainter extends CustomPainter {
   final double tilt;
   final ({int row, int column})? cursor;
   final ({double row, double column})? precise;
-  final Color lowColor;
-  final Color highColor;
+
+  /// The map gradient, and the colour it is laid over.
+  final MapColours colours;
+  final Color base;
   final Color edgeColor;
   final Color cursorColor;
   final Color markerHalo;
@@ -295,17 +299,15 @@ class _SurfacePainter extends CustomPainter {
         drawables.add((
           depth: depthOf(r + 0.5, c + 0.5),
           paint: (canvas) {
-            // Magnitude is sequential: one hue, light to dark.
+            // Coloured as the grid is - see [MapColours].
             canvas
               ..drawPath(
                 path,
                 Paint()
                   ..style = PaintingStyle.fill
-                  ..color = Color.lerp(
-                    lowColor,
-                    highColor,
-                    heightFraction,
-                  )!.withValues(alpha: 0.92),
+                  ..color = colours
+                      .on(base, heightFraction)
+                      .withValues(alpha: 0.92),
               )
               ..drawPath(path, edge);
             if (isCursor) {
@@ -405,5 +407,11 @@ class _SurfacePainter extends CustomPainter {
       old.tilt != tilt ||
       old.cursor != cursor ||
       old.precise != precise ||
-      !identical(old.grid, grid);
+      !identical(old.grid, grid) ||
+      // A new gradient, or the theme switching between light and dark.
+      old.colours.gradient != colours.gradient ||
+      old.base != base ||
+      old.edgeColor != edgeColor ||
+      old.cursorColor != cursorColor ||
+      old.markerHalo != markerHalo;
 }

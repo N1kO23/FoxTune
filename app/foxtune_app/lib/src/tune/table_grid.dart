@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
 
+import '../app_settings/map_colours.dart';
+
 /// Colours marking a cell this session has changed.
 ///
 /// A diverging pair - red for raised, blue for lowered, with no tint for
@@ -671,14 +673,11 @@ class _Cell extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
 
-    // Magnitude is a sequential encoding: one hue, light to dark. A rainbow
-    // ramp would imply categories that are not there, and fails for
-    // colour-blind readers.
-    final heat = Color.lerp(
-      scheme.surfaceContainerLowest,
-      scheme.primary.withValues(alpha: 0.55),
-      fraction,
-    )!;
+    // The gradient chosen in App settings - by default one hue, light to
+    // dark, since magnitude is a sequential thing and a rainbow implies
+    // categories that are not there. See [builtInGradients].
+    final heat = MapColours.of(context)
+        .on(scheme.surfaceContainerLowest, fraction);
 
     final background = isCursor
         // A tint as well as a ring: the ring alone disappears against a dark
@@ -752,14 +751,25 @@ class _Cell extends StatelessWidget {
                   style: theme.textTheme.bodySmall?.copyWith(
                     fontFeatures: const [FontFeature.tabularFigures()],
                     // A pending entry wins, then the edit direction, then
-                    // the ordinary text tokens.
+                    // the ordinary text tokens - each as long as it can be
+                    // read on the cell, which on a gradient of the user's
+                    // choosing it may not be. The two colour cues are allowed
+                    // less contrast before giving way: the cell's outline
+                    // carries them as well.
                     color: entry != null
-                        ? scheme.primary
+                        ? readableOn(background, scheme.primary, minContrast: 2)
                         : change != null
-                        ? EditTint.of(change!)
-                        : (selected
-                              ? scheme.onPrimaryContainer
-                              : scheme.onSurface),
+                        ? readableOn(
+                            background,
+                            EditTint.of(change!),
+                            minContrast: 2,
+                          )
+                        : readableOn(
+                            background,
+                            selected
+                                ? scheme.onPrimaryContainer
+                                : scheme.onSurface,
+                          ),
                     fontWeight: entry != null || isCursor
                         ? FontWeight.w700
                         : FontWeight.w400,

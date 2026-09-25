@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'src/app_settings/app_settings.dart';
+import 'src/app_settings/map_colours.dart';
 import 'src/branding/brand_theme.dart';
 import 'src/connection/connect_screen.dart';
 import 'src/window/window_controls.dart';
@@ -34,11 +35,16 @@ class FoxTuneApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Carried by the theme, so every map - table grid, 3D surface, coverage -
+    // reaches it without being handed it.
+    final maps = MapColours(
+      ref.watch(appSettingsProvider.select((s) => s.mapGradient)),
+    );
     return MaterialApp(
       title: 'FoxTune',
       debugShowCheckedModeBanner: false,
-      theme: brandTheme(Brightness.light),
-      darkTheme: brandTheme(Brightness.dark),
+      theme: brandTheme(Brightness.light).copyWith(extensions: [maps]),
+      darkTheme: brandTheme(Brightness.dark).copyWith(extensions: [maps]),
       themeMode: ref.watch(appSettingsProvider.select((s) => s.themeMode)),
       home: const ConnectScreen(),
     );

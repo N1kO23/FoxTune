@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show setEquals;
+import 'package:flutter/foundation.dart' show listEquals, setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:foxtune_protocol/foxtune_protocol.dart';
@@ -8,6 +8,7 @@ import 'package:foxtune_transport/foxtune_transport.dart';
 
 import '../dashboard/gauge_status.dart';
 import '../storage/json_store.dart';
+import 'map_colours.dart';
 import 'wallpaper.dart';
 
 /// Choices about FoxTune itself, as against the ECU's own settings.
@@ -26,6 +27,8 @@ class AppSettings {
     this.delayAfterOpen = kDelayAfterPortOpen,
     this.liveDataRate = 30,
     this.wallpaper = const Wallpaper(),
+    this.mapGradient = foxTuneGradient,
+    this.savedGradients = const [],
   });
 
   /// The firmwares whose projects publish their definitions to download.
@@ -82,6 +85,12 @@ class AppSettings {
   /// What is drawn behind the main screen.
   final Wallpaper wallpaper;
 
+  /// How the table maps, and the 3D surfaces drawn from them, are coloured.
+  final MapGradient mapGradient;
+
+  /// Gradients the user has saved, beside the [builtInGradients].
+  final List<MapGradient> savedGradients;
+
   /// The time between live data reads [liveDataRate] asks for.
   Duration get liveDataInterval =>
       Duration(microseconds: Duration.microsecondsPerSecond ~/ liveDataRate);
@@ -95,6 +104,8 @@ class AppSettings {
     Duration? delayAfterOpen,
     int? liveDataRate,
     Wallpaper? wallpaper,
+    MapGradient? mapGradient,
+    List<MapGradient>? savedGradients,
   }) => AppSettings(
     themeMode: themeMode ?? this.themeMode,
     temperatureUnit: temperatureUnit ?? this.temperatureUnit,
@@ -105,6 +116,8 @@ class AppSettings {
     delayAfterOpen: delayAfterOpen ?? this.delayAfterOpen,
     liveDataRate: liveDataRate ?? this.liveDataRate,
     wallpaper: wallpaper ?? this.wallpaper,
+    mapGradient: mapGradient ?? this.mapGradient,
+    savedGradients: savedGradients ?? this.savedGradients,
   );
 
   /// These settings, with definitions for [family] downloaded or not.
@@ -127,6 +140,8 @@ class AppSettings {
     'delayAfterOpenMs': delayAfterOpen.inMilliseconds,
     'liveDataRate': liveDataRate,
     'wallpaper': wallpaper.toJson(),
+    'mapGradient': mapGradient.toJson(),
+    'savedGradients': [for (final saved in savedGradients) saved.toJson()],
   };
 
   /// Reads what [toJson] wrote.
@@ -168,6 +183,15 @@ class AppSettings {
       wallpaper: json.containsKey('wallpaper')
           ? Wallpaper.fromJson(json['wallpaper'])
           : defaults.wallpaper,
+      mapGradient:
+          MapGradient.fromJson(json['mapGradient']) ?? defaults.mapGradient,
+      savedGradients: switch (json['savedGradients']) {
+        // One that does not read is dropped, not the rest with it.
+        final List<Object?> saved => [
+          for (final gradient in saved) ?MapGradient.fromJson(gradient),
+        ],
+        _ => defaults.savedGradients,
+      },
     );
   }
 
@@ -181,7 +205,9 @@ class AppSettings {
       other.baudRate == baudRate &&
       other.delayAfterOpen == delayAfterOpen &&
       other.liveDataRate == liveDataRate &&
-      other.wallpaper == wallpaper;
+      other.wallpaper == wallpaper &&
+      other.mapGradient == mapGradient &&
+      listEquals(other.savedGradients, savedGradients);
 
   @override
   int get hashCode => Object.hash(
@@ -193,6 +219,8 @@ class AppSettings {
     delayAfterOpen,
     liveDataRate,
     wallpaper,
+    mapGradient,
+    Object.hashAll(savedGradients),
   );
 }
 

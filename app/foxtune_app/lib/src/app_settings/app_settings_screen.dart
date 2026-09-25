@@ -13,6 +13,7 @@ import '../files/file_saving.dart';
 import '../storage/json_store.dart';
 import '../window/window_app_bar.dart';
 import 'app_settings.dart';
+import 'map_colours_screen.dart';
 import 'wallpaper.dart';
 
 /// FoxTune's own settings, as against the ECU's in the Settings tab - and the
@@ -70,6 +71,16 @@ class AppSettingsScreen extends ConsumerWidget {
                   ),
                 ),
                 const _WallpaperSettings(),
+                ListTile(
+                  title: const Text('Map colours'),
+                  subtitle: Text(settings.mapGradient.name),
+                  trailing: GradientPreview(
+                    gradient: settings.mapGradient,
+                    width: 96,
+                    height: 16,
+                  ),
+                  onTap: () => MapColoursScreen.open(context),
+                ),
                 const _Heading('Connection'),
                 _Picked<int>(
                   title: 'Baud rate',
