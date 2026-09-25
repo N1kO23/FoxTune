@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:foxtune_protocol/foxtune_protocol.dart' show EcuFamily;
 import 'package:foxtune_transport/foxtune_transport.dart';
 
+import '../app_settings/app_settings_screen.dart';
 import '../autotune/autotune_controller.dart';
 import '../autotune/autotune_screen.dart';
 import '../branding/foxtune_logo.dart';
@@ -13,6 +14,8 @@ import '../dashboard/dashboard_screen.dart';
 import '../dashboard/gauge_status.dart';
 import '../dashboard/sample_history.dart';
 import '../definitions/choose_definition.dart';
+import '../definitions/definition_library.dart';
+import '../definitions/definitions_screen.dart';
 import '../logging/log_controller.dart';
 import '../settings/settings_screen.dart';
 import '../tune/msq_actions.dart';
@@ -88,6 +91,14 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
               onPressed: () => confirmDisconnect(context, ref),
             ),
           ],
+          // Last, so it sits at the end of the bar in every state - next to
+          // the window buttons, where it does not move as the others come and
+          // go.
+          IconButton(
+            tooltip: 'App settings',
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: () => AppSettingsScreen.open(context),
+          ),
         ],
       ),
       body: SafeArea(
@@ -225,6 +236,16 @@ class _ConnectedView extends ConsumerWidget {
               _Row(label: 'Version', value: state.identification.version),
               if (definition != null) ...[
                 _Row(
+                  label: 'Definition',
+                  value: switch (state.definitionSource) {
+                    DefinitionSource.bundled => 'Built into FoxTune',
+                    DefinitionSource.cached => 'Kept on this device',
+                    DefinitionSource.downloaded => 'Downloaded for this build',
+                    DefinitionSource.picked => 'Chosen from a file',
+                    null => 'Unknown',
+                  },
+                ),
+                _Row(
                   label: 'Pages',
                   value:
                       '${definition.constants.pageCount} '
@@ -352,32 +373,40 @@ class _SignatureCard extends StatelessWidget {
   }
 }
 
-/// Choosing the definition file, and - for rusEFI - looking for it again.
+/// Choosing the definition file, downloading it where its firmware project
+/// publishes it, and the list of every definition FoxTune has.
 class _DefinitionActions extends ConsumerWidget {
-  const _DefinitionActions();
+  const _DefinitionActions({this.alignment = WrapAlignment.start});
+
+  final WrapAlignment alignment;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final connection = ref.watch(connectionProvider);
-    final rusEfi =
-        connection is EcuConnected &&
-        connection.identification.family == EcuFamily.rusefi;
+    final site = connection is EcuConnected
+        ? definitionDownloadSite(connection.identification)
+        : null;
     return Wrap(
       spacing: 8,
       runSpacing: 8,
+      alignment: alignment,
       children: [
         FilledButton.tonalIcon(
           onPressed: () => chooseDefinition(context, ref),
           icon: const Icon(Icons.file_open_outlined),
           label: const Text('Choose the definition file'),
         ),
-        if (rusEfi)
+        if (site != null)
           OutlinedButton.icon(
             onPressed: () =>
                 ref.read(connectionProvider.notifier).retryDefinition(),
-            icon: const Icon(Icons.refresh),
-            label: const Text('Download again'),
+            icon: const Icon(Icons.download_outlined),
+            label: Text('Download from $site'),
           ),
+        TextButton(
+          onPressed: () => DefinitionsScreen.open(context),
+          child: const Text('All definitions'),
+        ),
       ],
     );
   }
@@ -436,7 +465,7 @@ class _NeedsDefinition extends ConsumerWidget {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
-            const Center(child: _DefinitionActions()),
+            const _DefinitionActions(alignment: WrapAlignment.center),
             const SizedBox(height: 12),
             Center(
               child: TextButton.icon(

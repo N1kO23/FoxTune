@@ -106,12 +106,19 @@ abstract final class MsqActions {
     messenger.showSnackBar(
       SnackBar(
         content: Text(
-          outcome.isClean
-              ? 'Loaded ${outcome.applied} values. Burn to apply them to the ECU.'
-              : 'Loaded ${outcome.applied} values; '
-                    '${outcome.skipped.length} skipped, '
-                    '${outcome.unknown.length} unrecognised. '
-                    'Burn to apply them to the ECU.',
+          [
+            outcome.isClean
+                ? 'Loaded ${outcome.applied} values.'
+                : 'Loaded ${outcome.applied} values; '
+                      '${outcome.skipped.length} skipped, '
+                      '${outcome.unknown.length} unrecognised.',
+            // Said, because a tuner comparing against the file would
+            // otherwise see every temperature changed.
+            if (outcome.converted.isNotEmpty)
+              '${outcome.converted.length} were saved in the other '
+                  'temperature scale, and converted.',
+            'Burn to apply them to the ECU.',
+          ].join(' '),
         ),
         duration: const Duration(seconds: 6),
       ),

@@ -172,4 +172,29 @@ enum TemperatureUnit {
   /// Converts a threshold expressed in Celsius into this scale.
   double fromCelsius(double celsius) =>
       this == TemperatureUnit.celsius ? celsius : celsius * 1.8 + 32;
+
+  /// [value], a temperature in this scale, in [to].
+  double convert(double value, {required TemperatureUnit to}) =>
+      switch ((this, to)) {
+        (celsius, fahrenheit) => value * 1.8 + 32,
+        (fahrenheit, celsius) => (value - 32) / 1.8,
+        _ => value,
+      };
+
+  /// The scale [units] name, or `null` when they are not a temperature.
+  ///
+  /// Definitions spell a scale several ways - `C`, `°C`, `deg C`, `degF` - so
+  /// all of them count. Plain `deg`, the unit of ignition timing, does not.
+  static TemperatureUnit? ofUnits(String units) {
+    final bare = units
+        .replaceAll('°', '')
+        .replaceAll(RegExp('deg', caseSensitive: false), '')
+        .replaceAll(RegExp(r'\s'), '')
+        .toLowerCase();
+    return switch (bare) {
+      'c' => celsius,
+      'f' => fahrenheit,
+      _ => null,
+    };
+  }
 }

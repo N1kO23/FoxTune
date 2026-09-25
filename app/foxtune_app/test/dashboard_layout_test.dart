@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:foxtune_app/src/dashboard/gauge_status.dart';
 import 'package:foxtune_app/src/dashboard/layout/dashboard_layout.dart';
 import 'package:foxtune_app/src/dashboard/layout/default_layout.dart';
 import 'package:foxtune_app/src/dashboard/layout/grid.dart';
@@ -415,6 +416,24 @@ void main() {
   });
 
   group('gauge limits', () {
+    test('remember the temperature scale they were set in', () {
+      const limits = GaugeLimits(
+        min: -40,
+        max: 248,
+        decimals: 0,
+        dangerAbove: 221,
+        temperatureUnit: TemperatureUnit.fahrenheit,
+      );
+      expect(
+        GaugeLimits.fromJson(limits.toJson())!.temperatureUnit,
+        TemperatureUnit.fahrenheit,
+      );
+      // Anything else has none, and older layouts said nothing about it.
+      const plain = GaugeLimits(min: 0, max: 100, decimals: 0);
+      expect(plain.toJson(), isNot(contains('temperature')));
+      expect(GaugeLimits.fromJson(plain.toJson())!.temperatureUnit, isNull);
+    });
+
     test('accepts ordered bands, with any of them off', () {
       const limits = GaugeLimits(
         min: 0,

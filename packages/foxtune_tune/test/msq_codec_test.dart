@@ -269,4 +269,85 @@ void main() {
           startsWith('speeduino '));
     });
   });
+
+  group('temperatures saved in the other scale', () {
+    const source = '''
+[MegaTune]
+signature = "speeduino 202504-dev"
+[Constants]
+endianness = little
+nPages     = 1
+pageSize   = 16
+page = 1
+  minClt  = scalar, U08, 0,  "C",   1.0, -40.0, -40.0, 215.0, 0
+  cltBins = array,  U08, 1, [4], "C", 1.0, -40.0, -40.0, 215.0, 0
+  advance = scalar, U08, 5,  "deg", 1.0,   0.0,   0.0,  60.0, 0
+''';
+    final celsius = IniParser().parse(source);
+
+    String msq(String constants) =>
+        '''<?xml version="1.0" encoding="ISO-8859-1"?>
+<msq xmlns="http://www.msefi.com/:msq">
+<versionInfo fileFormat="5.0" signature="speeduino 202504-dev"/>
+<page number="0">
+$constants
+</page>
+</msq>''';
+
+    /// [name]'s [count] values, lowest first. Each is a byte, offset by
+    /// [translate] - every temperature here by 40, so it can go below zero.
+    List<num> valuesOf(
+      TuneState tune,
+      String name,
+      int count, {
+      num translate = -40,
+    }) {
+      final located = tune.locate(name)!;
+      return [
+        for (var i = 0; i < count; i++)
+          tune.readRaw(located.page, located.field, i)! + translate,
+      ]..sort();
+    }
+
+    test('are converted on the way in, and said to be', () {
+      final tune = TuneState.empty(celsius);
+      final result = MsqCodec.decode(
+        msq('''
+<constant digits="0" name="minClt" units="F">140</constant>
+<constant cols="1" digits="0" name="cltBins" rows="4" units="&#176;F">
+  32 50 68 212
+</constant>
+<constant digits="0" name="advance" units="deg">20</constant>'''),
+        tune,
+      );
+
+      expect(result.applied, 3);
+      expect(result.converted, ['minClt', 'cltBins']);
+      expect(result.isClean, isTrue);
+      expect(valuesOf(tune, 'minClt', 1), [60]);
+      expect(valuesOf(tune, 'cltBins', 4), [0, 10, 20, 100]);
+      // Degrees of timing are no temperature.
+      expect(valuesOf(tune, 'advance', 1, translate: 0), [20]);
+    });
+
+    test('in the same scale are left as they are', () {
+      final tune = TuneState.empty(celsius);
+      final result = MsqCodec.decode(
+        msq('<constant digits="0" name="minClt" units="C">60</constant>'),
+        tune,
+      );
+      expect(result.converted, isEmpty);
+      expect(valuesOf(tune, 'minClt', 1), [60]);
+    });
+
+    test('with no units said are taken as they stand', () {
+      final tune = TuneState.empty(celsius);
+      final result = MsqCodec.decode(
+        msq('<constant digits="0" name="minClt">60</constant>'),
+        tune,
+      );
+      expect(result.converted, isEmpty);
+      expect(valuesOf(tune, 'minClt', 1), [60]);
+    });
+  });
 }

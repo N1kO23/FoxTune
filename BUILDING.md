@@ -151,7 +151,7 @@ cd packages/foxtune_tune
 dart run bin/fake_ecu.dart --msq /path/to/your-tune.msq
 ```
 
-Then start the app and choose **Network ECU** → `127.0.0.1:2000`. Gauges move, the live table
+Then start the app and choose **Network ECU** -> `127.0.0.1:2000`. Gauges move, the live table
 cursor travels across cells, and warning thresholds are actually reached.
 
 | Flag         | Effect                                          |
@@ -187,7 +187,7 @@ cd packages/foxtune_tune
 dart run bin/fake_ecu.dart --ini ../foxtune_ini/test/fixtures/rusefi_uaefi.ini
 ```
 
-Connect with **Network ECU** → `127.0.0.1:29001`. FoxTune will look for the definition on
+Connect with **Network ECU** -> `127.0.0.1:29001`. FoxTune will look for the definition on
 rusefi.com; for the vendored fixture it finds it, and for any other it asks you for the file.
 
 ### rusEFI's own simulator
@@ -221,7 +221,7 @@ What the build needs beyond `make`:
   prefix and putting its `bin` on `PATH` for the `make` is enough if you would rather not
   install it.
 
-Then connect FoxTune with **Network ECU** → `127.0.0.1:29001`. The simulator runs the
+Then connect FoxTune with **Network ECU** -> `127.0.0.1:29001`. The simulator runs the
 f407-discovery configuration; if rusEFI has published the definition for that build, FoxTune
 downloads it, and otherwise asks for the file - the build writes it to
 `firmware/tunerstudio/generated/rusefi_f407-discovery.ini`.
@@ -284,7 +284,7 @@ go through this with the phone and a Speeduino - the bench ECU is fine, engine o
 
 1. **Plug in.** Android offers to open FoxTune. Tick **always**; unplug and replug - FoxTune
    opens with no permission prompt, and the board is at the top of the list.
-2. **Deny once.** Clear FoxTune's defaults (Settings → Apps → FoxTune → Open by default),
+2. **Deny once.** Clear FoxTune's defaults (Settings -> Apps -> FoxTune -> Open by default),
    replug, connect, tap **Deny**. The message says permission was denied - not a raw
    exception - and connecting again asks again.
 3. **Connect over OTG.** Gauges move. Leave it for longer than the screen timeout; the screen
@@ -355,10 +355,10 @@ releases page.
 Only the APK is signed. The desktop builds would need a code-signing certificate on Windows and a
 paid Apple Developer account on macOS, so both operating systems warn the first time:
 
-- **Windows** SmartScreen stops the installer, or `FoxTune.exe` from the zip: **More info** →
+- **Windows** SmartScreen stops the installer, or `FoxTune.exe` from the zip: **More info** ->
   **Run anyway**.
-- **macOS** refuses to open the app. Try once, then allow it under **System Settings** →
-  **Privacy & Security** → **Open Anyway**.
+- **macOS** refuses to open the app. Try once, then allow it under **System Settings** ->
+  **Privacy & Security** -> **Open Anyway**.
 
 Before anything is built, the tag is checked against the pubspec:
 

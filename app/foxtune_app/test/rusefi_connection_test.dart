@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:foxtune_app/src/app_settings/app_settings.dart';
 import 'package:foxtune_app/src/connection/connection_controller.dart';
 import 'package:foxtune_app/src/connection/connection_state.dart';
 import 'package:foxtune_app/src/definitions/definition_library.dart';
@@ -57,13 +58,17 @@ void main() {
     storage.deleteSync(recursive: true);
   });
 
-  Future<void> start(FakeTsEcu fake) async {
+  Future<void> start(
+    FakeTsEcu fake, {
+    AppSettings settings = const AppSettings(),
+  }) async {
     ecu = fake;
     started = true;
     final port = await ecu.start();
     container = ProviderContainer(
       overrides: [
-        definitionProvider.overrideWith((ref) async => speeduino),
+        initialAppSettingsProvider.overrideWithValue(settings),
+        bundledDefinitionProvider.overrideWith((ref) async => speeduino),
         appStorageDirectoryProvider.overrideWith((ref) async => storage),
         definitionFetcherProvider.overrideWithValue((url) async {
           fetched.add(url);
@@ -133,12 +138,39 @@ void main() {
     );
     expect(connected().definition, isNull);
 
-    await controller.adoptDefinition(rusEfiSource);
+    await controller.adoptDefinition(rusEfiSource, fileName: 'rusefi.ini');
     final ready = connected();
     expect(ready.definitionSource, DefinitionSource.picked);
     expect(ready.signatureStatus, SignatureStatus.matched);
-    // And it is kept, so the next connection does not ask.
-    expect(Directory('${storage.path}/definitions').listSync(), hasLength(1));
+    // And it is kept, so the next connection does not ask - noted as chosen
+    // from that file.
+    final kept = (await container.read(definitionLibraryProvider).list())
+        .where((entry) => !entry.isBuiltIn)
+        .toList();
+    expect(kept, hasLength(1));
+    expect(kept.single.signature, rusEfi.identity.signature);
+    expect(kept.single.source, DefinitionSource.picked);
+    expect(kept.single.fileName, 'rusefi.ini');
+  });
+
+  test('with automatic downloads off, looks no further than this device, '
+      'until asked', () async {
+    published[url] = rusEfiSource;
+    await start(
+      FakeRusEfi.fromDefinition(rusEfi),
+      settings: const AppSettings(downloadDefinitions: false),
+    );
+
+    final waiting = connected();
+    expect(waiting.definition, isNull);
+    expect(waiting.definitionProblem, contains('App settings'));
+    expect(fetched, isEmpty);
+
+    // Asking is the user's say-so, and downloads regardless.
+    await container.read(connectionProvider.notifier).retryDefinition();
+    expect(connected().signatureStatus, SignatureStatus.matched);
+    expect(connected().definitionSource, DefinitionSource.downloaded);
+    expect(fetched, [url]);
   });
 
   test('says so when rusefi.com cannot be reached', () async {
@@ -158,6 +190,52 @@ void main() {
     expect(state.signatureStatus, SignatureStatus.matched);
     expect(state.definitionSource, DefinitionSource.bundled);
     // Speeduino signatures are not downloaded.
+    expect(fetched, isEmpty);
+  });
+
+  test(
+    'a Speeduino release is downloaded from speeduino.com, and kept',
+    () async {
+      final release = speeduinoDefinitionUrl('202501.7');
+      published[speeduinoVersionsUrl] = '202501.7\n202402.2\n202310\nmaster\n';
+      // What speeduino.com serves for 202501.7 declares the release's own
+      // signature, without the point.
+      published[release] = speeduinoSource.replaceFirst(
+        '"speeduino 202504-dev"',
+        '"speeduino 202501"',
+      );
+      await start(
+        FakeSpeeduino(
+          signature: 'speeduino 202501',
+          pageSizes: speeduino.constants.pageSizes,
+        ),
+      );
+
+      final state = connected();
+      expect(state.signatureStatus, SignatureStatus.matched);
+      expect(state.definitionSource, DefinitionSource.downloaded);
+      expect(state.definition!.identity.signature, 'speeduino 202501');
+      expect(fetched, [speeduinoVersionsUrl, release]);
+
+      final kept = (await container.read(definitionLibraryProvider).list())
+          .where((entry) => !entry.isBuiltIn)
+          .single;
+      expect(kept.signature, 'speeduino 202501');
+      expect(kept.source, DefinitionSource.downloaded);
+      expect(kept.url, release);
+    },
+  );
+
+  test('a Speeduino development build is not looked for online', () async {
+    await start(
+      FakeSpeeduino(
+        signature: 'speeduino 202510-dev',
+        pageSizes: speeduino.constants.pageSizes,
+      ),
+    );
+    final state = connected();
+    expect(state.signatureStatus, SignatureStatus.mismatched);
+    expect(state.definitionProblem, contains('development build'));
     expect(fetched, isEmpty);
   });
 

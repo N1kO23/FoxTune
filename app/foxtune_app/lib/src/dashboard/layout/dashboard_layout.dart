@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import '../gauge_status.dart';
+
 /// The width of a phone held upright, in design pixels: the narrowest page,
 /// and the unit the wider ones are measured in.
 ///
@@ -148,6 +150,7 @@ class GaugeLimits {
     this.warnBelow,
     this.warnAbove,
     this.dangerAbove,
+    this.temperatureUnit,
   });
 
   final double min;
@@ -157,6 +160,37 @@ class GaugeLimits {
   final double? warnBelow;
   final double? warnAbove;
   final double? dangerAbove;
+
+  /// The scale these were set in, for a gauge reading a temperature; `null`
+  /// for any other.
+  ///
+  /// The numbers mean nothing without it. Switching between Celsius and
+  /// Fahrenheit changes what the gauge reads, and a danger point of 105 has
+  /// to become 221 along with it - see [inUnits].
+  final TemperatureUnit? temperatureUnit;
+
+  /// These limits, for a gauge whose units are [gaugeUnits].
+  ///
+  /// Converted where the gauge reads the other temperature scale from the one
+  /// they were set in. Limits set before the scale was recorded count as
+  /// Celsius, the only one FoxTune had.
+  GaugeLimits inUnits(String gaugeUnits) {
+    final target = TemperatureUnit.ofUnits(gaugeUnits);
+    final from = temperatureUnit ?? TemperatureUnit.celsius;
+    if (target == null || target == from) return this;
+    double convert(double value) => from.convert(value, to: target);
+    double? convertSet(double? value) => value == null ? null : convert(value);
+    return GaugeLimits(
+      min: convert(min),
+      max: convert(max),
+      decimals: decimals,
+      dangerBelow: convertSet(dangerBelow),
+      warnBelow: convertSet(warnBelow),
+      warnAbove: convertSet(warnAbove),
+      dangerAbove: convertSet(dangerAbove),
+      temperatureUnit: target,
+    );
+  }
 
   /// Why these limits cannot be used, or `null` if they can.
   String? get problem {
@@ -192,6 +226,7 @@ class GaugeLimits {
     'warnBelow': ?warnBelow,
     'warnAbove': ?warnAbove,
     'dangerAbove': ?dangerAbove,
+    'temperature': ?temperatureUnit?.name,
   };
 
   static GaugeLimits? fromJson(Object? json) {
@@ -212,6 +247,7 @@ class GaugeLimits {
       warnBelow: number('warnBelow'),
       warnAbove: number('warnAbove'),
       dangerAbove: number('dangerAbove'),
+      temperatureUnit: TemperatureUnit.values.asNameMap()[json['temperature']],
     );
     return limits.problem == null ? limits : null;
   }

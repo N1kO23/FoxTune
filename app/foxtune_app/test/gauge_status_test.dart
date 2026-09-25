@@ -182,6 +182,36 @@ void _temperatureUnitTests() {
       expect(TemperatureUnit.fahrenheit.fromCelsius(-40), -40);
     });
 
+    test('converts a temperature either way', () {
+      const c = TemperatureUnit.celsius;
+      const f = TemperatureUnit.fahrenheit;
+      expect(c.convert(100, to: f), 212);
+      expect(f.convert(212, to: c), closeTo(100, 1e-9));
+      expect(f.convert(-40, to: c), closeTo(-40, 1e-9));
+      expect(c.convert(20, to: c), 20);
+    });
+
+    test('knows a scale however a definition spells it', () {
+      for (final units in ['C', '\u00B0C', 'deg C', 'degC', ' c ']) {
+        expect(
+          TemperatureUnit.ofUnits(units),
+          TemperatureUnit.celsius,
+          reason: units,
+        );
+      }
+      for (final units in ['F', '\u00B0F', 'deg F']) {
+        expect(
+          TemperatureUnit.ofUnits(units),
+          TemperatureUnit.fahrenheit,
+          reason: units,
+        );
+      }
+      // Ignition timing is in degrees too, and is no temperature.
+      for (final units in ['deg', '%', 'kPa', 'ms', '']) {
+        expect(TemperatureUnit.ofUnits(units), isNull, reason: units);
+      }
+    });
+
     GaugeSpec gaugeFor(TemperatureUnit unit, String name) {
       // The definition picks its temperature gauges by the same symbols the
       // decoder is parsed with, so gauge and reading cannot disagree on scale.

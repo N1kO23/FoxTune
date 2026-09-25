@@ -113,8 +113,11 @@ class GaugeCatalog {
   /// when this definition has no such gauge or channel.
   GaugeSpec? specOf(String ref) {
     final spec = definedSpecOf(ref);
-    final own = limits[ref];
-    if (spec == null || own == null) return spec;
+    final set = limits[ref];
+    if (spec == null || set == null) return spec;
+    // In the scale the gauge reads now, which need not be the one they were
+    // set in.
+    final own = set.inUnits(spec.units);
     return GaugeSpec(
       channel: spec.channel,
       label: spec.label,

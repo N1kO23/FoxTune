@@ -95,7 +95,7 @@ added without disturbing anything above it.
 Not yet: autotuning on rusEFI, rusEFI's bench tests, Lua and trigger loggers, replaying a
 recorded `.msl` log into the autotuner, warmup autotuning, `commandButton` actions such as sensor
 calibration, TunerStudio's own built-in dialogs, and the `string` PC variables used for
-auxiliary-channel aliases. The temperature scale is still fixed to Celsius in code.
+auxiliary-channel aliases.
 
 ## Building
 
@@ -120,14 +120,14 @@ names each member package explicitly.
 You do not need a Speeduino to work on the protocol layer. `foxtune_protocol` ships a
 simulator, `FakeSpeeduino`, that speaks the real wire protocol over TCP - envelope, CRC-32,
 page reads, realtime block and all. The integration tests drive a real `EcuClient` against it
-over a real socket, so a framing mistake fails the build rather than passing quietly.
+over a real socket, so a framing mistake fails ->he build rather than passing quietly.
 
 ```sh
 cd packages/foxtune_tune
 dart run bin/fake_ecu.dart --msq /path/to/your-tune.msq
 ```
 
-Then connect from the app with **Network ECU** → `127.0.0.1:2000`. Pass a rusEFI definition
+Then connect from the app with **Network ECU** -> `127.0.0.1:2000`. Pass a rusEFI definition
 with `--ini` and it is a simulated rusEFI instead, on port 29001, with canned fuelling - the
 tune-driven engine described below is Speeduino's. It drives a plausible
 running engine into the realtime block - idle, a pull to redline, a cruise, then a
@@ -204,15 +204,22 @@ its signature ends in a hash of the settings layout - so it has to be the exact 
 connecting, FoxTune looks in order for:
 
 1. the Speeduino definition it ships with;
-2. one kept on this device from an earlier connection;
-3. for rusEFI, the one rusEFI publishes for that build, at a rusefi.com address spelled out by
-   the signature;
+2. one kept on this device - from an earlier connection, or added ahead of time;
+3. the one the firmware project publishes for that build: for rusEFI, at a rusefi.com address
+   spelled out by the signature; for a Speeduino release, the newest point release of it on
+   speeduino.com, where SpeedyLoader gets its firmware;
 4. failing those, a file you choose - from the firmware bundle for your board, the drive a
    rusEFI ECU mounts over USB (`rusefi.ini.zip`), or a firmware you built yourself.
 
 A downloaded or chosen definition must match the ECU's signature exactly, and is kept so it is
-not asked for again. A Speeduino on a release other than the shipped one works the same way:
-choose its definition and it is kept.
+not asked for again. A Speeduino development build is not published: choose its definition
+(`reference/speeduino.ini` in its source) and it is kept.
+
+Downloading can be turned off in **App settings**, the gear at the end of the top bar; the
+Download button beside an ECU that needs its definition still fetches one when asked. **ECU
+definitions**, also in App settings, lists every definition FoxTune has and where each came
+from, and adds, removes or saves a copy of one. Adding one before heading somewhere without
+internet lets the ECU it is for connect there.
 
 **Commands from the definition.** Page reads, writes, burns, CRC checks and live data are sent
 as the definition's own templates - `R%2i%2o%2c` for a rusEFI page read, `p%2i%2o%2c` for a
@@ -279,7 +286,7 @@ whose limits are tune settings, like the tachometer's, fixes them and they stop 
 Limits; the editor says so first.
 
 Where a definition's alarm points contradict each other, FoxTune ignores them rather than guess.
-Speeduino's has eight gauges copied from one line - danger below 130, warning below 140 *and*
+Speeduino's has eight gauges copied from one line - danger below 130, warning below 140 _and_
 above 140 - so no reading is ever normal and warmup enrichment shows DANGER at 100%, which is
 where it sits on every warm engine. Its free-memory gauge does the same with its high bands
 reversed. Those gauges show without alarms until you set your own.
@@ -364,8 +371,9 @@ Some things are deliberately left out. `commandButton` entries render disabled: 
 actions at the ECU, several of which start a calibration, and shipping an untested write path
 to hardware is not worth the completeness. The same goes for the real-time clock panel
 (`std_ms3Rtc`), whose one job is sending the ECU a new time. TunerStudio's own menu-level editors
+
 - the sensor calibration wizards and the SD card browser - live in TunerStudio rather than in
-the definition, so there is nothing here to generate a screen from.
+  the definition, so there is nothing here to generate a screen from.
 
 Gauge limits and a few similar values are `[PcVariables]`: they live on the tuning computer
 rather than on the ECU, are seeded from the definition's factory values, and are marked as such

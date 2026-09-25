@@ -6,10 +6,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// Where FoxTune keeps what it remembers between sessions.
-final appStorageDirectoryProvider = FutureProvider<Directory>((ref) async {
+///
+/// For code that runs before there are providers to ask - reading the app
+/// settings in `main`. Everything else uses [appStorageDirectoryProvider].
+Future<Directory> appStorageDirectory() async {
   final documents = await getApplicationDocumentsDirectory();
   return Directory('${documents.path}/FoxTune');
-});
+}
+
+/// [appStorageDirectory], as a provider. Replaced in tests.
+final appStorageDirectoryProvider = FutureProvider<Directory>(
+  (ref) => appStorageDirectory(),
+);
 
 /// Small JSON documents kept between sessions.
 final jsonStoreProvider = Provider<JsonStore>(

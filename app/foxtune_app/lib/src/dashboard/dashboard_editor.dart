@@ -291,7 +291,10 @@ class _GaugeOptions extends ConsumerWidget {
         builder: (_) => _LimitsDialog(
           catalog: catalog,
           source: source,
-          own: layout.limits[source],
+          // Shown in the scale the gauge reads now.
+          own: layout.limits[source]?.inUnits(
+            catalog.definedSpecOf(source)?.units ?? '',
+          ),
         ),
       );
       if (result != null) controller.setLimits(source, result.limits);
@@ -633,6 +636,7 @@ class _LimitsDialogState extends State<_LimitsDialog> {
       warnBelow: _parse(_warnBelow),
       warnAbove: _parse(_warnAbove),
       dangerAbove: _parse(_dangerAbove),
+      temperatureUnit: TemperatureUnit.ofUnits(_defined?.units ?? ''),
     );
     final problem = limits.problem;
     if (problem != null) {

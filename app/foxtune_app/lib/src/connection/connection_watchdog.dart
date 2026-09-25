@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:foxtune_protocol/foxtune_protocol.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
+import '../app_settings/app_settings.dart';
 import '../dashboard/dashboard_controller.dart';
 import 'connection_controller.dart';
 import 'connection_state.dart';
@@ -98,9 +99,13 @@ final screenWakeProvider = Provider<ScreenWake>(
   (ref) => const _PlatformScreenWake(),
 );
 
-/// Takes and releases the screen wake lock as the connection comes and goes.
+/// Takes and releases the screen wake lock as the connection comes and goes,
+/// unless the user has turned that off in App settings.
 final screenWakeWatcherProvider = Provider<void>((ref) {
   final wake = ref.watch(screenWakeProvider);
+  // Turning it off while connected rebuilds this, and the previous build
+  // lets go of the lock as it is disposed.
+  if (!ref.watch(appSettingsProvider.select((s) => s.keepScreenOn))) return;
   var held = false;
 
   ref.listen<EcuConnectionState>(connectionProvider, (previous, next) {

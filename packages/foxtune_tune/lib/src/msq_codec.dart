@@ -11,6 +11,7 @@ class MsqImportResult {
     required this.applied,
     required this.skipped,
     required this.unknown,
+    this.converted = const [],
   });
 
   /// Signature declared by the file, if any.
@@ -29,6 +30,15 @@ class MsqImportResult {
   ///
   /// Usually a tune from a different firmware version.
   final List<String> unknown;
+
+  /// Temperatures saved in the other scale from the one the loaded definition
+  /// reads, converted on the way in, by name.
+  ///
+  /// A tune saved in Fahrenheit holds 212 where a Celsius definition means
+  /// 100. Written as they stand, those values would be wrong by a factor and
+  /// an offset - and nothing would say so, since both are in range. The file
+  /// says which scale each value is in, so converting is not a guess.
+  final List<String> converted;
 
   bool get isClean => skipped.isEmpty && unknown.isEmpty;
 
@@ -226,6 +236,7 @@ abstract final class MsqCodec {
     var applied = 0;
     final skipped = <String>[];
     final unknown = <String>[];
+    final converted = <String>[];
 
     for (final element in root.descendantElements) {
       if (element.name.local != 'constant') continue;
@@ -238,10 +249,13 @@ abstract final class MsqCodec {
         continue;
       }
 
-      final ok = _applyField(
-          into, located.page, located.field, element.innerText, resolver);
+      final convert =
+          _temperatureConversion(element.getAttribute('units'), located.field);
+      final ok = _applyField(into, located.page, located.field,
+          element.innerText, resolver, convert);
       if (ok) {
         applied++;
+        if (convert != null) converted.add(name);
       } else {
         skipped.add(name);
       }
@@ -252,11 +266,41 @@ abstract final class MsqCodec {
       applied: applied,
       skipped: skipped,
       unknown: unknown,
+      converted: converted,
     );
   }
 
+  /// How to bring a value saved in [savedUnits] into [field]'s units, where
+  /// the two are different temperature scales; `null` where nothing needs
+  /// converting.
+  static double Function(double)? _temperatureConversion(
+      String? savedUnits, IniField field) {
+    final units = switch (field) {
+      IniScalarField(:final units) || IniArrayField(:final units) => units,
+      IniBitsField() => null,
+    };
+    if (savedUnits == null || units == null) return null;
+    final from = _temperatureScale(savedUnits);
+    final to = _temperatureScale(units);
+    if (from == null || to == null || from == to) return null;
+    return from == 'c'
+        ? (value) => value * 1.8 + 32
+        : (value) => (value - 32) / 1.8;
+  }
+
+  /// `c` or `f`, for units naming a temperature scale - `C`, `°C`, `deg F` -
+  /// and `null` for any others, plain `deg` of ignition timing included.
+  static String? _temperatureScale(String units) {
+    final bare = units
+        .replaceAll('\u00B0', '')
+        .replaceAll(RegExp('deg', caseSensitive: false), '')
+        .replaceAll(RegExp(r'\s'), '')
+        .toLowerCase();
+    return bare == 'c' || bare == 'f' ? bare : null;
+  }
+
   static bool _applyField(TuneState tune, int page, IniField field, String text,
-      TuneValueResolver resolver) {
+      TuneValueResolver resolver, double Function(double)? convert) {
     switch (field) {
       case IniBitsField():
         final label = text.trim().replaceAll('"', '');
@@ -272,8 +316,9 @@ abstract final class MsqCodec {
         return true;
 
       case IniScalarField():
-        final value = double.tryParse(text.trim());
-        if (value == null) return false;
+        final saved = double.tryParse(text.trim());
+        if (saved == null) return false;
+        final value = convert == null ? saved : convert(saved);
         final scale = resolver.valueOf(field.scale);
         final translate = resolver.valueOf(field.translate);
         if (scale == null || translate == null || scale == 0) return false;
@@ -302,7 +347,8 @@ abstract final class MsqCodec {
             // so rows invert. Columns do not: both run ascending-X.
             final source = (rows - 1 - r) * columns + c;
             final index = field.isTable ? r * columns + c : r;
-            final value = numbers[source]!;
+            final saved = numbers[source]!;
+            final value = convert == null ? saved : convert(saved);
             tune.writeRaw(page, field, (value - translate) / scale, index);
           }
         }

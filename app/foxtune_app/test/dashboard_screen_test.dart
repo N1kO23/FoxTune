@@ -6,6 +6,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:foxtune_app/src/app_settings/app_settings.dart';
 import 'package:foxtune_app/src/branding/brand_theme.dart';
 import 'package:foxtune_app/src/connection/connection_state.dart';
 import 'package:foxtune_app/src/connection/connection_controller.dart';
@@ -13,6 +14,7 @@ import 'package:foxtune_app/src/dashboard/dashboard_controller.dart';
 import 'package:foxtune_app/src/dashboard/gauge_status.dart';
 import 'package:foxtune_app/src/dashboard/dashboard_screen.dart';
 import 'package:foxtune_app/src/dashboard/gauge_catalog.dart';
+import 'package:foxtune_app/src/definitions/definition_library.dart';
 import 'package:foxtune_app/src/storage/json_store.dart';
 import 'package:foxtune_ini/foxtune_ini.dart';
 import 'package:foxtune_protocol/foxtune_protocol.dart';
@@ -233,7 +235,7 @@ void _definitionUnitTests() {
         overrides: [temperatureUnitProvider.overrideWith((ref) => unit)],
       );
       addTearDown(container.dispose);
-      return container.read(definitionProvider.future);
+      return container.read(bundledDefinitionProvider.future);
     }
 
     /// Decodes a coolant reading through the definition the app actually
@@ -244,7 +246,7 @@ void _definitionUnitTests() {
       );
       addTearDown(container.dispose);
 
-      final definition = await container.read(definitionProvider.future);
+      final definition = await container.read(bundledDefinitionProvider.future);
       final channels = definition.outputChannels;
       final block = Uint8List(channels.blockSize!);
       // 130 raw is 90 C once the definition's 40 degree offset is applied.

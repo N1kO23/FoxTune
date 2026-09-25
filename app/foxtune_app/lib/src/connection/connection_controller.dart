@@ -1,61 +1,13 @@
-import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:foxtune_ini/foxtune_ini.dart';
 import 'package:foxtune_protocol/foxtune_protocol.dart';
 import 'package:foxtune_transport/foxtune_transport.dart';
 
-import '../dashboard/gauge_status.dart';
 import '../definitions/definition_library.dart';
-import '../storage/json_store.dart';
 import 'connection_state.dart';
 
 /// The platform's serial transport.
 final transportProvider = Provider<EcuTransport>((ref) {
   return EcuTransport.forPlatform();
-});
-
-/// Temperature scale the definition is parsed for.
-///
-/// This selects a branch in the ECU definition, not just a label: the
-/// Celsius and Fahrenheit builds compute `coolant` and `iat` with different
-/// expressions, so the gauges' ranges and thresholds are derived from the same
-/// choice. See [TemperatureUnit].
-final temperatureUnitProvider = Provider<TemperatureUnit>(
-  (ref) => TemperatureUnit.celsius,
-);
-
-/// The Speeduino definition FoxTune ships with.
-///
-/// Parsing ~6000 lines takes long enough to be worth keeping off the build
-/// path, so this is a future the UI awaits once.
-final definitionProvider = FutureProvider<IniDocument>((ref) async {
-  final source = await rootBundle.loadString('assets/speeduino.ini');
-  final unit = ref.watch(temperatureUnitProvider);
-  return IniParser(defined: unit.iniSymbols).parse(source);
-});
-
-/// How a definition is downloaded. Replaced in tests.
-final definitionFetcherProvider = Provider<DefinitionFetcher>(
-  (ref) => fetchDefinitionOverHttp,
-);
-
-/// Where the connected ECU's definition is found.
-final definitionLibraryProvider = Provider<DefinitionLibrary>((ref) {
-  final unit = ref.watch(temperatureUnitProvider);
-  return DefinitionLibrary(
-    bundled: () => ref.read(definitionProvider.future),
-    storage: () async {
-      try {
-        return await ref.read(appStorageDirectoryProvider.future);
-      } on Object {
-        // Without storage nothing is kept between sessions, but a definition
-        // can still be found for this one.
-        return null;
-      }
-    },
-    fetch: ref.watch(definitionFetcherProvider),
-    symbols: unit.iniSymbols,
-  );
 });
 
 /// Serial ports currently attached.
@@ -179,17 +131,19 @@ class ConnectionController extends Notifier<EcuConnectionState> {
     }
   }
 
-  /// Uses [source], a definition the user chose, for the connected ECU.
+  /// Uses [source], a definition the user chose from the file [fileName], for
+  /// the connected ECU.
   ///
   /// Throws [DefinitionMismatchException] if it is for different firmware;
   /// the connection is left as it was.
-  Future<void> adoptDefinition(String source) async {
+  Future<void> adoptDefinition(String source, {String? fileName}) async {
     final current = state;
     if (current is! EcuConnected) return;
     final library = ref.read(definitionLibraryProvider);
     final definition = await library.adopt(
       source,
       signature: current.identification.signature,
+      fileName: fileName,
     );
     state = await _connected(
       current.port,
@@ -199,13 +153,15 @@ class ConnectionController extends Notifier<EcuConnectionState> {
     );
   }
 
-  /// Looks for the connected ECU's definition again - after going online,
-  /// say.
+  /// Looks for the connected ECU's definition again - after going online, say,
+  /// or once the user has added it to the definitions kept on this device.
+  ///
+  /// Asked for, so it downloads even with automatic downloads turned off.
   Future<void> retryDefinition() async {
     final current = state;
     if (current is! EcuConnected) return;
     final library = ref.read(definitionLibraryProvider);
-    final lookup = await library.find(current.identification);
+    final lookup = await library.find(current.identification, download: true);
     if (state != current) return;
     state = await _connected(
       current.port,

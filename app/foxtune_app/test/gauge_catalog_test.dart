@@ -275,6 +275,45 @@ void main() {
       expect(spec.max, 200);
     });
 
+    test('follow the temperature scale the gauge reads', () {
+      final fahrenheit = IniParser().parse(
+        File('assets/speeduino.ini').readAsStringSync(),
+      );
+      // Set before the scale was recorded, so in Celsius - the only one there
+      // was.
+      const set = GaugeLimits(
+        min: -40,
+        max: 120,
+        decimals: 0,
+        warnAbove: 95,
+        dangerAbove: 105,
+      );
+
+      final spec = GaugeCatalog(
+        definition: fahrenheit,
+        limits: const {'cltGauge': set},
+      ).specOf('cltGauge')!;
+      expect(TemperatureUnit.ofUnits(spec.units), TemperatureUnit.fahrenheit);
+      expect(spec.min, closeTo(-40, 1e-9));
+      expect(spec.max, closeTo(248, 1e-9));
+      expect(spec.warnAbove, closeTo(203, 1e-9));
+      expect(spec.dangerAbove, closeTo(221, 1e-9));
+      expect(spec.statusFor(215), GaugeStatus.warning);
+
+      // And set in Fahrenheit, read in Celsius.
+      final back = GaugeCatalog(
+        definition: doc,
+        limits: {'cltGauge': set.inUnits('F')},
+      ).specOf('cltGauge')!;
+      expect(back.dangerAbove, closeTo(105, 1e-9));
+    });
+
+    test('of a gauge reading no temperature are never converted', () {
+      const set = GaugeLimits(min: 100, max: 200, decimals: 0);
+      expect(set.inUnits('%'), same(set));
+      expect(set.inUnits('deg'), same(set));
+    });
+
     test('are flagged for gauges that follow the tune', () {
       final catalog = catalogFor(null);
       expect(catalog.followsTune('tachometer'), isTrue);

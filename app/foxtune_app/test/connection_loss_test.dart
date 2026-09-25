@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:foxtune_app/src/connection/connection_controller.dart';
 import 'package:foxtune_app/src/connection/connection_state.dart';
 import 'package:foxtune_app/src/connection/connection_watchdog.dart';
+import 'package:foxtune_app/src/definitions/definition_library.dart';
 import 'package:foxtune_app/src/tune/recovered_edits.dart';
 import 'package:foxtune_app/src/tune/tune_controller.dart';
 import 'package:foxtune_ini/foxtune_ini.dart';
@@ -105,7 +106,7 @@ void main() {
     container = ProviderContainer(
       overrides: [
         transportProvider.overrideWithValue(transport),
-        definitionProvider.overrideWith((ref) async => doc),
+        bundledDefinitionProvider.overrideWith((ref) async => doc),
         tuneProvider.overrideWith(() => _FakeTuneController(tune)),
         screenWakeProvider.overrideWithValue(wake),
       ],

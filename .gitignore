@@ -7,6 +7,9 @@ build/
 *.dill
 doc/api/
 
+# 3rd party
+**/.gradle
+
 # Flutter generated
 .flutter-plugins
 .flutter-plugins-dependencies
