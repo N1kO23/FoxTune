@@ -2,8 +2,8 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 
+import '../branding/smooth_svg.dart';
 import '../files/file_saving.dart';
 
 /// What is drawn behind the main screen.
@@ -188,14 +188,12 @@ class WallpaperView extends StatelessWidget {
           child: FractionallySizedBox(
             widthFactor: 0.6,
             heightFactor: 0.6,
-            child: SvgPicture.asset(
+            // Coloured as it is drawn, so a new strength shows at once and
+            // never renders the SVG again.
+            child: SmoothSvg(
               emblem,
-              colorFilter: ColorFilter.mode(
-                Theme.of(context).colorScheme.onSurface
-                    .withValues(alpha: wallpaper.strength),
-                BlendMode.srcIn,
-              ),
-              excludeFromSemantics: true,
+              color: Theme.of(context).colorScheme.onSurface
+                  .withValues(alpha: wallpaper.strength),
             ),
           ),
         );

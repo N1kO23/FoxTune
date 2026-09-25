@@ -5,10 +5,10 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:foxtune_app/src/app_settings/app_settings.dart';
 import 'package:foxtune_app/src/app_settings/wallpaper.dart';
+import 'package:foxtune_app/src/branding/smooth_svg.dart';
 import 'package:foxtune_app/src/connection/connect_screen.dart';
 import 'package:foxtune_app/src/connection/connection_controller.dart';
 import 'package:foxtune_app/src/connection/connection_watchdog.dart';
@@ -144,35 +144,23 @@ void main() {
     testWidgets('as nothing at all, when there is none', (tester) async {
       await pumpView(tester, const Wallpaper(kind: WallpaperKind.none));
       expect(find.byType(Image), findsNothing);
-      expect(find.byType(SvgPicture), findsNothing);
+      expect(find.byType(SmoothSvg), findsNothing);
     });
 
     testWidgets('as the emblem, in the theme\'s text colour at the strength '
         'set', (tester) async {
-      SvgPicture emblem() => tester.widget<SvgPicture>(find.byType(SvgPicture));
+      SmoothSvg emblem() => tester.widget<SmoothSvg>(find.byType(SmoothSvg));
       Color text(Brightness brightness) =>
           ThemeData(brightness: brightness).colorScheme.onSurface;
 
       await pumpView(tester, const Wallpaper(strength: 0.3));
-      expect(
-        (emblem().bytesLoader as SvgAssetLoader).assetName,
-        WallpaperView.emblem,
-      );
-      expect(
-        emblem().colorFilter,
-        ColorFilter.mode(
-          text(Brightness.dark).withValues(alpha: 0.3),
-          BlendMode.srcIn,
-        ),
-      );
+      expect(emblem().asset, WallpaperView.emblem);
+      expect(emblem().color, text(Brightness.dark).withValues(alpha: 0.3));
 
       await pumpView(tester, const Wallpaper(), brightness: Brightness.light);
       expect(
-        emblem().colorFilter,
-        ColorFilter.mode(
-          text(Brightness.light).withValues(alpha: Wallpaper.defaultStrength),
-          BlendMode.srcIn,
-        ),
+        emblem().color,
+        text(Brightness.light).withValues(alpha: Wallpaper.defaultStrength),
       );
     });
 

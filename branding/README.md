@@ -66,13 +66,17 @@ does not survive being drawn 36 px tall. The default wallpaper draws the single-
 in the theme's own text colour.
 
 The app draws all of these from SVGs, with flutter_svg, so they are sharp at any size and pixel
-density - where a PNG is sharp only at the densities it was rendered for. flutter_svg shares
-Qt's blind spot: it skips nested `<svg>` elements, and everything in them, without a word. So
-the app's copies are flattened too: the icon is the flattened Linux one, the emblem is flattened
-the same way, and the wordmarks, which nest nothing, are copied as they are. picosvg leaves an
-empty `<defs/>` behind, which flutter_svg complains about on every load, so that is taken out.
-The app's `test/branding_assets_test.dart` fails for any bundled SVG that still nests, or draws
-nothing. To update them, from the repository root:
+density - where a PNG is sharp only at the densities it was rendered for. It draws them through
+its own `SmoothSvg`, which renders an SVG at four times the pixels it covers and averages each
+4-by-4 block back down: Impeller smooths an edge only with 4x multisampling, and not at all on a
+GPU that cannot multisample, so line art as fine as the icon's comes out stepped where rsvg's
+render of the same SVG is smooth. flutter_svg shares Qt's blind spot: it skips nested `<svg>`
+elements, and everything in them, without a word. So the app's copies are flattened too: the
+icon is the flattened Linux one, the emblem is flattened the same way, and the wordmarks, which
+nest nothing, are copied as they are. picosvg leaves an empty `<defs/>` behind, which
+flutter_svg complains about on every load, so that is taken out. The app's
+`test/branding_assets_test.dart` fails for any bundled SVG that still nests, or draws nothing.
+To update them, from the repository root:
 
 ```sh
 out=app/foxtune_app/assets/branding
