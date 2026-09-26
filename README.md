@@ -15,11 +15,13 @@ codebase.
 
 > **Status: works; tuning a real Speeduino over USB is proven.** Everything below is
 > implemented and tested against a protocol-accurate simulator. On a real Speeduino, over USB
-> serial, FoxTune has connected, shown the live dashboard, changed settings, and written,
-> verified and burned the tune. Not yet tried on hardware: autotuning, sensor calibration, the
-> trigger loggers, USB OTG on Android, and network (TCP) bridges - treat those as unverified,
-> and see [Safety](#safety). rusEFI has been read, edited, verified and burned against rusEFI's
-> own simulator - the real firmware, built for a PC - but not yet against a rusEFI board.
+> serial, FoxTune has connected, shown the live dashboard, changed settings, edited tables,
+> run autotuning and the trigger loggers, and written, verified and burned the tune; it has
+> also connected from an Android phone over USB OTG, and the battery voltage offset has been
+> calibrated. Not yet tried on hardware: the temperature, O2 and TPS calibrations, and network
+> (TCP) bridges - treat those as unverified, and see [Safety](#safety). rusEFI has been read,
+> edited, verified and burned against rusEFI's own simulator - the real firmware, built for a
+> PC - but not yet against a rusEFI board.
 
 ## Why
 
@@ -73,7 +75,7 @@ codec does sits above the `EcuLink` byte pipe, so it can be driven by an in-memo
 | -------- | ------------------------------- | ------------------------------------------------------- |
 | Linux    | USB serial, TCP                 | Built and run                                           |
 | Windows  | USB serial, TCP                 | Built and run                                           |
-| Android  | USB OTG, TCP                    | Built and run; TCP used with the simulator, OTG untried |
+| Android  | USB OTG, TCP                    | OTG works with a real Speeduino; TCP with the simulator |
 | macOS    | USB serial, TCP                 | Should build; never tried                               |
 | Any      | TCP (ESP8266/ESP32 WiFi bridge) | Works with the simulator; not yet with a real bridge    |
 | iOS      | BLE                             | Not started                                             |
@@ -469,9 +471,11 @@ A logger runs until stopped, and stops when you leave the tab or disconnect: Spe
 over the trigger inputs' interrupts while it runs, so it is not left running.
 
 **How far they have been tested.** Both, against the simulated Speeduino, which keeps
-calibrations as the firmware does and runs its loggers on a simulated 36-1 wheel. Not yet: a
-real Speeduino, and rusEFI's loggers, which are decoded from its definition but have not been
-run against its simulator.
+calibrations as the firmware does and runs its loggers on a simulated 36-1 wheel. On a real
+Speeduino the loggers have run too, and of the calibrations only the battery voltage offset so
+far - an ordinary setting, burned with the tune, not one of the tables above. Not yet: the
+tables on a real Speeduino, and rusEFI's loggers, which are decoded from its definition but
+have not been run against its simulator.
 
 ## Autotuning
 
@@ -507,6 +511,9 @@ arm. And it needs the same write permission as any other edit.
 **Autotuning never touches the ECU.** Corrections land in the loaded tune and show as ordinary
 red/blue changed cells; the ECU changes only when you burn, through the same
 write-verify-CRC-burn path as a hand edit.
+
+**How far it has been tested.** Against the simulated engine, whose VE table starts out wrong
+by a set amount (`--ve-error`), and on a real Speeduino.
 
 ## Tune files
 
