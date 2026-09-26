@@ -13,12 +13,13 @@ FoxTune tunes [Speeduino](https://speeduino.com/) and [rusEFI](https://rusefi.co
 MegaSquirt a later goal. It runs on Linux, Windows, macOS and Android from a single Flutter
 codebase.
 
-> **Status: works; the write path is unproven on hardware.** Everything below is implemented
-> and tested against a protocol-accurate simulator. Connecting and the live dashboard have been
-> used against a real Speeduino. Burning, the settings screens, autotuning and USB OTG on
-> Android have not yet, so treat those as unverified - see [Safety](#safety). rusEFI has been
-> read, edited, verified and burned against rusEFI's own simulator - the real firmware, built
-> for a PC - but not yet against a rusEFI board.
+> **Status: works; tuning a real Speeduino over USB is proven.** Everything below is
+> implemented and tested against a protocol-accurate simulator. On a real Speeduino, over USB
+> serial, FoxTune has connected, shown the live dashboard, changed settings, and written,
+> verified and burned the tune. Not yet tried on hardware: autotuning, sensor calibration, the
+> trigger loggers, USB OTG on Android, and network (TCP) bridges - treat those as unverified,
+> and see [Safety](#safety). rusEFI has been read, edited, verified and burned against rusEFI's
+> own simulator - the real firmware, built for a PC - but not yet against a rusEFI board.
 
 ## Why
 
@@ -68,13 +69,14 @@ codec does sits above the `EcuLink` byte pipe, so it can be driven by an in-memo
 
 ### Platform support
 
-| Platform           | Transport                       | Status                          |
-| ------------------ | ------------------------------- | ------------------------------- |
-| Linux              | USB serial, TCP                 | Built and run                   |
-| Android            | USB OTG, TCP                    | TCP used; OTG built, not tested |
-| Windows / macOS    | USB serial, TCP                 | Should build; never tried       |
-| Any, including iOS | TCP (ESP8266/ESP32 WiFi bridge) | Works                           |
-| iOS                | BLE                             | Not started                     |
+| Platform | Transport                       | Status                                                  |
+| -------- | ------------------------------- | ------------------------------------------------------- |
+| Linux    | USB serial, TCP                 | Built and run                                           |
+| Windows  | USB serial, TCP                 | Built and run                                           |
+| Android  | USB OTG, TCP                    | Built and run; TCP used with the simulator, OTG untried |
+| macOS    | USB serial, TCP                 | Should build; never tried                               |
+| Any      | TCP (ESP8266/ESP32 WiFi bridge) | Works with the simulator; not yet with a real bridge    |
+| iOS      | BLE                             | Not started                                             |
 
 On Android, plugging a Speeduino in offers to open FoxTune; ticking "always" stops the USB
 permission prompt from coming back. The screen stays on while connected, unless App settings say
@@ -91,7 +93,7 @@ wallpaper behind the main screen: the FoxTune emblem as a faint watermark by def
 of your own, or none. And so are the colours the maps are shaded in - on the grid, the 3D
 surface and autotune's coverage - as a gradient of as many colours as you like, from built-in
 presets or your own saved ones; the numbers on it turn black or white wherever that reads
-better.
+better. So is how the dashboard's gauges look - see [Dashboard](#dashboard).
 
 iOS exposes no generic USB serial API - the External Accessory framework requires Apple MFi
 licensing - so an iPhone can only ever reach a Speeduino over WiFi (an ESP8266/ESP32 bridge on
@@ -100,21 +102,21 @@ added without disturbing anything above it.
 
 ## What works
 
-|                   |                                                                                                                                                    |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Connect**       | Speeduino and rusEFI over USB serial or TCP; the exact firmware's definition found, downloaded or chosen, and checked                              |
-| **Dashboard**     | Pages of dials, bars, readouts, lamps and time graphs you arrange, from any gauge or live channel; limits follow Gauge Limits or your own          |
-| **Tables**        | Editable grid with keyboard navigation, interpolate, smooth, scale                                                                                 |
-| **Settings**      | Trigger setup, engine constants, ASE, WUE and the rest - screens generated from the definition's `[Menu]` and `[UserDefined]`, not hand-written    |
-| **Curves**        | Editable point list and plot, with the live operating point marked                                                                                 |
-| **Calibration**   | Coolant, air and O2 sensor tables made from the definition's own choices, checked by the ECU's checksum; TPS from the sensor                       |
-| **Trigger logs**  | Tooth and composite loggers from `[LoggerDefinition]`: tooth times as bars with the gap picked out, edges as traces, CSV                           |
-| **Autotune**      | VE table tuned against the AFR/lambda target from live wideband data, filtered by the definition's own `[VeAnalyze]` rules                         |
-| **Live position** | The operating cell ringed, the four interpolation neighbours marked, and a dot at the exact interpolated point - in the grid and on the 3D surface |
-| **3D surface**    | Orbitable isometric mesh, no GL dependency                                                                                                         |
-| **Writing**       | Write to RAM, verify by the ECU's own page CRC, then burn                                                                                          |
-| **Tune files**    | `.msq` read and write, matched by name                                                                                                             |
-| **Logging**       | MegaLogViewer-compatible `.msl`, columns from `[Datalog]`                                                                                          |
+|                   |                                                                                                                                                                                            |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Connect**       | Speeduino and rusEFI over USB serial or TCP; the exact firmware's definition found, downloaded or chosen, and checked                                                                      |
+| **Dashboard**     | Pages of dials, bars, readouts, lamps and time graphs you arrange, from any gauge or live channel; limits follow Gauge Limits or your own; styled by a default look any gauge can override |
+| **Tables**        | Editable grid with keyboard navigation, interpolate, smooth, scale                                                                                                                         |
+| **Settings**      | Trigger setup, engine constants, ASE, WUE and the rest - screens generated from the definition's `[Menu]` and `[UserDefined]`, not hand-written                                            |
+| **Curves**        | Editable point list and plot, with the live operating point marked                                                                                                                         |
+| **Calibration**   | Coolant, air and O2 sensor tables made from the definition's own choices, checked by the ECU's checksum; TPS from the sensor                                                               |
+| **Trigger logs**  | Tooth and composite loggers from `[LoggerDefinition]`: tooth times as bars with the gap picked out, edges as traces, CSV                                                                   |
+| **Autotune**      | VE table tuned against the AFR/lambda target from live wideband data, filtered by the definition's own `[VeAnalyze]` rules                                                                 |
+| **Live position** | The operating cell ringed, the four interpolation neighbours marked, and a dot at the exact interpolated point - in the grid and on the 3D surface                                         |
+| **3D surface**    | Orbitable isometric mesh, no GL dependency                                                                                                                                                 |
+| **Writing**       | Write to RAM, verify by the ECU's own page CRC, then burn                                                                                                                                  |
+| **Tune files**    | `.msq` read and write, matched by name                                                                                                                                                     |
+| **Logging**       | MegaLogViewer-compatible `.msl`, columns from `[Datalog]`                                                                                                                                  |
 
 Not yet: autotuning on rusEFI, rusEFI's bench tests and Lua, a sensor calibration from an `.inc`
 file, replaying a recorded `.msl` log into the autotuner, warmup autotuning, `commandButton`
@@ -328,6 +330,17 @@ Any numeric gauge can be a dial, a bar, a digital readout or a time graph. A tim
 to four channels as **lanes** sharing a time axis, each against its own scale, rather than lines
 overlaid on one plot: RPM runs to thousands and AFR to fifteen, and giving each line its own
 scale on a shared axis would make how high a line sits mean something different for every line.
+
+How the gauges look is a setting of its own, in **App settings -> Gauge appearance**. Dials
+come with an arc or a needle, a sweep from 180° to 300°, and ticks or numbers along the scale;
+bars run across, upright or in blocks; readouts come with or without their card; graphs can be
+shaded under the trace; lamps are pills, squares or plain - and the colours of all of them can be
+chosen, warning and danger included. That look is the default every gauge follows. Any one gauge
+can change any part of it from its options while the page is being edited, and whatever it
+leaves at Default keeps following the default, including when the default changes later. The
+default is the same for every ECU; a gauge's own look is kept with its layout. However the
+colours are set, an alarm still shows its icon and word, so a warning recoloured to look like a
+normal reading still reads as a warning.
 
 Layouts are saved per ECU family as they are edited. A gauge the current definition no longer
 has - from a different firmware - keeps its place and says so, rather than vanishing.
