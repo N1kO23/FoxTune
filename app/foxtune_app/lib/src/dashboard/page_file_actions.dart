@@ -97,21 +97,19 @@ abstract final class PageFileActions {
     }
 
     if (!context.mounted) return null;
-    final go =
-        await showDialog<bool>(
-          context: context,
-          builder: (_) => _ImportDialog(
-            file: file,
-            fitted: fitted,
-            sameEcu: file.isFor(definition),
-          ),
-        ) ??
-        false;
-    if (!go || !context.mounted) return null;
+    final choice = await showDialog<_ImportChoice>(
+      context: context,
+      builder: (_) => _ImportDialog(
+        file: file,
+        fitted: fitted,
+        sameEcu: file.isFor(definition),
+      ),
+    );
+    if (choice == null || !context.mounted) return null;
 
     final id = ref
         .read(dashboardLayoutProvider.notifier)
-        .importPage(fitted.page, fitted.limits);
+        .importPage(fitted.page, choice.limits ? fitted.limits : const {});
     final left = fitted.missing.length;
     messenger.showSnackBar(
       SnackBar(
@@ -127,9 +125,16 @@ abstract final class PageFileActions {
 
 String _count(int n, String noun) => '$n $noun${n == 1 ? '' : 's'}';
 
+class _ImportChoice {
+  const _ImportChoice({required this.limits});
+
+  /// Whether the limits in the file are used.
+  final bool limits;
+}
+
 /// Says what an import will do before it does it: above all, what it leaves
 /// out.
-class _ImportDialog extends StatelessWidget {
+class _ImportDialog extends StatefulWidget {
   const _ImportDialog({
     required this.file,
     required this.fitted,
@@ -141,13 +146,25 @@ class _ImportDialog extends StatelessWidget {
   final bool sameEcu;
 
   @override
+  State<_ImportDialog> createState() => _ImportDialogState();
+}
+
+class _ImportDialogState extends State<_ImportDialog> {
+  // Off by default: the page is the common case, and a limit belongs to the
+  // gauge, so taking the file's changes every other page showing it too.
+  bool _limits = false;
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final DashboardPageFile(:page, :ecu) = widget.file;
+    final madeOn = ecu ?? 'an ECU it does not name';
+    final fitted = widget.fitted;
     final missing = fitted.missing;
     final limits = fitted.limits.length;
 
     return AlertDialog(
-      title: Text('Import "${file.page.name}"'),
+      title: Text('Import "${page.name}"'),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -157,11 +174,10 @@ class _ImportDialog extends StatelessWidget {
               'It is added as a new page, with '
               '${_count(fitted.page.items.length, 'gauge')}.',
             ),
-            if (!sameEcu) ...[
+            if (!widget.sameEcu) ...[
               const SizedBox(height: 12),
               Text(
-                'It was made on ${file.ecu ?? 'an ECU it does not name'}, '
-                'not this one.',
+                'It was made on $madeOn, not this one.',
                 style: theme.textTheme.bodySmall,
               ),
             ],
@@ -188,12 +204,17 @@ class _ImportDialog extends StatelessWidget {
               ),
             ],
             if (limits > 0) ...[
-              const SizedBox(height: 12),
-              Text(
-                'It brings your own limits for ${_count(limits, 'gauge')}. '
-                'They replace any set here, on every page showing '
-                '${limits == 1 ? 'that gauge' : 'those gauges'}.',
-                style: theme.textTheme.bodySmall,
+              const SizedBox(height: 8),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: _limits,
+                onChanged: (v) => setState(() => _limits = v ?? false),
+                title: Text('Use its limits for ${_count(limits, 'gauge')}'),
+                subtitle: Text(
+                  'They replace any set here, on every page showing '
+                  '${limits == 1 ? 'that gauge' : 'those gauges'}. Left '
+                  'off, the gauges keep the limits they have here.',
+                ),
               ),
             ],
           ],
@@ -201,11 +222,12 @@ class _ImportDialog extends StatelessWidget {
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.of(context).pop(false),
+          onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
         ),
         FilledButton(
-          onPressed: () => Navigator.of(context).pop(true),
+          onPressed: () =>
+              Navigator.of(context).pop(_ImportChoice(limits: _limits)),
           child: const Text('Import'),
         ),
       ],

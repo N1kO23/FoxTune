@@ -353,8 +353,8 @@ gauges with each one's own look, and any limits set for them. The default look s
 belongs to whoever imports the page, and a gauge that follows it follows theirs. An import is
 added as a page of its own, never over one. It can come from any ECU: whatever the definition
 does not have - a gauge, a graph's lane, an indicator - is left out, and the import lists what
-before it changes anything. Limits that come with it replace any already set for the same
-gauges, on every page.
+before it changes anything. Limits that come with it are used only if you tick the box for
+them: they replace any already set for the same gauges, on every page.
 
 ## Datalogging
 

@@ -570,6 +570,82 @@ void main() {
       expect(layoutFile().readAsStringSync(), contains('"Shared"'));
     });
 
+    testWidgets("a file's limits are used only when asked for", (tester) async {
+      saveLayout({
+        ..._testLayout,
+        'limits': {
+          'batteryVoltage': {'min': 0, 'max': 20, 'decimals': 1},
+        },
+      });
+      final files = _Files()
+        ..next = PickedFile(
+          name: 'Shared.foxdash',
+          bytes: utf8.encode(
+            DashboardPageFile(
+              ecu: doc.identity.signature,
+              page: const DashboardPage(
+                id: 'p',
+                name: 'Shared',
+                items: [
+                  GaugePlacement(
+                    id: 'v',
+                    style: GaugeStyle.digital,
+                    x: 0,
+                    y: 0,
+                    width: 6,
+                    height: 4,
+                    gauges: ['batteryVoltage'],
+                  ),
+                ],
+              ),
+              limits: const {
+                'batteryVoltage': GaugeLimits(
+                  min: 8,
+                  max: 16,
+                  decimals: 2,
+                  warnBelow: 11.5,
+                ),
+              },
+            ).encode(),
+          ),
+        );
+      await pump(tester, files: files);
+      await startEditing(tester);
+
+      Future<void> import({required bool limits}) async {
+        await tester.tap(find.byTooltip('Page'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Import page'));
+        await tester.pumpAndSettle();
+        final box = find.widgetWithText(
+          CheckboxListTile,
+          'Use its limits for 1 gauge',
+        );
+        expect(tester.widget<CheckboxListTile>(box).value, isFalse);
+        if (limits) await tester.tap(box);
+        await tester.tap(find.widgetWithText(FilledButton, 'Import'));
+        await tester.pumpAndSettle();
+      }
+
+      GaugeLimits battery() =>
+          container(tester)
+              .read(dashboardLayoutProvider)
+              .value!
+              .limits['batteryVoltage']!;
+
+      await import(limits: false);
+      expect(battery().max, 20);
+      expect(battery().warnBelow, isNull);
+
+      await import(limits: true);
+      expect(battery().max, 16);
+      expect(battery().warnBelow, 11.5);
+      expect(
+        container(tester).read(dashboardLayoutProvider).value!.pages,
+        hasLength(3),
+      );
+    });
+
     testWidgets('a file that is not a page is refused', (tester) async {
       saveLayout(_testLayout);
       final files = _Files()
