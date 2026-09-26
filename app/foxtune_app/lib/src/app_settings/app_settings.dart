@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:foxtune_protocol/foxtune_protocol.dart';
 import 'package:foxtune_transport/foxtune_transport.dart';
 
+import '../dashboard/gauge_appearance.dart';
 import '../dashboard/gauge_status.dart';
 import '../storage/json_store.dart';
 import 'map_colours.dart';
@@ -29,6 +30,7 @@ class AppSettings {
     this.wallpaper = const Wallpaper(),
     this.mapGradient = foxTuneGradient,
     this.savedGradients = const [],
+    this.gaugeAppearance = const GaugeAppearance(),
   });
 
   /// The firmwares whose projects publish their definitions to download.
@@ -91,6 +93,10 @@ class AppSettings {
   /// Gradients the user has saved, beside the [builtInGradients].
   final List<MapGradient> savedGradients;
 
+  /// How the dashboard's gauges look, unless one has been given its own.
+  /// Anything left unset here is drawn as [GaugeAppearance.builtIn].
+  final GaugeAppearance gaugeAppearance;
+
   /// The time between live data reads [liveDataRate] asks for.
   Duration get liveDataInterval =>
       Duration(microseconds: Duration.microsecondsPerSecond ~/ liveDataRate);
@@ -106,6 +112,7 @@ class AppSettings {
     Wallpaper? wallpaper,
     MapGradient? mapGradient,
     List<MapGradient>? savedGradients,
+    GaugeAppearance? gaugeAppearance,
   }) => AppSettings(
     themeMode: themeMode ?? this.themeMode,
     temperatureUnit: temperatureUnit ?? this.temperatureUnit,
@@ -118,6 +125,7 @@ class AppSettings {
     wallpaper: wallpaper ?? this.wallpaper,
     mapGradient: mapGradient ?? this.mapGradient,
     savedGradients: savedGradients ?? this.savedGradients,
+    gaugeAppearance: gaugeAppearance ?? this.gaugeAppearance,
   );
 
   /// These settings, with definitions for [family] downloaded or not.
@@ -142,6 +150,7 @@ class AppSettings {
     'wallpaper': wallpaper.toJson(),
     'mapGradient': mapGradient.toJson(),
     'savedGradients': [for (final saved in savedGradients) saved.toJson()],
+    'gaugeAppearance': gaugeAppearance.toJson(),
   };
 
   /// Reads what [toJson] wrote.
@@ -192,6 +201,7 @@ class AppSettings {
         ],
         _ => defaults.savedGradients,
       },
+      gaugeAppearance: GaugeAppearance.fromJson(json['gaugeAppearance']),
     );
   }
 
@@ -207,7 +217,8 @@ class AppSettings {
       other.liveDataRate == liveDataRate &&
       other.wallpaper == wallpaper &&
       other.mapGradient == mapGradient &&
-      listEquals(other.savedGradients, savedGradients);
+      listEquals(other.savedGradients, savedGradients) &&
+      other.gaugeAppearance == gaugeAppearance;
 
   @override
   int get hashCode => Object.hash(
@@ -221,6 +232,7 @@ class AppSettings {
     wallpaper,
     mapGradient,
     Object.hashAll(savedGradients),
+    gaugeAppearance,
   );
 }
 

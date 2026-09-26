@@ -13,6 +13,7 @@ import '../files/file_saving.dart';
 import '../storage/json_store.dart';
 import '../window/window_app_bar.dart';
 import 'app_settings.dart';
+import 'gauge_appearance_screen.dart';
 import 'map_colours_screen.dart';
 import 'wallpaper.dart';
 
@@ -80,6 +81,16 @@ class AppSettingsScreen extends ConsumerWidget {
                     height: 16,
                   ),
                   onTap: () => MapColoursScreen.open(context),
+                ),
+                ListTile(
+                  title: const Text('Gauge appearance'),
+                  subtitle: Text(
+                    settings.gaugeAppearance.isEmpty
+                        ? 'Built in'
+                        : 'Customised',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => GaugeAppearanceScreen.open(context),
                 ),
                 const _Heading('Connection'),
                 _Picked<int>(

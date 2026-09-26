@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
 
+import '../app_settings/app_settings.dart';
 import 'bar_gauge.dart';
 import 'dashboard_controller.dart';
+import 'gauge_appearance.dart';
 import 'gauge_catalog.dart';
 import 'layout/dashboard_layout.dart';
 import 'meter_gauge.dart';
@@ -21,6 +23,9 @@ import 'time_graph.dart';
 /// shows has changed. The page around it is not rebuilt per sample, and a lamp
 /// that stays off or a temperature that holds costs nothing while the rest of
 /// the page moves.
+///
+/// It is drawn in its own look, over the default look in the app settings,
+/// over [GaugeAppearance.builtIn].
 class GaugeView extends ConsumerWidget {
   const GaugeView({
     super.key,
@@ -49,6 +54,9 @@ class GaugeView extends ConsumerWidget {
       ),
     );
     final live = catalog.withRealtime(ref.read(realtimeProvider).value);
+    final look = placement.appearance
+        .over(ref.watch(appSettingsProvider.select((s) => s.gaugeAppearance)))
+        .over(GaugeAppearance.builtIn);
 
     final design = Size(
       placement.width * designCell,
@@ -59,7 +67,7 @@ class GaugeView extends ConsumerWidget {
         size: design,
         child: Padding(
           padding: const EdgeInsets.all(3),
-          child: _content(context, design, live),
+          child: _content(context, design, live, look),
         ),
       ),
     );
@@ -107,7 +115,12 @@ class GaugeView extends ConsumerWidget {
     }
   }
 
-  Widget _content(BuildContext context, Size design, GaugeCatalog catalog) {
+  Widget _content(
+    BuildContext context,
+    Size design,
+    GaugeCatalog catalog,
+    GaugeAppearance look,
+  ) {
     switch (placement.style) {
       case GaugeStyle.lamp:
         final indicator = catalog.indicatorFor(placement.indicator);
@@ -125,6 +138,7 @@ class GaugeView extends ConsumerWidget {
           on: on,
           onColor: GaugeCatalog.colorFor(indicator.onBackground),
           expand: true,
+          look: look,
         );
 
       case GaugeStyle.graph:
@@ -138,6 +152,7 @@ class GaugeView extends ConsumerWidget {
           lanes: lanes,
           history: history,
           window: Duration(seconds: placement.windowSeconds),
+          look: look,
         );
 
       case GaugeStyle.dial:
@@ -154,16 +169,16 @@ class GaugeView extends ConsumerWidget {
         final value = catalog.readingOf(ref!);
         return switch (placement.style) {
           GaugeStyle.dial => Center(
-            child: MeterGauge(spec: spec, value: value),
+            child: MeterGauge(spec: spec, value: value, look: look),
           ),
-          GaugeStyle.bar => BarGauge(spec: spec, value: value),
+          GaugeStyle.bar => BarGauge(spec: spec, value: value, look: look),
           // The tile sizes its own height; give it the width and let it
           // shrink if its content runs taller than the space.
           _ => FittedBox(
             fit: BoxFit.scaleDown,
             child: SizedBox(
               width: design.width - 6,
-              child: StatTile(spec: spec, value: value),
+              child: StatTile(spec: spec, value: value, look: look),
             ),
           ),
         };

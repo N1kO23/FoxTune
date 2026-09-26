@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import '../gauge_appearance.dart';
 import '../gauge_status.dart';
 
 /// The width of a phone held upright, in design pixels: the narrowest page,
@@ -265,6 +266,7 @@ class GaugePlacement {
     this.gauges = const [],
     this.indicator,
     this.windowSeconds = 30,
+    this.appearance = const GaugeAppearance(),
   });
 
   /// Stable identity, for editing.
@@ -292,6 +294,13 @@ class GaugePlacement {
   /// How much history a graph shows.
   final int windowSeconds;
 
+  /// How this gauge looks where it differs from the default in the app
+  /// settings. Empty for one that follows the default in everything.
+  ///
+  /// Kept whole when the gauge is switched to another style, so switching it
+  /// back finds its dial or its bar as it was left.
+  final GaugeAppearance appearance;
+
   GaugePlacement copyWith({
     GaugeStyle? style,
     int? x,
@@ -301,6 +310,7 @@ class GaugePlacement {
     List<String>? gauges,
     String? indicator,
     int? windowSeconds,
+    GaugeAppearance? appearance,
   }) => GaugePlacement(
     id: id,
     style: style ?? this.style,
@@ -311,6 +321,7 @@ class GaugePlacement {
     gauges: gauges ?? this.gauges,
     indicator: indicator ?? this.indicator,
     windowSeconds: windowSeconds ?? this.windowSeconds,
+    appearance: appearance ?? this.appearance,
   );
 
   Map<String, Object?> toJson() => {
@@ -323,6 +334,7 @@ class GaugePlacement {
     if (gauges.isNotEmpty) 'gauges': gauges,
     if (indicator != null) 'indicator': indicator,
     if (style == GaugeStyle.graph) 'window': windowSeconds,
+    if (!appearance.isEmpty) 'look': appearance.toJson(),
   };
 
   /// Reads a placement back, or returns `null` for one too damaged to use.
@@ -351,6 +363,7 @@ class GaugePlacement {
       ],
       indicator: json['indicator'] as String?,
       windowSeconds: (json['window'] as int?) ?? 30,
+      appearance: GaugeAppearance.fromJson(json['look']),
     );
   }
 }
@@ -446,9 +459,9 @@ class DashboardLayout {
 
   /// Version of the saved format, so a later change can read an older file.
   ///
-  /// 2 added per-page grids and gauge limits, 3 page widths. Older files
-  /// still load.
-  static const formatVersion = 3;
+  /// 2 added per-page grids and gauge limits, 3 page widths, 4 each gauge's
+  /// own look. Older files still load.
+  static const formatVersion = 4;
 
   final List<DashboardPage> pages;
 

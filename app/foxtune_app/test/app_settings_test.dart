@@ -9,12 +9,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:foxtune_app/main.dart';
 import 'package:foxtune_app/src/app_settings/app_settings.dart';
 import 'package:foxtune_app/src/app_settings/app_settings_screen.dart';
+import 'package:foxtune_app/src/app_settings/gauge_appearance_screen.dart';
 import 'package:foxtune_app/src/app_settings/wallpaper.dart';
 import 'package:foxtune_app/src/connection/connect_screen.dart';
 import 'package:foxtune_app/src/connection/connection_controller.dart';
 import 'package:foxtune_app/src/connection/connection_state.dart';
 import 'package:foxtune_app/src/connection/connection_watchdog.dart';
 import 'package:foxtune_app/src/dashboard/dashboard_controller.dart';
+import 'package:foxtune_app/src/dashboard/gauge_appearance.dart';
+import 'package:foxtune_app/src/dashboard/meter_gauge.dart';
 import 'package:foxtune_app/src/dashboard/gauge_status.dart';
 import 'package:foxtune_app/src/definitions/definition_library.dart';
 import 'package:foxtune_app/src/definitions/definitions_screen.dart';
@@ -283,6 +286,68 @@ void main() {
       await tester.tap(tile);
       await tester.pumpAndSettle();
       expect(find.byType(DefinitionsScreen), findsOneWidget);
+    });
+
+    testWidgets('sets the look every gauge follows, and can put it back', (
+      tester,
+    ) async {
+      final container = await pumpSettings(tester);
+      final tile = find.widgetWithText(ListTile, 'Gauge appearance');
+      await tester.scrollUntilVisible(tile, 100);
+      await tester.pumpAndSettle();
+      expect(find.text('Built in'), findsOneWidget);
+      await tester.tap(tile);
+      await tester.pumpAndSettle();
+      expect(find.byType(GaugeAppearanceScreen), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Needle'));
+      await tester.pumpAndSettle();
+      const needle = GaugeAppearance(dial: DialLook(face: DialFace.needle));
+      expect(container.read(appSettingsProvider).gaugeAppearance, needle);
+      // The sample dial shows it at once.
+      expect(
+        tester.widget<MeterGauge>(find.byType(MeterGauge)).look.dial.face,
+        DialFace.needle,
+      );
+      final saved = File('${storage.path}/settings.json');
+      expect(
+        AppSettings.fromJson(jsonDecode(saved.readAsStringSync()))
+            .gaugeAppearance,
+        needle,
+      );
+
+      // Choosing the built-in face again leaves nothing set.
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Arc'));
+      await tester.pumpAndSettle();
+      expect(
+        container.read(appSettingsProvider).gaugeAppearance.isEmpty,
+        isTrue,
+      );
+
+      final bold = find.widgetWithText(ChoiceChip, 'Bold').first;
+      await tester.ensureVisible(bold);
+      await tester.pumpAndSettle();
+      await tester.tap(bold);
+      await tester.pumpAndSettle();
+      expect(
+        container.read(appSettingsProvider).gaugeAppearance.dial.thickness,
+        Thickness.bold,
+      );
+      final reset = find.text('Reset to built-in');
+      await tester.scrollUntilVisible(reset, 200);
+      await tester.pumpAndSettle();
+      await tester.tap(reset);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Reset'));
+      await tester.pumpAndSettle();
+      expect(
+        container.read(appSettingsProvider).gaugeAppearance.isEmpty,
+        isTrue,
+      );
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.text('Built in'), findsOneWidget);
     });
 
     group('wallpaper', () {

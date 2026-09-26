@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'gauge_appearance.dart';
 import 'gauge_status.dart';
 
 /// A single reading as a number with its label and units.
@@ -7,18 +8,32 @@ import 'gauge_status.dart';
 /// The form heuristic calls for a stat tile rather than a chart for a single
 /// current value, so the secondary channels are numbers with a thin magnitude
 /// bar rather than ten more dials competing for attention.
+///
+/// [look] can take away its card and its bar, and make the number larger.
+/// See [ReadoutLook].
 class StatTile extends StatelessWidget {
-  const StatTile({super.key, required this.spec, required this.value});
+  const StatTile({
+    super.key,
+    required this.spec,
+    required this.value,
+    this.look = GaugeAppearance.builtIn,
+  });
 
   final GaugeSpec spec;
   final double? value;
+  final GaugeAppearance look;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final readout = look.readout.resolved;
+    final colours = look.colours;
     final status = spec.statusFor(value);
-    final accent = StatusPalette.forStatus(status, scheme);
+    final accent = colours.forStatus(status, normal: scheme.onSurface);
+    final caption = theme.textTheme.labelSmall?.copyWith(
+      color: colours.captionOn(scheme),
+    );
 
     return Semantics(
       label:
@@ -26,14 +41,21 @@ class StatTile extends StatelessWidget {
           '${status.isAlarm ? ', ${StatusPalette.labelFor(status)}' : ''}',
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: scheme.surfaceContainerLow,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: status.isAlarm ? accent : scheme.outlineVariant,
-            width: status.isAlarm ? 1.5 : 1,
-          ),
-        ),
+        // Without its card an alarm loses the outline, but not its icon and
+        // word.
+        decoration: readout.framed
+            ? BoxDecoration(
+                color: colours.background ?? scheme.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: status.isAlarm ? accent : scheme.outlineVariant,
+                  width: status.isAlarm ? 1.5 : 1,
+                ),
+              )
+            : BoxDecoration(
+                color: colours.background,
+                borderRadius: BorderRadius.circular(12),
+              ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
@@ -43,9 +65,7 @@ class StatTile extends StatelessWidget {
                 Expanded(
                   child: Text(
                     spec.label,
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
+                    style: caption,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
@@ -67,20 +87,21 @@ class StatTile extends StatelessWidget {
                 children: [
                   Text(
                     spec.format(value),
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                      fontWeight: FontWeight.w600,
-                      color: scheme.onSurface,
-                    ),
+                    style:
+                        (readout.valueSize == ValueSize.large
+                                ? theme.textTheme.headlineMedium
+                                : theme.textTheme.titleLarge)
+                            ?.copyWith(
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
+                              fontWeight: FontWeight.w600,
+                              color: colours.textOn(scheme),
+                            ),
                   ),
                   if (spec.units.isNotEmpty) ...[
                     const SizedBox(width: 3),
-                    Text(
-                      spec.units,
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
+                    Text(spec.units, style: caption),
                   ],
                 ],
               ),
@@ -95,14 +116,15 @@ class StatTile extends StatelessWidget {
               ),
             // A thin magnitude track, recessive by design - and only where
             // there is a real range for it to measure against.
-            if (spec.hasRange) ...[
+            if (readout.magnitudeBar && spec.hasRange) ...[
               const SizedBox(height: 6),
               ClipRRect(
                 borderRadius: BorderRadius.circular(2),
                 child: LinearProgressIndicator(
                   value: spec.fractionFor(value),
                   minHeight: 3,
-                  backgroundColor: scheme.surfaceContainerHighest,
+                  backgroundColor:
+                      colours.track ?? scheme.surfaceContainerHighest,
                   valueColor: AlwaysStoppedAnimation(accent),
                 ),
               ),
@@ -122,6 +144,7 @@ class FlagLamp extends StatelessWidget {
     required this.on,
     this.onColor,
     this.expand = false,
+    this.look = GaugeAppearance.builtIn,
   });
 
   final String label;
@@ -130,6 +153,10 @@ class FlagLamp extends StatelessWidget {
   /// The colour it lights in, where the definition names one. Defaults to the
   /// palette's "good" green.
   final Color? onColor;
+
+  /// Its shape, and a colour to light in over the definition's. See
+  /// [LampLook].
+  final GaugeAppearance look;
 
   /// Whether it fills the space it is given rather than hugging its label.
   ///
@@ -143,8 +170,11 @@ class FlagLamp extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final lamp = look.lamp.resolved;
+    final colours = look.colours;
     final active = on ?? false;
-    final lit = onColor ?? StatusPalette.good;
+    final lit = lamp.onColour ?? onColor ?? StatusPalette.good;
+    final background = colours.background;
 
     final content = Row(
       mainAxisSize: MainAxisSize.min,
@@ -161,18 +191,33 @@ class FlagLamp extends StatelessWidget {
           label,
           maxLines: 1,
           style: theme.textTheme.labelSmall?.copyWith(
-            color: active ? scheme.onSurface : scheme.onSurfaceVariant,
+            color: active ? colours.textOn(scheme) : colours.captionOn(scheme),
             fontWeight: active ? FontWeight.w600 : FontWeight.w400,
           ),
         ),
       ],
     );
 
-    final decoration = BoxDecoration(
-      color: active ? lit.withValues(alpha: 0.14) : scheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(20),
-      border: Border.all(color: active ? lit : scheme.outlineVariant),
-    );
+    final glow = lit.withValues(alpha: 0.14);
+    final decoration = switch (lamp.shape) {
+      // The light and its label alone - over the background, where one is
+      // set.
+      LampShape.plain => BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      LampShape.pill || LampShape.square => BoxDecoration(
+        color: switch ((active, background)) {
+          (true, null) => glow,
+          (true, final behind?) => Color.alphaBlend(glow, behind),
+          (false, final behind) => behind ?? scheme.surfaceContainerLow,
+        },
+        borderRadius: BorderRadius.circular(
+          lamp.shape == LampShape.pill ? 20 : 4,
+        ),
+        border: Border.all(color: active ? lit : scheme.outlineVariant),
+      ),
+    };
 
     if (!expand) {
       return Container(

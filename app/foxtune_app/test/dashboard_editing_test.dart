@@ -6,11 +6,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:foxtune_app/src/app_settings/app_settings.dart';
 import 'package:foxtune_app/src/connection/connection_controller.dart';
 import 'package:foxtune_app/src/connection/connection_state.dart';
 import 'package:foxtune_app/src/dashboard/bar_gauge.dart';
 import 'package:foxtune_app/src/dashboard/dashboard_controller.dart';
 import 'package:foxtune_app/src/dashboard/dashboard_screen.dart';
+import 'package:foxtune_app/src/dashboard/gauge_appearance.dart';
 import 'package:foxtune_app/src/dashboard/gauge_status.dart';
 import 'package:foxtune_app/src/dashboard/gauge_view.dart';
 import 'package:foxtune_app/src/dashboard/layout/dashboard_layout.dart';
@@ -648,6 +650,138 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.textContaining('not in this ECU definition'), findsOneWidget);
+    });
+  });
+
+  group('appearance', () {
+    /// The readout the gauge placed as [id] draws.
+    StatTile tileOf(WidgetTester tester, String id) => tester.widget<StatTile>(
+      find.descendant(
+        of: find.byWidgetPredicate(
+          (w) => w is GaugeView && w.placement.id == id,
+        ),
+        matching: find.byType(StatTile),
+      ),
+    );
+
+    /// The chip labelled [label] in the setting called [setting].
+    Finder chip(String setting, String label) => find.descendant(
+      of: find
+          .ancestor(of: find.text(setting), matching: find.byType(Column))
+          .first,
+      matching: find.widgetWithText(ChoiceChip, label),
+    );
+
+    Future<void> tapShown(WidgetTester tester, Finder target) async {
+      await tester.ensureVisible(target);
+      await tester.pumpAndSettle();
+      await tester.tap(target);
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> openAppearance(WidgetTester tester) async {
+      await tester.tap(gaugeShowing('Air:Fuel Ratio'));
+      await tester.pumpAndSettle();
+      await tapShown(tester, find.text('Appearance'));
+    }
+
+    testWidgets("a gauge's own setting is kept with it, and handed back", (
+      tester,
+    ) async {
+      saveLayout(_testLayout);
+      await pump(tester);
+      await startEditing(tester);
+      await openAppearance(tester);
+
+      await tapShown(tester, chip('Card', 'Hidden'));
+      expect(item(tester, 'a').appearance.readout.framed, isFalse);
+      expect(tileOf(tester, 'a').look.readout.framed, isFalse);
+      // Its neighbour follows the default still.
+      expect(tileOf(tester, 'b').look.readout.framed, isTrue);
+      final saved = DashboardLayout.fromJson(
+        jsonDecode(layoutFile().readAsStringSync()),
+      )!;
+      expect(
+        saved.pages.first.items.first.appearance,
+        const GaugeAppearance(readout: ReadoutLook(framed: false)),
+      );
+
+      await tapShown(tester, chip('Card', 'Default (Shown)'));
+      expect(item(tester, 'a').appearance.isEmpty, isTrue);
+      expect(tileOf(tester, 'a').look.readout.framed, isTrue);
+    });
+
+    testWidgets('the default look reaches every gauge that follows it', (
+      tester,
+    ) async {
+      saveLayout(_testLayout);
+      await pump(tester);
+      await startEditing(tester);
+      await openAppearance(tester);
+      // The same as the default, but its own: it stays when that changes.
+      await tapShown(tester, chip('Range bar', 'Shown'));
+
+      container(tester)
+          .read(appSettingsProvider.notifier)
+          .update(
+            (s) => s.copyWith(
+              gaugeAppearance: const GaugeAppearance(
+                readout: ReadoutLook(magnitudeBar: false),
+              ),
+            ),
+          );
+      await tester.pumpAndSettle();
+
+      expect(tileOf(tester, 'b').look.readout.magnitudeBar, isFalse);
+      expect(tileOf(tester, 'a').look.readout.magnitudeBar, isTrue);
+      // The sheet says what Default now means.
+      expect(chip('Range bar', 'Default (Hidden)'), findsOneWidget);
+    });
+
+    testWidgets("a gauge's look can be made the default", (tester) async {
+      saveLayout(_testLayout);
+      await pump(tester);
+      await startEditing(tester);
+      await openAppearance(tester);
+      await tapShown(tester, chip('Number', 'Large'));
+      expect(tileOf(tester, 'b').look.readout.valueSize, ValueSize.regular);
+
+      await tapShown(tester, find.text('Make this the default'));
+      await tester.tap(find.text('Make default'));
+      await tester.pumpAndSettle();
+
+      expect(
+        container(tester).read(appSettingsProvider).gaugeAppearance,
+        const GaugeAppearance(readout: ReadoutLook(valueSize: ValueSize.large)),
+      );
+      // Handed over, so it follows the default again - which now says the
+      // same.
+      expect(item(tester, 'a').appearance.isEmpty, isTrue);
+      expect(tileOf(tester, 'a').look.readout.valueSize, ValueSize.large);
+      expect(tileOf(tester, 'b').look.readout.valueSize, ValueSize.large);
+    });
+
+    testWidgets('a lamp has a look of its own too', (tester) async {
+      saveLayout(_testLayout);
+      await pump(tester);
+      await startEditing(tester);
+      final placed = container(tester)
+          .read(dashboardLayoutProvider.notifier)
+          .addGauge('p1', style: GaugeStyle.lamp, indicator: 'running');
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byWidgetPredicate(
+          (w) => w is GaugeView && w.placement.id == placed.id,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tapShown(tester, find.text('Appearance'));
+      await tapShown(tester, chip('Shape', 'Square'));
+
+      expect(item(tester, placed.id).appearance.lamp.shape, LampShape.square);
+      // A lamp has no alarms to colour.
+      expect(find.text('Warning'), findsNothing);
     });
   });
 

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:foxtune_ini/foxtune_ini.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
 
+import 'appearance_editor.dart';
 import 'gauge_catalog.dart';
 import 'gauge_status.dart';
 import 'layout/dashboard_layout.dart';
@@ -252,8 +253,8 @@ Future<void> showGaugeOptions(
   ),
 );
 
-/// Style, source, limits, graph channels and window, and removal, for one
-/// gauge.
+/// Style, source, limits, graph channels and window, appearance, and
+/// removal, for one gauge.
 ///
 /// Reads the gauge back from the layout on every build, so each change shows
 /// at once without closing the sheet.
@@ -470,7 +471,26 @@ class _GaugeOptions extends ConsumerWidget {
       }
     }
 
+    final changes = placement.appearance.changesFor(placement.style);
     children
+      ..add(
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.palette_outlined),
+          title: const Text('Appearance'),
+          subtitle: Text(
+            changes == 0
+                ? 'Follows the default look'
+                : '$changes ${changes == 1 ? 'setting' : 'settings'} of its '
+                      'own',
+          ),
+          onTap: () => showAppearanceSheet(
+            context,
+            pageId: pageId,
+            placementId: placementId,
+          ),
+        ),
+      )
       ..add(const Divider(height: 24))
       ..add(
         Align(
