@@ -17,10 +17,12 @@ import 'package:foxtune_app/src/dashboard/gauge_status.dart';
 import 'package:foxtune_app/src/dashboard/gauge_view.dart';
 import 'package:foxtune_app/src/dashboard/layout/dashboard_layout.dart';
 import 'package:foxtune_app/src/dashboard/layout/layout_controller.dart';
+import 'package:foxtune_app/src/dashboard/layout/page_file.dart';
 import 'package:foxtune_app/src/dashboard/meter_gauge.dart';
 import 'package:foxtune_app/src/dashboard/sample_history.dart';
 import 'package:foxtune_app/src/dashboard/stat_tile.dart';
 import 'package:foxtune_app/src/dashboard/time_graph.dart';
+import 'package:foxtune_app/src/files/file_saving.dart';
 import 'package:foxtune_app/src/storage/json_store.dart';
 import 'package:foxtune_app/src/tune/tune_controller.dart';
 import 'package:foxtune_ini/foxtune_ini.dart';
@@ -34,6 +36,31 @@ class _Connected extends ConnectionController {
 
   @override
   EcuConnectionState build() => _state;
+}
+
+/// Keeps what is saved, and hands out [next] when asked for a file.
+class _Files extends FileSaving {
+  _Files() : super(mobile: false);
+
+  String? saved;
+  PickedFile? next;
+
+  @override
+  Future<String?> saveBytes({
+    required String fileName,
+    required String extension,
+    required List<int> bytes,
+    String? dialogTitle,
+  }) async {
+    saved = utf8.decode(bytes);
+    return fileName;
+  }
+
+  @override
+  Future<PickedFile?> pickFile({
+    required List<String> extensions,
+    String? dialogTitle,
+  }) async => next;
 }
 
 /// Two readouts with room between and below them.
@@ -116,6 +143,7 @@ void main() {
     WidgetTester tester, {
     TuneState? tune,
     RealtimeSnapshot? live,
+    FileSaving? files,
   }) async {
     await tester.binding.setSurfaceSize(const Size(1200, 1000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -132,6 +160,7 @@ void main() {
           ),
           if (tune != null)
             tuneResolverProvider.overrideWithValue(TuneValueResolver(tune)),
+          if (files != null) fileSavingProvider.overrideWithValue(files),
         ],
         child: MaterialApp(
           home: Scaffold(body: DashboardScreen(connection: connection())),
@@ -467,6 +496,103 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.widgetWithText(ChoiceChip, 'Logging'), findsNothing);
       expect(find.widgetWithText(ChoiceChip, 'Test'), findsOneWidget);
+    });
+
+    testWidgets('a page is exported, and imported as a page of its own', (
+      tester,
+    ) async {
+      saveLayout(_testLayout);
+      final files = _Files();
+      await pump(tester, files: files);
+      await startEditing(tester);
+
+      Future<void> pageMenu(String item) async {
+        await tester.tap(find.byTooltip('Page'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(item));
+        await tester.pumpAndSettle();
+      }
+
+      await pageMenu('Export page');
+      expect(find.text('Exported "Test" to Test.foxdash'), findsOneWidget);
+      final exported = DashboardPageFile.decode(files.saved!);
+      expect(exported.page.items, hasLength(2));
+
+      // The same page, from an ECU with a gauge this one does not have.
+      files.next = PickedFile(
+        name: 'Test.foxdash',
+        bytes: utf8.encode(
+          DashboardPageFile(
+            ecu: 'rusEFI master.2025.01.01.uaefi.1234',
+            page: exported.page.copyWith(
+              name: 'Shared',
+              items: [
+                ...exported.page.items,
+                const GaugePlacement(
+                  id: 'x',
+                  style: GaugeStyle.dial,
+                  x: 0,
+                  y: 8,
+                  width: 8,
+                  height: 8,
+                  gauges: ['notInSpeeduino'],
+                ),
+              ],
+            ),
+          ).encode(),
+        ),
+      );
+      await pageMenu('Import page');
+      expect(find.text('Import "Shared"'), findsOneWidget);
+      expect(find.textContaining('with 2 gauges'), findsOneWidget);
+      expect(find.textContaining('made on rusEFI'), findsOneWidget);
+      expect(
+        find.textContaining('will not be added: notInSpeeduino'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Import'));
+      await tester.pumpAndSettle();
+
+      final pages = container(tester)
+          .read(dashboardLayoutProvider)
+          .value!
+          .pages;
+      expect(pages.map((p) => p.name), ['Test', 'Shared']);
+      expect(pages.last.items.map((i) => i.gauges.single), [
+        'afrGauge',
+        'batteryVoltage',
+      ]);
+      final shared = tester.widget<ChoiceChip>(
+        find.widgetWithText(ChoiceChip, 'Shared'),
+      );
+      expect(shared.selected, isTrue);
+      expect(layoutFile().readAsStringSync(), contains('"Shared"'));
+    });
+
+    testWidgets('a file that is not a page is refused', (tester) async {
+      saveLayout(_testLayout);
+      final files = _Files()
+        ..next = PickedFile(
+          name: 'tune.foxdash',
+          bytes: utf8.encode('<msq></msq>'),
+        );
+      await pump(tester, files: files);
+      await startEditing(tester);
+
+      await tester.tap(find.byTooltip('Page'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Import page'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('This is not a FoxTune dashboard page.'),
+        findsOneWidget,
+      );
+      expect(
+        container(tester).read(dashboardLayoutProvider).value!.pages,
+        hasLength(1),
+      );
     });
 
     testWidgets('the last page cannot be deleted', (tester) async {

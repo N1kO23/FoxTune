@@ -83,6 +83,21 @@ class DashboardLayoutController extends AsyncNotifier<DashboardLayout> {
     return page.id;
   }
 
+  /// Adds [page] at the end with the [limits] that came with it, and returns
+  /// its id.
+  ///
+  /// Those limits replace any already set for the same gauges: a limit
+  /// belongs to the gauge, so it reaches every page showing it.
+  String importPage(DashboardPage page, Map<String, GaugeLimits> limits) {
+    _commit(
+      _layout.copyWith(
+        pages: [..._layout.pages, page],
+        limits: {..._layout.limits, ...limits},
+      ),
+    );
+    return page.id;
+  }
+
   void renamePage(String pageId, String name) =>
       _updatePage(pageId, (page) => page.copyWith(name: name));
 

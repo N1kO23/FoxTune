@@ -13,6 +13,7 @@ import 'gauge_catalog.dart';
 import 'gauge_status.dart';
 import 'layout/dashboard_layout.dart';
 import 'layout/layout_controller.dart';
+import 'page_file_actions.dart';
 import 'sample_history.dart';
 
 /// The live gauge cluster: pages of gauges the tuner arranges.
@@ -184,6 +185,20 @@ class _PageBar extends ConsumerWidget {
           if (name != null) {
             onSelect(controller.addPage(name, like: current.id));
           }
+        case 'import':
+          final id = await PageFileActions.import(
+            context,
+            ref,
+            definition: definition,
+          );
+          if (id != null) onSelect(id);
+        case 'export':
+          await PageFileActions.export(
+            context,
+            ref,
+            page: current,
+            definition: definition,
+          );
         case 'grid':
           final density = await showDialog<int>(
             context: context,
@@ -321,6 +336,14 @@ class _PageBar extends ConsumerWidget {
                   child: Text('Rename page'),
                 ),
                 const PopupMenuItem(value: 'new', child: Text('New page')),
+                const PopupMenuItem(
+                  value: 'import',
+                  child: Text('Import page'),
+                ),
+                const PopupMenuItem(
+                  value: 'export',
+                  child: Text('Export page'),
+                ),
                 PopupMenuItem(
                   value: 'width',
                   child: Text('Page width (${current.width.label})'),

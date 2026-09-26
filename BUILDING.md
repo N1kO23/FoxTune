@@ -292,6 +292,7 @@ go through this with the phone and a Speeduino - the bench ECU is fine, engine o
 4. **Pull the cable** with an unburned edit made (change one table cell). Within about a second
    the app says **Connection lost**, and offers to save the edit as a `.msq`.
 5. **Files.** Save a tune to Downloads, then load it back. Export a table and re-import it.
+   Export a dashboard page and import it back; it arrives as a second page.
 6. **Logs.** Record for ten seconds, stop, tap **Save log…** in the message, and open the `.msl`
    off the phone. The folder button next to **Record** lists earlier logs.
 

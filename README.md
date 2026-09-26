@@ -104,21 +104,21 @@ added without disturbing anything above it.
 
 ## What works
 
-|                   |                                                                                                                                                                                            |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Connect**       | Speeduino and rusEFI over USB serial or TCP; the exact firmware's definition found, downloaded or chosen, and checked                                                                      |
-| **Dashboard**     | Pages of dials, bars, readouts, lamps and time graphs you arrange, from any gauge or live channel; limits follow Gauge Limits or your own; styled by a default look any gauge can override |
-| **Tables**        | Editable grid with keyboard navigation, interpolate, smooth, scale                                                                                                                         |
-| **Settings**      | Trigger setup, engine constants, ASE, WUE and the rest - screens generated from the definition's `[Menu]` and `[UserDefined]`, not hand-written                                            |
-| **Curves**        | Editable point list and plot, with the live operating point marked                                                                                                                         |
-| **Calibration**   | Coolant, air and O2 sensor tables made from the definition's own choices, checked by the ECU's checksum; TPS from the sensor                                                               |
-| **Trigger logs**  | Tooth and composite loggers from `[LoggerDefinition]`: tooth times as bars with the gap picked out, edges as traces, CSV                                                                   |
-| **Autotune**      | VE table tuned against the AFR/lambda target from live wideband data, filtered by the definition's own `[VeAnalyze]` rules                                                                 |
-| **Live position** | The operating cell ringed, the four interpolation neighbours marked, and a dot at the exact interpolated point - in the grid and on the 3D surface                                         |
-| **3D surface**    | Orbitable isometric mesh, no GL dependency                                                                                                                                                 |
-| **Writing**       | Write to RAM, verify by the ECU's own page CRC, then burn                                                                                                                                  |
-| **Tune files**    | `.msq` read and write, matched by name                                                                                                                                                     |
-| **Logging**       | MegaLogViewer-compatible `.msl`, columns from `[Datalog]`                                                                                                                                  |
+|                   |                                                                                                                                                                                                                     |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Connect**       | Speeduino and rusEFI over USB serial or TCP; the exact firmware's definition found, downloaded or chosen, and checked                                                                                               |
+| **Dashboard**     | Pages of dials, bars, readouts, lamps and time graphs you arrange, from any gauge or live channel; limits follow Gauge Limits or your own; styled by a default look any gauge can override; a page shared as a file |
+| **Tables**        | Editable grid with keyboard navigation, interpolate, smooth, scale                                                                                                                                                  |
+| **Settings**      | Trigger setup, engine constants, ASE, WUE and the rest - screens generated from the definition's `[Menu]` and `[UserDefined]`, not hand-written                                                                     |
+| **Curves**        | Editable point list and plot, with the live operating point marked                                                                                                                                                  |
+| **Calibration**   | Coolant, air and O2 sensor tables made from the definition's own choices, checked by the ECU's checksum; TPS from the sensor                                                                                        |
+| **Trigger logs**  | Tooth and composite loggers from `[LoggerDefinition]`: tooth times as bars with the gap picked out, edges as traces, CSV                                                                                            |
+| **Autotune**      | VE table tuned against the AFR/lambda target from live wideband data, filtered by the definition's own `[VeAnalyze]` rules                                                                                          |
+| **Live position** | The operating cell ringed, the four interpolation neighbours marked, and a dot at the exact interpolated point - in the grid and on the 3D surface                                                                  |
+| **3D surface**    | Orbitable isometric mesh, no GL dependency                                                                                                                                                                          |
+| **Writing**       | Write to RAM, verify by the ECU's own page CRC, then burn                                                                                                                                                           |
+| **Tune files**    | `.msq` read and write, matched by name                                                                                                                                                                              |
+| **Logging**       | MegaLogViewer-compatible `.msl`, columns from `[Datalog]`                                                                                                                                                           |
 
 Not yet: autotuning on rusEFI, rusEFI's bench tests and Lua, a sensor calibration from an `.inc`
 file, replaying a recorded `.msl` log into the autotuner, warmup autotuning, `commandButton`
@@ -346,6 +346,15 @@ normal reading still reads as a warning.
 
 Layouts are saved per ECU family as they are edited. A gauge the current definition no longer
 has - from a different firmware - keeps its place and says so, rather than vanishing.
+
+A page can be exported as a `.foxdash` file, and imported again on another computer or by
+another tuner, from the page menu while editing. The file holds the page's width and grid, its
+gauges with each one's own look, and any limits set for them. The default look stays behind: it
+belongs to whoever imports the page, and a gauge that follows it follows theirs. An import is
+added as a page of its own, never over one. It can come from any ECU: whatever the definition
+does not have - a gauge, a graph's lane, an indicator - is left out, and the import lists what
+before it changes anything. Limits that come with it replace any already set for the same
+gauges, on every page.
 
 ## Datalogging
 

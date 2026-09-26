@@ -132,6 +132,14 @@ DashboardPage widenPage(DashboardPage page, PageWidth width) {
   return _settle(page, page.copyWith(width: width), GridRect.of);
 }
 
+/// [page] with every gauge on its grid, no smaller than its style allows and
+/// clear of the others.
+///
+/// For a page that did not come from editing - one read from a file, which
+/// nothing has checked. A page that is already sound comes back as it was.
+DashboardPage settlePage(DashboardPage page) =>
+    _settle(page, page, GridRect.of);
+
 /// Places [page]'s gauges on [target], each where [wanted] asks if that is
 /// clear, and otherwise at the first spot that takes it.
 DashboardPage _settle(
