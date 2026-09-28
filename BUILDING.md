@@ -154,12 +154,13 @@ dart run bin/fake_ecu.dart --msq /path/to/your-tune.msq
 Then start the app and choose **Network ECU** -> `127.0.0.1:2000`. Gauges move, the live table
 cursor travels across cells, and warning thresholds are actually reached.
 
-| Flag         | Effect                                          |
-| ------------ | ----------------------------------------------- |
-| `--msq PATH` | Seed the pages from a real tune                 |
-| `--port N`   | Listen on a different port                      |
-| `--ini PATH` | Use a different ECU definition                  |
-| `--static`   | Serve a fixed block instead of a running engine |
+| Flag                 | Effect                                                               |
+| -------------------- | -------------------------------------------------------------------- |
+| `--msq PATH`         | Seed the pages from a real tune                                      |
+| `--port N`           | Listen on a different port                                           |
+| `--ini PATH`         | Use a different ECU definition                                       |
+| `--static`           | Serve a fixed block instead of a running engine                      |
+| `--ve-error PERCENT` | Without `--msq`, how far the seeded VE table starts out (default -8) |
 
 **Pass a real tune.** Without one the simulator serves empty pages, which is not merely
 unrealistic - it is wrong in a way that looks like an app bug. Several realtime channels scale
@@ -189,6 +190,12 @@ dart run bin/fake_ecu.dart --ini ../foxtune_ini/test/fixtures/rusefi_uaefi.ini
 
 Connect with **Network ECU** -> `127.0.0.1:29001`. FoxTune will look for the definition on
 rusefi.com; for the vendored fixture it finds it, and for any other it asks you for the file.
+
+Its engine is the same tune-driven one a simulated Speeduino runs: without `--msq` it seeds a
+base tune - Metric, speed density, a CAN wideband - with the VE table `--ve-error` percent out,
+so autotuning has something to correct. Switch the tune's "Lambda display" and it runs in lambda
+instead. A tune loaded with `--msq` that shows Imperial units will not autotune; the simulator
+says so when it starts.
 
 ### rusEFI's own simulator
 

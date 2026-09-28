@@ -275,12 +275,24 @@ abstract class FakeTsEcu {
 
   void _writeEngineSample() {
     final engine = _engine;
+    if (engine == null) return;
+    writeEngineSample(engine, engine.conditions());
+  }
+
+  /// Writes one instant of [engine] into the realtime block, as the running
+  /// simulation does on every tick.
+  ///
+  /// Public so a test can step an engine through chosen instants and read
+  /// each back through the real decoder, without a socket or a timer.
+  void writeEngineSample(EngineSimulation engine, EngineConditions now) {
     final definition = channels;
-    if (engine == null || definition == null) return;
+    if (definition == null) {
+      throw StateError('writeEngineSample() needs the [OutputChannels] '
+          'definition; construct the fake with channels:.');
+    }
 
     // One instant, asked for once: a model that integrates state - a closed
     // fuelling loop, say - must not be stepped twice per tick.
-    final now = engine.conditions();
     final sample = channelValues(engine, now);
 
     /// Resolves an identifier the same way the decoder will: simulated

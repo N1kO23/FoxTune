@@ -32,15 +32,15 @@ class AutotuneScreen extends ConsumerWidget {
       error: (error, _) => _Message(text: '$error'),
       data: (tune) {
         if (tune == null) return const _Message(text: 'No tune loaded.');
-        // rusEFI's definition describes autotuning too, but its filters and
-        // channels have only been checked against Speeduino's. Offering it
-        // unchecked would mean correcting a fuel table on trust.
-        if (connection.identification.family != EcuFamily.speeduino) {
+        // Another firmware's definition may describe autotuning too, but its
+        // filters, channels and sensor settings have only been checked for
+        // Speeduino and rusEFI. Offering it unchecked would mean correcting a
+        // fuel table on trust.
+        if (connection.identification.family == EcuFamily.other) {
           return const _Message(
             text:
                 'Autotune is not yet available for this ECU. It has been '
-                'built and checked against Speeduino; rusEFI support is to '
-                'follow.',
+                'built and checked against Speeduino and rusEFI.',
           );
         }
         if (connection.definition?.veAnalyze == null) {

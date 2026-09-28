@@ -6,7 +6,8 @@ import 'package:foxtune_ini/foxtune_ini.dart';
 /// `bitStringValue(algorithmUnits, algorithm)` - "the option of
 /// `algorithmUnits` picked by the `algorithm` setting" - so it reads kPa or %
 /// TPS depending on how the engine is set up. The idle load gauge does the same
-/// with `iacAlgorithm`.
+/// with `iacAlgorithm`. rusEFI picks between two literals instead:
+/// `useLambdaOnInterface ? "lambda" : "afr"` is its target table's units.
 ///
 /// Returns `null` for anything else, including `stringValue(...)` over the
 /// text aliases FoxTune does not model. Showing the expression source instead
@@ -17,6 +18,15 @@ String? evaluateLabel(
   required IniDocument definition,
   required double? Function(String name) resolve,
 }) {
+  final choice = RegExp(r'^(.+?)\?\s*"([^"]*)"\s*:\s*"([^"]*)"$')
+      .firstMatch(source.trim());
+  if (choice != null) {
+    final condition =
+        CompiledExpression.tryCompile(choice.group(1)!)?.evaluate(resolve);
+    if (condition == null) return null;
+    return condition != 0 ? choice.group(2) : choice.group(3);
+  }
+
   final call = RegExp(r'^bitStringValue\(\s*(\w+)\s*,\s*(\w+)\s*\)$')
       .firstMatch(source.trim());
   if (call == null) return null;

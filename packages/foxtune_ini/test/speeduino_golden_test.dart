@@ -519,6 +519,9 @@ void main() {
         for (final filter in doc.veAnalyze!.channelFilters) {
           expect(channels, contains(filter.channel),
               reason: '${filter.id} in $config');
+          // A filter without both can never reject anything.
+          expect(filter.operator, isNotNull, reason: '${filter.id} in $config');
+          expect(filter.value, isNotNull, reason: '${filter.id} in $config');
         }
         expect(channels, contains(doc.veAnalyze!.measuredChannel));
         expect(channels, contains(doc.veAnalyze!.egoCorrectionChannel));

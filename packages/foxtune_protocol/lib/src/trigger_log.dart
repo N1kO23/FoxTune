@@ -108,13 +108,25 @@ class TriggerLog {
 
   /// The capture as comma-separated values: a header of the definition's
   /// field labels, then one row per record.
-  String toCsv() {
+  ///
+  /// With [capture], every row starts with that number, under a `Capture`
+  /// column, so the captures of one run can follow each other in a file and
+  /// still be told apart - the ECU goes on turning while a capture is read,
+  /// and the teeth in between are never logged. [header] false leaves the
+  /// header off, for each capture after the first.
+  String toCsv({int? capture, bool header = true}) {
     final fields = logger.fields;
-    final buffer = StringBuffer()
-      ..writeln(fields.map((f) => _csvCell(f.label)).join(','));
+    final lead = capture == null ? '' : '$capture,';
+    final buffer = StringBuffer();
+    if (header) {
+      buffer.writeln([
+        if (capture != null) 'Capture',
+        for (final field in fields) _csvCell(field.label),
+      ].join(','));
+    }
     for (final record in records) {
       buffer.writeln(
-        fields.map((f) => _number(record[f.name] ?? 0)).join(','),
+        lead + fields.map((f) => _number(record[f.name] ?? 0)).join(','),
       );
     }
     return buffer.toString();

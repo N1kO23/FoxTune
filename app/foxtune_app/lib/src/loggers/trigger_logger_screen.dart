@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -34,6 +35,10 @@ class TriggerLoggerScreen extends ConsumerWidget {
     final controller = ref.read(triggerLoggerProvider.notifier);
     final selected = state.selected.clamp(0, loggers.length - 1);
     final latest = state.latest;
+    final run = state.run;
+    final kept =
+        '${state.recorded} '
+        '${loggers[selected].kind == IniLoggerKind.tooth ? 'teeth' : 'edges'}';
 
     final status = switch (state) {
       TriggerLoggerState(error: final error?) => Text(
@@ -47,11 +52,13 @@ class TriggerLoggerScreen extends ConsumerWidget {
         style: theme.textTheme.bodySmall,
       ),
       TriggerLoggerState(running: true, :final captures) => Text(
-        'Capture $captures, read at ${_clock(latest!.captured)}',
+        'Capture $captures, read at ${_clock(latest!.captured)}. '
+        'The run so far: $kept.',
         style: theme.textTheme.bodySmall,
       ),
       _ when latest != null => Text(
-        'Stopped. Showing the capture read at ${_clock(latest.captured)}.',
+        'Stopped. Showing the capture read at ${_clock(latest.captured)}'
+        '${run == null ? '.' : '; the run has $kept.'}',
         style: theme.textTheme.bodySmall,
       ),
       _ => const SizedBox.shrink(),
@@ -104,9 +111,7 @@ class TriggerLoggerScreen extends ConsumerWidget {
                   label: const Text('Start'),
                 ),
               OutlinedButton.icon(
-                onPressed: latest == null || latest.isEmpty
-                    ? null
-                    : () => _save(context, ref, latest),
+                onPressed: run == null ? null : () => _save(context, ref, run),
                 icon: const Icon(Icons.save_alt),
                 label: const Text('Save CSV'),
               ),
@@ -143,25 +148,18 @@ class TriggerLoggerScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _save(
-    BuildContext context,
-    WidgetRef ref,
-    TriggerLog log,
-  ) async {
+  /// Saves [run] - every capture since the logger started, or all of them
+  /// so far while it runs - where the user chooses.
+  Future<void> _save(BuildContext context, WidgetRef ref, File run) async {
     final messenger = ScaffoldMessenger.of(context);
-    final stamp = log.captured
-        .toIso8601String()
-        .replaceAll(':', '-')
-        .split('.')
-        .first;
     try {
       final saved = await ref
           .read(fileSavingProvider)
-          .saveText(
-            dialogTitle: 'Save the capture',
-            fileName: '${log.logger.id}-$stamp.csv',
+          .saveBytes(
+            dialogTitle: 'Save the run',
+            fileName: run.uri.pathSegments.last,
             extension: 'csv',
-            text: log.toCsv(),
+            bytes: run.readAsBytesSync(),
           );
       if (saved != null) {
         messenger.showSnackBar(SnackBar(content: Text('Saved $saved')));
@@ -170,7 +168,7 @@ class TriggerLoggerScreen extends ConsumerWidget {
       messenger.showSnackBar(
         SnackBar(
           backgroundColor: StatusPalette.critical,
-          content: Text('Could not save the capture: $error'),
+          content: Text('Could not save the run: $error'),
         ),
       );
     }

@@ -170,5 +170,47 @@ void main() {
       expect(ignition.enableCondition, isNull);
       expect(ignition.onBackground, 'red');
     });
+
+    test('describes VE autotuning', () {
+      final analyze = doc.veAnalyze!;
+      expect(analyze.table, 'veTableTbl');
+      expect(analyze.targetTable, 'veAnalyzeTargetTableTbl');
+      // One computed channel for both display modes: lambda or
+      // gasoline-scaled AFR, whichever `useLambdaOnInterface` picks.
+      expect(analyze.measuredChannel, 'veAnalyzeAfrLambda1');
+      expect(analyze.egoCorrectionChannel, 'egoCorrectionForVeAnalyze');
+      expect(analyze.activeCondition, '1');
+    });
+
+    test('reads every autotune filter, including the ones missing a comma', () {
+      // `deltaTps` and `VBatt` are written with no comma between channel and
+      // operator. Read as written, both would have no threshold and never
+      // reject anything.
+      final filters = {
+        for (final f in doc.veAnalyze!.channelFilters)
+          f.id: (f.channel, f.operator, f.value),
+      };
+      expect(filters, {
+        'minRPMFilter': ('RPMValue', IniFilterOperator.lessThan, 500),
+        'minCltFilter': ('coolant', IniFilterOperator.lessThan, 60),
+        'deltaTps': ('deltaTps', IniFilterOperator.greaterThan, 50),
+        'VBatt': ('VBatt', IniFilterOperator.lessThan, 12),
+        'minTps': ('TPSValue', IniFilterOperator.lessThan, 1),
+      });
+      expect(
+        doc.veAnalyze!.standardFilters.map((f) => f.id),
+        ['std_Custom'],
+      );
+    });
+
+    test('every autotune channel exists', () {
+      final analyze = doc.veAnalyze!;
+      final channels = doc.outputChannels.allNames;
+      for (final filter in analyze.channelFilters) {
+        expect(channels, contains(filter.channel), reason: filter.id);
+      }
+      expect(channels, contains(analyze.measuredChannel));
+      expect(channels, contains(analyze.egoCorrectionChannel));
+    });
   });
 }

@@ -175,6 +175,23 @@ void main() {
       expect(result.readiness.ready, isTrue);
       expect(result.tuner, isNotNull);
     });
+
+    test('refuses a filter it could not read', () {
+      // Without an operator the filter would never reject anything: a guard
+      // the definition asked for, silently gone.
+      final unreadable = IniParser().parse(_source.replaceFirst(
+        'filter = minCltFilter,  "Minimum CLT", coolant,    <, 71, , true',
+        'filter = minCltFilter,  "Minimum CLT", coolant ~ 71, , true',
+      ));
+      final state = TuneState.fromPages(unreadable, [tune.page(1)]);
+      final result = VeAutotuner.create(
+        tune: state,
+        permission: const WritePermission.granted(),
+      );
+
+      expect(result.tuner, isNull);
+      expect(result.readiness.reason, contains('"Minimum CLT"'));
+    });
   });
 
   group('correction', () {

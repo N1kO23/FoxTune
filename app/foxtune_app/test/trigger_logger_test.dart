@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,6 +11,7 @@ import 'package:foxtune_app/src/connection/connection_state.dart';
 import 'package:foxtune_app/src/connection/connection_watchdog.dart';
 import 'package:foxtune_app/src/dashboard/dashboard_controller.dart';
 import 'package:foxtune_app/src/definitions/definition_library.dart';
+import 'package:foxtune_app/src/files/file_saving.dart';
 import 'package:foxtune_app/src/loggers/trigger_logger_controller.dart';
 import 'package:foxtune_app/src/loggers/trigger_logger_screen.dart';
 import 'package:foxtune_app/src/storage/json_store.dart';
@@ -42,6 +44,26 @@ class _NoWake implements ScreenWake {
 
   @override
   Future<void> release() async {}
+}
+
+/// Keeps what is saved.
+class _Files extends FileSaving {
+  _Files() : super(mobile: false);
+
+  String? name;
+  Uint8List? bytes;
+
+  @override
+  Future<String?> saveBytes({
+    required String fileName,
+    required String extension,
+    required List<int> bytes,
+    String? dialogTitle,
+  }) async {
+    name = fileName;
+    this.bytes = Uint8List.fromList(bytes);
+    return fileName;
+  }
 }
 
 /// A logger that only records what it is asked to do.
@@ -109,6 +131,7 @@ void main() {
     WidgetTester tester,
     TriggerLoggerState state, {
     Size size = const Size(1200, 800),
+    FileSaving? files,
   }) async {
     await tester.binding.setSurfaceSize(size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -118,6 +141,7 @@ void main() {
         overrides: [
           connectionProvider.overrideWith(() => _FixedConnection(connected())),
           triggerLoggerProvider.overrideWith(() => stub),
+          if (files != null) fileSavingProvider.overrideWithValue(files),
         ],
         child: MaterialApp(
           home: Scaffold(body: TriggerLoggerScreen(connection: connected())),
@@ -189,6 +213,36 @@ void main() {
             .onPressed,
         isNull,
       );
+    });
+
+    testWidgets('Save CSV saves the whole run, not just what is shown', (
+      tester,
+    ) async {
+      final folder = Directory.systemTemp.createTempSync('foxtune_run');
+      addTearDown(() => folder.deleteSync(recursive: true));
+      final run = File('${folder.path}/toothLogger-2026-09-26T12-00-00.csv')
+        ..writeAsStringSync(
+          toothLog().toCsv(capture: 1) +
+              toothLog().toCsv(capture: 2, header: false),
+        );
+      final files = _Files();
+      await pumpScreen(
+        tester,
+        TriggerLoggerState(
+          latest: toothLog(),
+          captures: 2,
+          run: run,
+          recorded: 140,
+        ),
+        files: files,
+      );
+      expect(find.textContaining('the run has 140 teeth'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Save CSV'));
+      await tester.pumpAndSettle();
+      expect(files.name, 'toothLogger-2026-09-26T12-00-00.csv');
+      expect(files.bytes, run.readAsBytesSync());
+      expect(find.text('Saved ${files.name}'), findsOneWidget);
     });
 
     testWidgets('fits a phone', (tester) async {
@@ -306,8 +360,31 @@ void main() {
       );
 
       await controller.stop();
-      expect(container.read(triggerLoggerProvider).running, isFalse);
+      final stopped = container.read(triggerLoggerProvider);
+      expect(stopped.running, isFalse);
       expect(ecu.runningLogger, isNull);
+
+      // Every capture of the run is in its file, one after another, and it
+      // is kept to be saved once the logger has stopped.
+      final lines = stopped.run!.readAsLinesSync();
+      expect(lines.first, 'Capture,ToothTime');
+      expect(lines, hasLength(stopped.recorded + 1));
+      expect(stopped.recorded, stopped.captures * FakeSpeeduino.toothLogSize);
+      expect(lines.skip(1).map((l) => l.split(',').first).toSet(), {
+        for (var n = 1; n <= stopped.captures; n++) '$n',
+      });
+
+      // The next run starts a file of its own, and the last one's goes.
+      await controller.start();
+      expect(
+        stopped.run!.parent.listSync().whereType<File>(),
+        hasLength(1),
+        reason: 'only the run under way',
+      );
+      await waitFor(() => container.read(triggerLoggerProvider).captures >= 1);
+      await controller.stop();
+      final next = container.read(triggerLoggerProvider);
+      expect(next.run!.readAsLinesSync().skip(1).first, startsWith('1,'));
     });
   });
 }

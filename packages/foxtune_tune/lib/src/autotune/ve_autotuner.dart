@@ -5,6 +5,8 @@ import '../tune_state.dart';
 import '../value_resolver.dart';
 import '../write_guard.dart';
 import 'autotune_settings.dart';
+import 'mixture_units.dart';
+import 'readiness_checks.dart';
 
 /// Reads one channel of a sample, in engineering units.
 ///
@@ -112,6 +114,7 @@ class VeAutotuner {
     required this.resolver,
     required this.settings,
     required this.permission,
+    required this.units,
     required double stoich,
   }) : _stoich = stoich;
 
@@ -161,8 +164,16 @@ class VeAutotuner {
       );
     }
 
-    final sensor = _sensorCheck(tune, shared);
-    if (sensor != null) return (tuner: null, readiness: sensor);
+    final problem = autotuneSetupProblem(
+      tune: tune,
+      resolver: shared,
+      config: config,
+      table: table,
+      target: target,
+    );
+    if (problem != null) {
+      return (tuner: null, readiness: AutotuneReadiness.blocked(problem));
+    }
 
     if (!permission.allowed) {
       return (
@@ -181,42 +192,12 @@ class VeAutotuner {
         resolver: shared,
         settings: settings,
         permission: permission,
+        units: mixtureUnitsOf(config, target),
+        // rusEFI declares no `stoich`, and needs none: its AFR is always
+        // gasoline-scaled - lambda times 14.7 - whatever the fuel.
         stoich: shared.resolve('stoich') ?? 14.7,
       ),
       readiness: const AutotuneReadiness.ready(),
-    );
-  }
-
-  /// Refuses a narrowband sensor.
-  ///
-  /// A narrowband reports only rich or lean of stoichiometric, but the ECU
-  /// still publishes it on the same `afr` channel as a wideband. Tuning on it
-  /// would produce a table that is confidently wrong everywhere the engine is
-  /// not meant to run at stoich - which is everywhere that matters.
-  static AutotuneReadiness? _sensorCheck(
-    TuneState tune,
-    TuneValueResolver resolver,
-  ) {
-    final located = tune.locate('egoType');
-    final field = located?.field;
-    if (located == null || field is! IniBitsField) {
-      // A definition that does not describe the sensor cannot be checked, and
-      // refusing on that basis would block firmware this simply knows less
-      // about.
-      return null;
-    }
-
-    final selected = tune.readBits(located.page, field);
-    final label = selected == null ? null : field.labelFor(selected);
-    if (label == null) return null;
-
-    final normalised = label.toLowerCase();
-    if (normalised.contains('wide')) return null;
-
-    return AutotuneReadiness.blocked(
-      'The O2 sensor is set to "$label". Autotuning needs a wideband: a '
-      'narrowband only reports rich or lean of stoichiometric, so its '
-      'readings cannot say how far off a target the mixture is.',
     );
   }
 
@@ -236,6 +217,9 @@ class VeAutotuner {
 
   /// The write gate this session passed.
   final WritePermission permission;
+
+  /// Whether readings and targets are lambda or AFR, fixed when armed.
+  final MixtureUnits units;
 
   final double _stoich;
 
@@ -266,6 +250,17 @@ class VeAutotuner {
   static const settlingFilter = IniAnalyzeFilter(
     id: 'std_Settling',
     label: 'Settling',
+  );
+
+  /// The plausible-mixture rule, applied whether or not the definition
+  /// declares it.
+  ///
+  /// rusEFI's does not. Without it, a wideband that has died and reads zero
+  /// would ask for every cell it passes to be taken out entirely - and each
+  /// would be, a step at a time, down to the session limit: leaner.
+  static const deadSensorFilter = IniAnalyzeFilter(
+    id: 'std_DeadLambda',
+    label: 'Mixture reading',
   );
 
   /// Discards everything gathered, and re-reads each cell's starting value.
@@ -326,17 +321,41 @@ class VeAutotuner {
       );
     }
 
+    final dead = _evaluateStandard(deadSensorFilter, read, x, y);
+    if (dead != null) {
+      _rejected++;
+      return dead;
+    }
     final measuredLambda = _toLambda(measured);
-    final targetValue = target.interpolatedAt(x, y);
+
+    // The target is read where the target table says the engine is, which
+    // need not be where the VE table does: rusEFI gives each its own load
+    // channel, and either can be overridden to TPS. Falling back to the VE
+    // table's reading would look the target up at the wrong load.
+    final tx = _targetAxis(target.table.xBins.channel, xChannel, x, read);
+    final ty = _targetAxis(target.table.yBins.channel, yChannel, y, read);
+    if (tx == null || ty == null) {
+      return AutotuneOutcome.unusable(
+        'Waiting for ${target.table.xBins.channel} and '
+        '${target.table.yBins.channel} from the ECU.',
+      );
+    }
+
+    final targetValue = target.interpolatedAt(tx, ty);
     if (targetValue == null) {
       return const AutotuneOutcome.unusable(
         'The target table has no value at this operating point.',
       );
     }
     final targetLambda = _toLambda(targetValue);
-    if (targetLambda <= 0) {
-      return const AutotuneOutcome.unusable(
-        'The target table reads zero here, which cannot be a mixture target.',
+    // No engine is tuned for a mixture outside this. A target that reads as
+    // one has been misread - in the wrong units, most likely - and tuning
+    // against it would move every cell the wrong way.
+    if (!(targetLambda >= _targetLambdaMin &&
+        targetLambda <= _targetLambdaMax)) {
+      return AutotuneOutcome.unusable(
+        'The target reads as ${targetLambda.toStringAsFixed(2)} lambda here, '
+        'which cannot be a mixture target.',
       );
     }
 
@@ -353,9 +372,22 @@ class VeAutotuner {
     return AutotuneOutcome.accepted(ratio: ratio, moved: moved);
   }
 
+  static const _targetLambdaMin = 0.4;
+  static const _targetLambdaMax = 2.5;
+
   /// Converts a reading to lambda, using the tune's own stoichiometric ratio.
   double _toLambda(double value) =>
-      config.measuresLambda ? value : value / _stoich;
+      units == MixtureUnits.lambda ? value : value / _stoich;
+
+  /// The target table's reading on one axis: the VE table's [shared] reading
+  /// where both follow the same channel, otherwise the target's own.
+  double? _targetAxis(
+    String? channel,
+    String veChannel,
+    double shared,
+    AnalyzeSample read,
+  ) =>
+      channel == null || channel == veChannel ? shared : read(channel);
 
   AutotuneOutcome? _settlingCheck(double x, double y, DateTime at) {
     final cell = table.cellFor(x, y);

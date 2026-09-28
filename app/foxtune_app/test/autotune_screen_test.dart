@@ -85,11 +85,12 @@ void main() {
 
   tearDown(() => feed.close());
 
-  EcuConnected connectionFor() => EcuConnected(
+  EcuConnected connectionFor({EcuFamily? family}) => EcuConnected(
     port: const EcuPort(address: '/dev/ttyACM0'),
     identification: EcuIdentification(
       signature: doc.identity.signature!,
       version: 'Speeduino test',
+      family: family,
     ),
     signatureStatus: SignatureStatus.matched,
     expectedSignature: doc.identity.signature,
@@ -145,6 +146,7 @@ void main() {
     WritePermission permission = const WritePermission.granted(),
     bool realtimeDependsOnTune = false,
     Size size = const Size(1400, 1200),
+    EcuFamily? family,
   }) async {
     await tester.binding.setSurfaceSize(size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -173,7 +175,9 @@ void main() {
         container: container,
         child: MaterialApp(
           theme: brandTheme(Brightness.light),
-          home: Scaffold(body: AutotuneScreen(connection: connectionFor())),
+          home: Scaffold(
+            body: AutotuneScreen(connection: connectionFor(family: family)),
+          ),
         ),
       ),
     );
@@ -222,6 +226,15 @@ void main() {
     // The status strip is at its widest once there is data and a reason.
     await drive(tester, afr: 15.5, count: 10);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('is not offered for a firmware it has not been checked on', (
+    tester,
+  ) async {
+    await pumpAutotune(tester, family: EcuFamily.other);
+
+    expect(find.textContaining('not yet available'), findsOneWidget);
+    expect(find.text('Start autotune'), findsNothing);
   });
 
   testWidgets('a read-only session cannot arm', (tester) async {

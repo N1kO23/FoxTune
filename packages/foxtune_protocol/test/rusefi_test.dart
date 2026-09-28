@@ -94,6 +94,13 @@ void main() {
     // A float channel, across the wire and back.
     expect(snapshot['sparkDwell'], closeTo(3.1, 1e-5));
     expect(snapshot['lambdaValue'], inInclusiveRange(0.6, 1.4));
+
+    // What autotuning reads: the mixture as petrol AFR, the closed-loop trim
+    // at 100 with nothing trimming, and the VE table's load.
+    expect(snapshot['afrGasolineScale'],
+        closeTo(snapshot['lambdaValue']! * 14.7, 0.01));
+    expect(snapshot['Gego'], closeTo(100, 0.01));
+    expect(snapshot['veTableYAxis'], closeTo(snapshot['MAPValue']!, 0.01));
   });
 
   test('answers an oversized request with a range error', () async {

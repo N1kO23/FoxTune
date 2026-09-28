@@ -98,6 +98,17 @@ void main() {
       ]);
       expect(log.toCsv(), 'ToothTime\n3704\n1852\n');
     });
+
+    test('as CSV, one capture of a run after another', () {
+      final log = TriggerLog.decode(logger(speeduino, 'Tooth Logger'), [
+        ...be32(3704),
+        ...be32(1852),
+      ]);
+      expect(
+        log.toCsv(capture: 1) + log.toCsv(capture: 2, header: false),
+        'Capture,ToothTime\n1,3704\n1,1852\n2,3704\n2,1852\n',
+      );
+    });
   });
 
   group('running a logger', () {

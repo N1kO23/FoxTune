@@ -67,8 +67,25 @@ class AnalyzeCollector {
   /// Counting from the left would read the boolean as a threshold on half the
   /// lines in the file.
   static IniAnalyzeFilter? parseFilter(String value) {
-    final tokens = splitTopLevel(value);
+    var tokens = splitTopLevel(value);
     if (tokens.isEmpty) return null;
+
+    // rusEFI's definition runs the channel and the operator together on some
+    // lines - `deltaTps		>		, 50` - with no comma between them. Read as
+    // written, the threshold lands where the operator belongs and the filter
+    // never rejects anything, so the pair is split back apart.
+    if (tokens.length > 3 && IniFilterOperator.tryParse(tokens[3]) == null) {
+      final joined = _channelAndOperator.firstMatch(unquote(tokens[2]).trim());
+      if (joined != null) {
+        tokens = [
+          tokens[0],
+          tokens[1],
+          joined.group(1)!,
+          joined.group(2)!,
+          ...tokens.skip(3),
+        ];
+      }
+    }
 
     final id = unquote(tokens.first);
     if (id.isEmpty) return null;
@@ -107,4 +124,7 @@ class AnalyzeCollector {
       flag: flag,
     );
   }
+
+  /// A channel name followed by an operator, e.g. `deltaTps   >`.
+  static final _channelAndOperator = RegExp(r'^([A-Za-z_]\w*)\s*([<>=&])$');
 }

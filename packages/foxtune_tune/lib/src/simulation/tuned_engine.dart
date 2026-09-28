@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:foxtune_ini/foxtune_ini.dart';
 import 'package:foxtune_protocol/testing.dart';
 
+import '../autotune/mixture_units.dart';
 import '../curve_view.dart';
 import '../setting_view.dart';
 import '../table_view.dart';
@@ -114,19 +115,20 @@ class TunedEngineSimulation extends EngineSimulation {
     _sync();
     _seedConstants();
 
-    final config = definition.veAnalyze;
-    final veId = config?.table ?? 'veTable1Tbl';
-    final targetId = config?.targetTable ?? 'afrTable1Tbl';
-    final measuresLambda = config?.measuresLambda ?? false;
+    final veId = definition.veAnalyze?.table ?? 'veTable1Tbl';
+    final inLambda = _targetUnits == MixtureUnits.lambda;
 
     _seedTable(
         veId, (rpm, load) => airflow(rpm, load) * (1 + errorPercent / 100));
     _seedTable(
-      targetId,
-      (rpm, load) => measuresLambda ? targetAfr / _stoich : targetAfr,
+      _targetId,
+      (rpm, load) => inLambda ? targetAfr / _stoich : targetAfr,
     );
     // A believable spark map: more advance with revs, less under load.
-    _seedTable('sparkTbl', (rpm, load) => 12 + rpm / 320 - load * 0.12);
+    final spark = _sparkId;
+    if (spark != null) {
+      _seedTable(spark, (rpm, load) => 12 + rpm / 320 - load * 0.12);
+    }
 
     // Cold enrichment, tapering to nothing once warm.
     _seedCurve('warmup_curve', -40, 100,
@@ -156,6 +158,7 @@ class TunedEngineSimulation extends EngineSimulation {
       'dfcoRPM': 1500,
       'dfcoTPSThresh': 2,
       'nCylinders': 4,
+      'cylindersCount': 4,
     };
     for (final entry in values.entries) {
       SettingView.of(_mirror, entry.key, resolver: _resolver)
@@ -168,6 +171,18 @@ class TunedEngineSimulation extends EngineSimulation {
     _seedOption('algorithm', 'map');
     _seedOption('egoType', 'wide');
     _seedOption('egoAlgorithm', 'simple');
+
+    // rusEFI's equivalents: speed density on MAP, read in the units its live
+    // load is reported in, fuelled off the VE table alone and trimmed by a
+    // CAN wideband. A firmware without these settings is untouched.
+    _seedOption('fuelAlgorithm', 'speed density');
+    _seedOption('veOverrideMode', 'none');
+    _seedOption('afrOverrideMode', 'none');
+    _seedOption('useMetricOnInterface', 'metric');
+    _seedOption('ltft_correctionEnabled', 'no');
+    _seedOption('fuelClosedLoopCorrectionEnabled', 'enabled');
+    _seedOption('canReadEnabled', 'enable');
+    _seedOption('enableAemXSeries', 'yes');
     _resolver.invalidate();
   }
 
@@ -277,6 +292,7 @@ class TunedEngineSimulation extends EngineSimulation {
       'egoCorrection': derived.egoCorrection,
       'dutyCycle': derived.dutyCycle,
       'fuelLoad': derived.fuelLoad,
+      'targetLoad': derived.targetLoad,
       'ignLoad': derived.ignLoad,
       'warmupEnrich': derived.warmupPercent,
     };
@@ -338,18 +354,23 @@ class TunedEngineSimulation extends EngineSimulation {
 
     // The load axis is whatever the tune says it is; running throttle-based
     // load and reporting MAP would put the live cursor in the wrong cell.
-    final loadSource = _option('algorithm')?.toLowerCase() ?? 'map';
-    final fuelLoad = loadSource == 'tps' ? now.throttle : now.map;
+    final fuelLoad = _loadSource() == 'tps' ? now.throttle : now.map;
+    final targetLoad = switch (_option('afrOverrideMode')?.toLowerCase()) {
+      'tps' => now.throttle,
+      'map' => now.map,
+      _ => fuelLoad,
+    };
     final ignLoad = fuelLoad;
 
     final veView = _viewOf(config?.table ?? 'veTable1Tbl');
     final tuneVe = veView?.interpolatedAt(now.rpm, fuelLoad) ?? 50;
 
-    final targetView = _viewOf(config?.targetTable ?? 'afrTable1Tbl');
-    final rawTarget = targetView?.interpolatedAt(now.rpm, fuelLoad);
+    final rawTarget = _viewOf(_targetId)?.interpolatedAt(now.rpm, targetLoad);
     final targetAfr = rawTarget == null
         ? stoich
-        : ((config?.measuresLambda ?? false) ? rawTarget * stoich : rawTarget);
+        : (_targetUnits == MixtureUnits.lambda
+            ? rawTarget * stoich
+            : rawTarget);
 
     final warmupPercent = _curveAt('warmup_curve', now.coolant) ?? 100;
     final aseTaper = _constant('aseTaperTime', 0);
@@ -398,7 +419,10 @@ class TunedEngineSimulation extends EngineSimulation {
     final pulseWidth =
         fuelCut ? 0.0 : reqFuel * fuelFactor * (now.map / 100) + injOpen;
 
-    final advance = _viewOf('sparkTbl')?.interpolatedAt(now.rpm, ignLoad) ?? 15;
+    final spark = _sparkId;
+    final advance = (spark == null ? null : _viewOf(spark))
+            ?.interpolatedAt(now.rpm, ignLoad) ??
+        15;
 
     final derived = _Derived(
       tuneVe: tuneVe,
@@ -414,6 +438,7 @@ class TunedEngineSimulation extends EngineSimulation {
       accelEnrich: _accelEnrich,
       fuelCut: fuelCut,
       fuelLoad: fuelLoad,
+      targetLoad: targetLoad,
       ignLoad: ignLoad,
     );
 
@@ -436,10 +461,12 @@ class TunedEngineSimulation extends EngineSimulation {
   ) {
     final algorithm = _option('egoAlgorithm') ?? 'Simple';
     final sensor = _option('egoType') ?? 'Wide Band';
+    final enabled = _option('fuelClosedLoopCorrectionEnabled') ?? 'enabled';
     final limit = _constant('egoLimit', 15);
 
     final active = !algorithm.toLowerCase().contains('no correct') &&
         !sensor.toLowerCase().contains('disabled') &&
+        enabled.toLowerCase() != 'disabled' &&
         !now.cranking &&
         !aseActive &&
         !fuelCut &&
@@ -469,6 +496,33 @@ class TunedEngineSimulation extends EngineSimulation {
         (_egoCorrection + (error > 0 ? 1 : -1)).clamp(100 - limit, 100 + limit);
   }
 
+  /// Where the tune takes fuel load from: MAP or throttle.
+  ///
+  /// Speeduino says so with `algorithm`. rusEFI with its fuel strategy, which
+  /// the VE table's own load override can replace.
+  String _loadSource() {
+    final algorithm = _option('algorithm')?.toLowerCase();
+    if (algorithm != null) return algorithm == 'tps' ? 'tps' : 'map';
+    final override = _option('veOverrideMode')?.toLowerCase();
+    if (override == 'tps' || override == 'map') return override!;
+    final strategy = _option('fuelAlgorithm')?.toLowerCase();
+    return strategy == 'alpha-n' ? 'tps' : 'map';
+  }
+
+  String get _targetId => definition.veAnalyze?.targetTable ?? 'afrTable1Tbl';
+
+  /// Whether the target table holds lambda or AFR, as autotuning reads it.
+  MixtureUnits get _targetUnits {
+    final config = definition.veAnalyze;
+    if (config == null) return MixtureUnits.afr;
+    return mixtureUnitsOf(config, _viewOf(_targetId));
+  }
+
+  /// The ignition table, by whichever name this firmware gives it.
+  String? get _sparkId => const ['sparkTbl', 'ignitionTableTbl']
+      .where((id) => definition.tableNamed(id) != null)
+      .firstOrNull;
+
   TableView? _viewOf(String id) {
     final table = definition.tableNamed(id);
     if (table == null) return null;
@@ -497,6 +551,7 @@ class _Derived {
     required this.accelEnrich,
     required this.fuelCut,
     required this.fuelLoad,
+    required this.targetLoad,
     required this.ignLoad,
   });
 
@@ -513,5 +568,6 @@ class _Derived {
   final double accelEnrich;
   final bool fuelCut;
   final double fuelLoad;
+  final double targetLoad;
   final double ignLoad;
 }

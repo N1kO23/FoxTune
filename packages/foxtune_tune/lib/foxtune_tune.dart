@@ -11,6 +11,7 @@
 library;
 
 export 'src/autotune/autotune_settings.dart';
+export 'src/autotune/mixture_units.dart';
 export 'src/autotune/ve_autotuner.dart';
 export 'src/curve_view.dart';
 export 'src/label_expressions.dart';

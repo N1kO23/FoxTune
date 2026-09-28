@@ -385,4 +385,36 @@ page = 1
       expect(doc.rawSections.containsKey('Constants'), isFalse);
     });
   });
+
+  group('autotune filters', () {
+    IniAnalyzeFilter filter(String line) => IniParser()
+        .parse('[VeAnalyze]\n'
+            '  veAnalyzeMap = ve, target, afr, ego\n'
+            '  filter = $line\n')
+        .veAnalyze!
+        .filters
+        .single;
+
+    test('reads a channel filter', () {
+      final f = filter('minClt, "Minimum CLT", coolant, <, 60, , true');
+      expect(f.channel, 'coolant');
+      expect(f.operator, IniFilterOperator.lessThan);
+      expect(f.value, 60);
+      expect(f.flag, isTrue);
+    });
+
+    test('splits a channel and operator written without a comma', () {
+      final f = filter('dTps, "dTPS", deltaTps\t\t>\t\t, 50,\t\t, true');
+      expect(f.channel, 'deltaTps');
+      expect(f.operator, IniFilterOperator.greaterThan);
+      expect(f.value, 50);
+      expect(f.flag, isTrue);
+    });
+
+    test('leaves a filter it cannot read without an operator', () {
+      // Rather than guessing - the autotuner refuses to arm over it.
+      final f = filter('odd, "Odd", coolant ~, 60, , true');
+      expect(f.operator, isNull);
+    });
+  });
 }

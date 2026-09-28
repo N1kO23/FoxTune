@@ -52,4 +52,17 @@ void main() {
     // A plain label is untouched.
     expect(indicatorLabelText(fuelCut, on: false), 'Injection OK');
   });
+
+  test('a choice between two literals follows its condition', () {
+    // rusEFI's target table: `{useLambdaOnInterface ? "lambda" : "afr"}`.
+    String? units(double? mode) => evaluateLabel(
+          'useLambdaOnInterface ? "lambda" : "afr"',
+          definition: doc,
+          resolve: (name) => name == 'useLambdaOnInterface' ? mode : null,
+        );
+    expect(units(1), 'lambda');
+    expect(units(0), 'afr');
+    // Unknown is not guessed at.
+    expect(units(null), isNull);
+  });
 }

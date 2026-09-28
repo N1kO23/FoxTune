@@ -16,8 +16,7 @@ import 'package:foxtune_tune/simulation.dart';
 /// running engine into the realtime block, so gauges move and the live table
 /// cursor travels.
 ///
-/// A simulated Speeduino goes further, and its mixture answers to the tune:
-/// the VE table in the ECU's pages decides
+/// Its mixture answers to the tune: the VE table in the ECU's pages decides
 /// how much fuel goes in, the engine's own airflow decides how much it needed,
 /// and the wideband reports the difference through a sensor lag. Edit the VE
 /// table in FoxTune and the simulated AFR moves; closed-loop correction trims
@@ -112,6 +111,7 @@ Future<void> main(List<String> args) async {
       tune: tuneLoaded ? tune : null,
       port: port ?? 29001,
       simulate: simulate,
+      veError: veError,
     );
     return;
   }
@@ -180,27 +180,44 @@ Future<void> main(List<String> args) async {
 
 /// Serves a simulated rusEFI.
 ///
-/// Its engine runs canned fuelling rather than answering to the tune: the
-/// model that reads the VE table is written against Speeduino's tables and
-/// curves. Gauges move, pages read, write, verify and burn as rusEFI's do.
+/// The same tune-driven engine as a simulated Speeduino, reported in
+/// rusEFI's channel names. Pages read, write, verify and burn as rusEFI's do.
 Future<void> _serveRusEfi(
   IniDocument definition, {
   required TuneState? tune,
   required int port,
   required bool simulate,
+  required double veError,
 }) async {
-  final ecu = FakeRusEfi.fromDefinition(definition);
+  late final TunedEngineSimulation engine;
+  final ecu = FakeRusEfi.fromDefinition(
+    definition,
+    constantResolver: (name) => engine.resolve(name),
+  );
   if (tune != null) {
     for (var page = 1; page <= ecu.pages.length; page++) {
       ecu.pages[page - 1].setAll(0, tune.page(page));
     }
+  } else {
+    // Settings read as zero - mostly off - rather than as filler, before the
+    // base tune goes down over them.
+    for (final page in ecu.pages) {
+      page.fillRange(0, page.length, 0);
+    }
   }
 
+  engine = TunedEngineSimulation(definition: definition, pages: ecu.pages);
+  if (tune == null) engine.seedTune(errorPercent: veError);
+
   final bound = await ecu.start(host: '0.0.0.0', port: port);
-  if (simulate) ecu.simulateEngine();
+  if (simulate) ecu.simulateEngine(simulation: engine);
   final tuneSource = tune == null
-      ? 'filler bytes - load one with --msq for real tables'
+      ? 'seeded, VE table ${veError.toStringAsFixed(0)}% out of the engine'
       : 'from --msq';
+  final display = SettingView.of(
+    TuneState.fromPages(definition, ecu.pages),
+    'useMetricOnInterface',
+  )?.optionLabel;
 
   stdout
     ..writeln('FoxTune simulated rusEFI')
@@ -208,9 +225,18 @@ Future<void> _serveRusEfi(
     ..writeln('  listening : 0.0.0.0:$bound')
     ..writeln('  pages     : ${ecu.pageSizes.join(", ")} bytes')
     ..writeln('  realtime  : ${ecu.realtimeBlockSize} bytes')
-    ..writeln(
-        '  engine    : ${simulate ? "running, canned fuelling" : "static"}')
-    ..writeln('  tune      : $tuneSource')
+    ..writeln('  engine    : ${simulate ? "running, fuelled from the VE "
+        "table" : "static"}')
+    ..writeln('  tune      : $tuneSource');
+  if (display == 'Imperial') {
+    stdout.writeln('  warning   : the tune shows Imperial units, so FoxTune '
+        'will not autotune it - switch to Metric');
+  }
+  if (simulate && ecu.unresolvedChannels.isNotEmpty) {
+    stdout.writeln('  warning   : could not scale '
+        '${ecu.unresolvedChannels.join(", ")}');
+  }
+  stdout
     ..writeln('')
     ..writeln('Connect with "Network ECU" -> 127.0.0.1:$bound')
     ..writeln('Ctrl-C to stop.');

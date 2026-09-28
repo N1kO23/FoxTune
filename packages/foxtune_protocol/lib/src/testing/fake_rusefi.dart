@@ -172,7 +172,13 @@ class FakeRusEfi extends FakeTsEcu {
     EngineConditions now,
   ) {
     final sample = engine.sampleAt(now);
+    // rusEFI reports AFR as petrol would read it - lambda times 14.7 -
+    // whatever the fuel, so 14.7 here is not a stoichiometric ratio to look up.
     final afr = sample['afr'] ?? 14.7;
+    final target = sample['afrTarget'] ?? 14.7;
+    // The load each table is read at. A tune-driven engine says, since the
+    // tune can put either on throttle; the canned one runs on MAP.
+    final fuelLoad = sample['fuelLoad'] ?? now.map;
     final before = engine.conditionsAt(math.max(0, now.seconds - 0.1));
     final span = now.seconds - before.seconds;
     return {
@@ -181,19 +187,29 @@ class FakeRusEfi extends FakeTsEcu {
       'MAPValue': now.map,
       'baroPressure': 101.3,
       'TPSValue': now.throttle,
+      'deltaTps': sample['TPSdot'] ?? now.throttleRate,
       'coolant': now.coolant,
       'intake': now.iat,
       'VBatt': now.battery,
       'AFRValue': afr,
+      'afrGasolineScale': afr,
       'lambdaValue': afr / 14.7,
-      'targetLambda': 1.0,
+      'targetAFR': target,
+      'targetLambda': target / 14.7,
+      // The closed-loop trim, 100-based, which is what autotuning reads.
+      'Gego': sample['egoCorrection'] ?? 100,
       'veValue': sample['VE1'] ?? 0,
       'actualLastInjection': sample['pulseWidth'] ?? 0,
       'injectorDutyCycle': sample['dutyCycle'] ?? 0,
       'sparkDwell': 3.1,
       'correctedIgnitionAdvance': sample['advance'] ?? 0,
-      'fuelingLoad': now.map,
-      'ignitionLoad': now.map,
+      'fuelingLoad': fuelLoad,
+      'veTableYAxis': fuelLoad,
+      'afrTableYAxis': sample['targetLoad'] ?? fuelLoad,
+      'ignitionLoad': sample['ignLoad'] ?? now.map,
+      'running_coolantTemperatureCoefficient':
+          (sample['warmupEnrich'] ?? 100) / 100,
+      'running_postCrankingFuelCorrection': (sample['ASECurr'] ?? 100) / 100,
       'totalFuelCorrection': 1.0,
       'seconds': now.seconds.floorToDouble(),
     };
@@ -206,7 +222,7 @@ class FakeRusEfi extends FakeTsEcu {
         'isFuelPumpOn': now.rpm > 50,
         'fan1m_state': now.coolant > 95,
         'isIdling': now.throttle < 2 && now.rpm < 1200,
-        'dfcoActive': now.overrun,
+        'dfcoActive': engine.flagsAt(now)['DFCOOn'] ?? now.overrun,
         'isAboveAccelThreshold': now.throttleRate > 30,
       };
 }

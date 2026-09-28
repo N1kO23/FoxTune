@@ -133,10 +133,13 @@ class IniVeAnalyze {
   /// Filters in declaration order.
   final List<IniAnalyzeFilter> filters;
 
-  /// Whether [measuredChannel] reports lambda rather than an air-fuel ratio.
+  /// Whether [measuredChannel] looks, by its name, like it reports lambda
+  /// rather than an air-fuel ratio.
   ///
-  /// The two differ by the stoichiometric ratio, so getting this wrong scales
-  /// every correction by about fourteen.
+  /// A guess from the name, and only a fallback: rusEFI's
+  /// `veAnalyzeAfrLambda1` carries either, depending on a setting. Where the
+  /// target table's units say which, they decide - see `mixtureUnitsOf` in
+  /// foxtune_tune.
   bool get measuresLambda => measuredChannel.toLowerCase().contains('lambda');
 
   /// Filters the host implements itself, from their identifiers.

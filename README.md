@@ -112,7 +112,7 @@ added without disturbing anything above it.
 | **Settings**      | Trigger setup, engine constants, ASE, WUE and the rest - screens generated from the definition's `[Menu]` and `[UserDefined]`, not hand-written                                                                     |
 | **Curves**        | Editable point list and plot, with the live operating point marked                                                                                                                                                  |
 | **Calibration**   | Coolant, air and O2 sensor tables made from the definition's own choices, checked by the ECU's checksum; TPS from the sensor                                                                                        |
-| **Trigger logs**  | Tooth and composite loggers from `[LoggerDefinition]`: tooth times as bars with the gap picked out, edges as traces, CSV                                                                                            |
+| **Trigger logs**  | Tooth and composite loggers from `[LoggerDefinition]`: tooth times as bars with the gap picked out, edges as traces, a whole run saved as CSV                                                                       |
 | **Autotune**      | VE table tuned against the AFR/lambda target from live wideband data, filtered by the definition's own `[VeAnalyze]` rules                                                                                          |
 | **Live position** | The operating cell ringed, the four interpolation neighbours marked, and a dot at the exact interpolated point - in the grid and on the 3D surface                                                                  |
 | **3D surface**    | Orbitable isometric mesh, no GL dependency                                                                                                                                                                          |
@@ -120,8 +120,7 @@ added without disturbing anything above it.
 | **Tune files**    | `.msq` read and write, matched by name                                                                                                                                                                              |
 | **Logging**       | MegaLogViewer-compatible `.msl`, columns from `[Datalog]`                                                                                                                                                           |
 
-Not yet: autotuning on rusEFI, rusEFI's bench tests and Lua, a sensor calibration from an `.inc`
-file, replaying a recorded `.msl` log into the autotuner, warmup autotuning, `commandButton`
+Not yet: rusEFI's bench tests and Lua, a sensor calibration from an `.inc` file, replaying a recorded `.msl` log into the autotuner, warmup autotuning, `commandButton`
 actions, TunerStudio's SD card browser, and the `string` PC variables used for auxiliary-channel
 aliases.
 
@@ -156,8 +155,8 @@ dart run bin/fake_ecu.dart --msq /path/to/your-tune.msq
 ```
 
 Then connect from the app with **Network ECU** -> `127.0.0.1:2000`. Pass a rusEFI definition
-with `--ini` and it is a simulated rusEFI instead, on port 29001, with canned fuelling - the
-tune-driven engine described below is Speeduino's. It drives a plausible
+with `--ini` and it is a simulated rusEFI instead, on port 29001, running the same tune-driven
+engine described below under rusEFI's channel names. It drives a plausible
 running engine into the realtime block - idle, a pull to redline, a cruise, then a
 closed-throttle overrun - so gauges move, the live table cursor travels across cells, and the
 warning thresholds are actually reached. `--static` disables it; `--ini PATH` uses a different
@@ -270,10 +269,11 @@ simulated Speeduino had copied the mistake, which is why no test caught it.
 (27 KB) and each confirmed by the ECU's own CRC; live data decoded; a VE cell edited, written,
 verified, burned, read back after reconnecting, and restored. The simulator answers every
 request about 40 ms late, whoever asks, so live data from it runs at about 7 samples a second;
-that is the simulator, not the link. Not yet: a rusEFI board, autotuning (its `[VeAnalyze]`
-rules have not been checked, so it is not offered), rusEFI's bench tests and Lua, and running
-its trigger loggers - they are offered, decoded from its definition, but have not been run
-against its simulator.
+that is the simulator, not the link. Autotuning has been checked against FoxTune's own simulated
+rusEFI rather than this one, whose mixture does not answer to its tune - see
+[Autotuning](#autotuning). Not yet: a rusEFI board, rusEFI's bench tests and Lua, and running its
+trigger loggers - they are offered, decoded from its definition, but have not been run against
+its simulator.
 
 ## Computed channels
 
@@ -474,7 +474,14 @@ from the definition. A record is read as one big-endian number with bit 0 the lo
 last byte - how both Speeduino and rusEFI lay them out. FoxTune watches the ready flag in the
 live data it already polls, and reads each capture once it is set; after the definition's
 timeout it reads what there is, which from an engine that is not turning is nothing. Speeduino
-pads a capture it has not filled, and the padding is left out. A capture can be saved as CSV.
+pads a capture it has not filled, and the padding is left out.
+
+**Save CSV** saves the whole run - every capture since the logger started, or all of them so far
+while it is still running - not just the one on screen. Each row starts with the number of the
+capture it came from: the engine keeps turning while a capture is read, and the teeth in between
+are never logged, so the join between two captures is not one tooth to the next. The run is
+written to a file as each capture arrives rather than kept in memory, so a logger left running
+does not grow without end; the next run replaces it.
 
 A logger runs until stopped, and stops when you leave the tab or disconnect: Speeduino's takes
 over the trigger inputs' interrupts while it runs, so it is not left running.
@@ -494,15 +501,21 @@ the AFR (or lambda) target table at the operating point, and move the cells that
 The arithmetic is the easy half. Nearly all of the work is deciding when a reading is telling
 the truth about the steady state of the fuel table rather than about something else the engine
 was doing - and the definition already says. `[VeAnalyze]` names the table to tune, the target,
-the measured channel and the closed-loop trim channel, all of which swap between AFR and lambda
-with the build, plus the filters: minimum coolant temperature, the acceleration-enrichment and
-afterstart flags, the overrun, and the table's own axis limits. Those come from the file rather
-than from guesswork, so they follow a firmware release.
+the measured channel and the closed-loop trim channel, all of which swap between AFR and lambda -
+with the build on Speeduino, with a display setting on rusEFI - plus the filters: on Speeduino
+minimum coolant temperature, the acceleration-enrichment and afterstart flags, the overrun, and
+the table's own axis limits; on rusEFI minimum RPM, coolant, throttle and battery voltage, and
+how fast the throttle is moving. Those come from the file rather than from guesswork, so they
+follow a firmware release. Whether readings are AFR or lambda is taken from the target table's
+units, since rusEFI calls its channel `veAnalyzeAfrLambda1` either way; and the target is read
+at the target table's own load, which on rusEFI can differ from the VE table's.
 
-One filter is FoxTune's own. Exhaust gas takes time to reach the sensor, so a reading describes
+Two filters are FoxTune's own. Exhaust gas takes time to reach the sensor, so a reading describes
 combustion that already happened; a sample taken mid-transition would be credited to whichever
 cell the engine has moved into. The operating point must hold still for a settling time before
-anything counts.
+anything counts. And a mixture reading outside a plausible range is thrown away whether or not
+the definition asks for it: rusEFI's does not, and a dead wideband reading zero would otherwise
+ask for every cell it passes to be taken out, a step at a time, leaner.
 
 Each accepted sample yields a correction ratio - `(measured ÷ target) × (closed-loop trim ÷
 100)`, so a trim already adding fuel is read as the table being low rather than tuned against -
@@ -512,17 +525,24 @@ Corrections are written as a percentage of the cell's starting value, so repeate
 cannot walk a cell away. After each application the cell's evidence is cleared, so the next
 correction is judged against the fuelling the engine now has: a loop, not a ramp.
 
-Two refusals are absolute. A narrowband O2 sensor reports only rich or lean of stoichiometric
+Some refusals are absolute. A narrowband O2 sensor reports only rich or lean of stoichiometric
 while publishing on the same channel as a wideband, so tuning on it would produce a table that
 is confidently wrong everywhere the engine is not meant to run at stoich - autotuning will not
-arm. And it needs the same write permission as any other edit.
+arm. Speeduino says which sensor it has; on rusEFI "Narrow Band" is only a preset for the analog
+input's calibration, so a calibration whose AFR falls as the voltage rises, or barely moves, is
+refused as one, unless a CAN wideband is in use. Nor will it arm on rusEFI while long-term fuel
+trims are applied on top of the VE table, which the trim it reads does not include; or while a
+load axis is shown in psi, since the live load stays in kPa and every reading would land in the
+wrong cell; or when one of the definition's filters could not be read, rather than run without
+it. And it needs the same write permission as any other edit.
 
 **Autotuning never touches the ECU.** Corrections land in the loaded tune and show as ordinary
 red/blue changed cells; the ECU changes only when you burn, through the same
 write-verify-CRC-burn path as a hand edit.
 
 **How far it has been tested.** Against the simulated engine, whose VE table starts out wrong
-by a set amount (`--ve-error`), and on a real Speeduino.
+by a set amount (`--ve-error`), and on a real Speeduino. On rusEFI, against the same engine
+behind a simulated rusEFI, in both its AFR and lambda display; not yet on a rusEFI engine.
 
 ## Tune files
 
