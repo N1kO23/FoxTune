@@ -345,8 +345,8 @@ class GaugeCatalog {
     final translate = _limit(field.translate);
     if (scale == null || translate == null || scale == 0) return null;
 
-    final a = rawMin * scale + translate;
-    final b = rawMax * scale + translate;
+    final a = scaledFromRaw(rawMin, scale, translate);
+    final b = scaledFromRaw(rawMax, scale, translate);
     return (min: math.min(a, b).toDouble(), max: math.max(a, b).toDouble());
   }
 

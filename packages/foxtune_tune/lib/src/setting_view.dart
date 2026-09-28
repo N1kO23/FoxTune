@@ -235,7 +235,7 @@ class SettingView {
     if (at == null) return tune.readHost(name, index);
     final raw = tune.readRaw(at, field, index);
     if (raw == null) return null;
-    return raw * _scale + _translate;
+    return scaledFromRaw(raw, _scale, _translate);
   }
 
   /// Writes [newValue], clamped to the definition's declared bounds.
@@ -253,7 +253,7 @@ class SettingView {
       tune.writeHost(name, clamped, index);
       return;
     }
-    tune.writeRaw(at, field, (clamped - _translate) / _scale, index);
+    tune.writeRaw(at, field, rawFromScaled(clamped, _scale, _translate), index);
   }
 
   /// Clamps [candidate] into the definition's declared bounds.

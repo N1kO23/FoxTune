@@ -153,7 +153,7 @@ class RealtimeSnapshot {
         final s = resolveScalar(scale);
         final t = resolveScalar(translate);
         if (s == null || t == null) return null;
-        return raw * s + t;
+        return scaledFromRaw(raw, s, t);
 
       case IniArrayField():
         // Arrays do not appear in [OutputChannels] in practice; a single

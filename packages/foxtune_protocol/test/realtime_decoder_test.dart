@@ -22,6 +22,7 @@ void main() {
   s16   = scalar, S16,  4, "x", 1.000, 0.000
   volts = scalar, U08,  6, "V", 0.100, 0.000
   tempF = scalar, U08,  7, "F", 1.800, -22.230
+  stft  = scalar, F32,  8, "%", 100.0, -1.0
 ''');
 
     late RealtimeSnapshot snapshot;
@@ -36,6 +37,7 @@ void main() {
       view.setInt16(4, -1234, Endian.little);
       view.setUint8(6, 138); // 13.8 V
       view.setUint8(7, 100);
+      view.setFloat32(8, 1.02, Endian.little);
       snapshot = RealtimeDecoder(channels).decode(block);
     });
 
@@ -55,7 +57,17 @@ void main() {
 
     test('applies scale and translate', () {
       expect(snapshot['volts'], closeTo(13.8, 1e-9));
-      expect(snapshot['tempF'], closeTo(100 * 1.8 - 22.23, 1e-9));
+      // TunerStudio's order: translate, then scale. Speeduino stores 60 °C as
+      // 100, and declares Fahrenheit as `1.8, -22.23` - which is 140 °F only
+      // this way round; scaling first would read 157.77 °F.
+      expect(snapshot['tempF'], closeTo((100 - 22.23) * 1.8, 1e-9));
+      expect(snapshot['tempF'], closeTo(140, 0.02));
+    });
+
+    test('translates a float before scaling it too', () {
+      // rusEFI keeps its fuel trims as multipliers - 1.02 is 2% richer - and
+      // declares them `100.0, -1.0` so they read as 0-based percentages.
+      expect(snapshot['stft'], closeTo(2, 1e-4));
     });
 
     test('exposes the unscaled value too', () {

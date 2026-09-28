@@ -2,6 +2,7 @@
 library;
 
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:foxtune_ini/foxtune_ini.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
@@ -204,5 +205,48 @@ void main() {
 
     expect(SettingView.of(restored, 'TrigPattern')!.optionIndex, 2);
     expect(SettingView.of(restored, 'numTeeth')!.value, 36);
+  });
+
+  group('in Fahrenheit', () {
+    // Without CELSIUS, Speeduino declares its stored temperatures (degrees C
+    // plus 40) as `"F", 1.8, -22.23` - correct only when translate is added
+    // before scaling, as TunerStudio does. Scaling first reads 0 °C as
+    // 49.8 °F, and writes a typed 32 °F back as -10 °C.
+    late IniDocument fahrenheit;
+
+    setUpAll(() {
+      final candidates = [
+        File('packages/foxtune_ini/test/fixtures/speeduino.ini'),
+        File('../foxtune_ini/test/fixtures/speeduino.ini'),
+      ];
+      final fixture = candidates.firstWhere((f) => f.existsSync());
+      fahrenheit = IniParser().parse(fixture.readAsStringSync());
+    });
+
+    test('a stored temperature reads as the same temperature', () {
+      final tune = TuneState.empty(fahrenheit);
+      final egoTemp = SettingView.of(tune, 'egoTemp')!;
+      final at = tune.locate('egoTemp')!;
+
+      tune.writeRaw(at.page, at.field, 40); // 0 °C
+      expect(egoTemp.value, closeTo(32, 0.02));
+      tune.writeRaw(at.page, at.field, 0); // -40 °C
+      expect(egoTemp.value, closeTo(-40, 0.02));
+    });
+
+    test('a typed temperature is stored as the same temperature', () {
+      final tune = TuneState.empty(fahrenheit);
+      SettingView.of(tune, 'egoTemp')!.setValue(32);
+
+      final at = tune.locate('egoTemp')!;
+      expect(tune.readRaw(at.page, at.field), 40);
+
+      // The same bytes, read through the Celsius definition.
+      final celsius = TuneState.fromPages(doc, [
+        for (var p = 1; p <= doc.constants.pageSizes.length; p++)
+          Uint8List.fromList(tune.page(p)),
+      ]);
+      expect(SettingView.of(celsius, 'egoTemp')!.value, 0);
+    });
   });
 }

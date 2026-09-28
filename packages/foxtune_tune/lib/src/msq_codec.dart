@@ -142,7 +142,8 @@ abstract final class MsqCodec {
         final translate = resolver.valueOf(field.translate);
         if (raw == null || scale == null || translate == null) return;
         final digits = field.digits ?? 0;
-        final value = (raw * scale + translate).toStringAsFixed(digits);
+        final value =
+            scaledFromRaw(raw, scale, translate).toStringAsFixed(digits);
         out.writeln('<$elementName digits="$digits" '
             'name="${_attr(field.name)}"'
             '${field.units.isEmpty ? '' : ' units="${_attr(field.units)}"'}>'
@@ -168,7 +169,8 @@ abstract final class MsqCodec {
           for (var c = 0; c < columns; c++) {
             final index = field.isTable ? r * columns + c : r;
             final raw = tune.readRaw(page, field, index);
-            final value = raw == null ? 0.0 : raw * scale + translate;
+            final value =
+                raw == null ? 0.0 : scaledFromRaw(raw, scale, translate);
             out
               ..write(value.toStringAsFixed(digits))
               ..write(' ');
@@ -322,7 +324,7 @@ abstract final class MsqCodec {
         final scale = resolver.valueOf(field.scale);
         final translate = resolver.valueOf(field.translate);
         if (scale == null || translate == null || scale == 0) return false;
-        tune.writeRaw(page, field, (value - translate) / scale);
+        tune.writeRaw(page, field, rawFromScaled(value, scale, translate));
         return true;
 
       case IniArrayField():
@@ -349,7 +351,12 @@ abstract final class MsqCodec {
             final index = field.isTable ? r * columns + c : r;
             final saved = numbers[source]!;
             final value = convert == null ? saved : convert(saved);
-            tune.writeRaw(page, field, (value - translate) / scale, index);
+            tune.writeRaw(
+              page,
+              field,
+              rawFromScaled(value, scale, translate),
+              index,
+            );
           }
         }
         return true;

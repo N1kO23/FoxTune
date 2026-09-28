@@ -110,7 +110,7 @@ class TuneValueResolver {
     final s = valueOf(scale);
     final t = valueOf(translate);
     if (s == null || t == null) return null;
-    return raw * s + t;
+    return scaledFromRaw(raw, s, t);
   }
 
   /// Evaluates [value] to a number, following expressions where needed.

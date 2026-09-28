@@ -322,7 +322,7 @@ abstract class FakeTsEcu {
       if (offset == null || scale == null || translate == null || scale == 0) {
         return;
       }
-      _writeScalar(offset, field.type, (value - translate) / scale);
+      _writeScalar(offset, field.type, rawFromScaled(value, scale, translate));
     });
 
     unresolvedChannels

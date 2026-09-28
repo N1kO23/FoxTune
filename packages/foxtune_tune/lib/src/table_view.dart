@@ -139,7 +139,7 @@ class TableView {
     if (raw == null) return null;
     final scale = resolver.valueOf(axis.scale) ?? 1;
     final translate = resolver.valueOf(axis.translate) ?? 0;
-    return raw * scale + translate;
+    return scaledFromRaw(raw, scale, translate);
   }
 
   /// Sets the X axis bin at [column], in engineering units.
@@ -176,7 +176,12 @@ class TableView {
     if (low != null && clamped < low) clamped = low;
     if (high != null && clamped > high) clamped = high;
 
-    tune.writeRaw(page, axis, (clamped - translate) / effective, index);
+    tune.writeRaw(
+      page,
+      axis,
+      rawFromScaled(clamped, effective, translate),
+      index,
+    );
   }
 
   /// Smallest change a table value can represent, in engineering units.
@@ -283,7 +288,7 @@ class TableView {
     if (!_inBounds(row, column)) return null;
     final raw = tune.readRaw(page, zField, _cellIndex(row, column));
     if (raw == null) return null;
-    return raw * _zScale + _zTranslate;
+    return scaledFromRaw(raw, _zScale, _zTranslate);
   }
 
   /// Raw stored value at [row], [column].
@@ -305,7 +310,7 @@ class TableView {
     tune.writeRaw(
       page,
       zField,
-      (clamped - _zTranslate) / _zScale,
+      rawFromScaled(clamped, _zScale, _zTranslate),
       _cellIndex(row, column),
     );
   }

@@ -1,5 +1,20 @@
 import '../data_type.dart';
 
+/// Converts a stored value to engineering units: `(raw + translate) * scale`.
+///
+/// This is TunerStudio's order - translate first, then scale - and the one
+/// definitions are written for. Scaling first gives the same answer only
+/// while one of the two is neutral: Speeduino's Fahrenheit temperatures are
+/// declared as `1.8, -22.23`, which reads a stored 0 as -40 °F this way and as
+/// -22 °F the other.
+double scaledFromRaw(num raw, double scale, double translate) =>
+    (raw + translate) * scale;
+
+/// The stored value that [value] converts to - the inverse of
+/// [scaledFromRaw]. [scale] must not be zero.
+double rawFromScaled(num value, double scale, double translate) =>
+    value / scale - translate;
+
 /// A named entry in an ECU definition section.
 ///
 /// The same three shapes - scalar, bits, array - appear in `[Constants]`,
@@ -53,7 +68,7 @@ final class IniScalarField extends IniField {
   /// Multiplier applied to the raw value.
   final IniScalarValue scale;
 
-  /// Offset added after scaling.
+  /// Offset added to the raw value before scaling - see [scaledFromRaw].
   final IniScalarValue translate;
 
   /// Lower display bound, where the section supplies one.
@@ -77,7 +92,7 @@ final class IniScalarField extends IniField {
     final s = scale.literalValue;
     final t = translate.literalValue;
     if (s == null || t == null) return null;
-    return raw * s + t;
+    return scaledFromRaw(raw, s, t);
   }
 
   @override
@@ -155,7 +170,7 @@ final class IniArrayField extends IniField {
   /// Multiplier applied to each raw element.
   final IniScalarValue scale;
 
-  /// Offset added after scaling.
+  /// Offset added to each raw element before scaling - see [scaledFromRaw].
   final IniScalarValue translate;
 
   /// Lower display bound, where supplied.

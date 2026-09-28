@@ -542,6 +542,11 @@ one: choosing it wrong does not mislabel a number, it produces a different numbe
 ties the choice, the parse and the gauge thresholds to a single `TemperatureUnit` so they
 cannot drift apart. It defaults to Celsius, and is chosen in App settings.
 
+A stored value is converted as TunerStudio does it: translate added first, then scaled -
+`(raw + translate) × scale`. Definitions are written for that order, and the Fahrenheit
+settings show why it matters: Speeduino stores 0 °C as 40 and declares Fahrenheit as
+`1.8, -22.23`, which is 32 °F translated first and 49.8 °F scaled first.
+
 ## Safety
 
 Writing a bad table to a running engine destroys hardware, so writing is something a session

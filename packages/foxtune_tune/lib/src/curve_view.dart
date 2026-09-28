@@ -133,7 +133,7 @@ class CurveView {
   double? _read(int page, IniArrayField field, int at) {
     final raw = tune.readRaw(page, field, at);
     if (raw == null) return null;
-    return raw * _scaleOf(field) + _translateOf(field);
+    return scaledFromRaw(raw, _scaleOf(field), _translateOf(field));
   }
 
   bool _inBounds(int point) => point >= 0 && point < length;
@@ -173,7 +173,7 @@ class CurveView {
     tune.writeRaw(
       page,
       field,
-      (clamped - _translateOf(field)) / _scaleOf(field),
+      rawFromScaled(clamped, _scaleOf(field), _translateOf(field)),
       _storageIndex(point),
     );
   }
