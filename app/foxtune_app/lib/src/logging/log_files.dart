@@ -64,6 +64,21 @@ abstract final class LogFiles {
     }
   }
 
+  /// When [file] was last written, and how big it is.
+  static String describe(File file) {
+    final bytes = file.lengthSync();
+    final size = bytes >= 1024 * 1024
+        ? '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB'
+        : '${(bytes / 1024).toStringAsFixed(0)} kB';
+    final modified = file.lastModifiedSync();
+    final when =
+        '${modified.year}-${_two(modified.month)}-${_two(modified.day)} '
+        '${_two(modified.hour)}:${_two(modified.minute)}';
+    return '$when · $size';
+  }
+
+  static String _two(int value) => value.toString().padLeft(2, '0');
+
   /// Lists recorded logs with a way to save each one.
   static Future<void> showList(BuildContext context) =>
       showModalBottomSheet<void>(
@@ -113,7 +128,7 @@ class _LogList extends ConsumerWidget {
                         file.path.split(RegExp(r'[/\\]')).last,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      subtitle: Text(_describe(file)),
+                      subtitle: Text(LogFiles.describe(file)),
                       trailing: TextButton.icon(
                         onPressed: () => LogFiles.save(context, ref, file),
                         icon: const Icon(Icons.save_alt, size: 18),
@@ -125,18 +140,4 @@ class _LogList extends ConsumerWidget {
       ),
     );
   }
-
-  static String _describe(File file) {
-    final bytes = file.lengthSync();
-    final size = bytes >= 1024 * 1024
-        ? '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB'
-        : '${(bytes / 1024).toStringAsFixed(0)} kB';
-    final modified = file.lastModifiedSync();
-    final when =
-        '${modified.year}-${_two(modified.month)}-${_two(modified.day)} '
-        '${_two(modified.hour)}:${_two(modified.minute)}';
-    return '$when · $size';
-  }
-
-  static String _two(int value) => value.toString().padLeft(2, '0');
 }

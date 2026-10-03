@@ -1,6 +1,7 @@
 import 'package:foxtune_ini/foxtune_ini.dart';
 import 'package:xml/xml.dart';
 
+import 'temperature_scale.dart';
 import 'tune_state.dart';
 import 'value_resolver.dart';
 
@@ -194,18 +195,14 @@ abstract final class MsqCodec {
       .replaceAll('<', '&lt;')
       .replaceAll('>', '&gt;');
 
-  /// Reads a `.msq` into [into].
+  /// The signature a `.msq` was saved for, or `null` where it declares none.
   ///
-  /// Values are matched to the loaded definition **by name**, so a tune saved
-  /// from a different firmware version loads whatever still applies and reports
-  /// the rest rather than shifting everything by an offset.
-  ///
-  /// Set [requireSignatureMatch] to refuse a file whose signature differs.
-  static MsqImportResult decode(
-    String xml,
-    TuneState into, {
-    bool requireSignatureMatch = true,
-  }) {
+  /// Which definition a tune needs has to be known before there is a
+  /// [TuneState] to read it into. Throws [MsqException] for a file that is
+  /// not a `.msq` at all.
+  static String? signatureOf(String xml) => _signatureIn(_root(xml))?.trim();
+
+  static XmlElement _root(String xml) {
     final XmlDocument document;
     try {
       document = XmlDocument.parse(xml);
@@ -218,9 +215,26 @@ abstract final class MsqCodec {
       throw MsqException(
           'Root element is <${root.name.local}>, expected <msq>');
     }
+    return root;
+  }
 
-    final signature =
-        root.findElements('versionInfo').firstOrNull?.getAttribute('signature');
+  static String? _signatureIn(XmlElement root) =>
+      root.findElements('versionInfo').firstOrNull?.getAttribute('signature');
+
+  /// Reads a `.msq` into [into].
+  ///
+  /// Values are matched to the loaded definition **by name**, so a tune saved
+  /// from a different firmware version loads whatever still applies and reports
+  /// the rest rather than shifting everything by an offset.
+  ///
+  /// Set [requireSignatureMatch] to refuse a file whose signature differs.
+  static MsqImportResult decode(
+    String xml,
+    TuneState into, {
+    bool requireSignatureMatch = true,
+  }) {
+    final root = _root(xml);
+    final signature = _signatureIn(root);
 
     final expected = into.definition.identity.signature;
     if (requireSignatureMatch) {
@@ -282,23 +296,12 @@ abstract final class MsqCodec {
       IniBitsField() => null,
     };
     if (savedUnits == null || units == null) return null;
-    final from = _temperatureScale(savedUnits);
-    final to = _temperatureScale(units);
+    final from = TemperatureScale.of(savedUnits);
+    final to = TemperatureScale.of(units);
     if (from == null || to == null || from == to) return null;
-    return from == 'c'
+    return from == TemperatureScale.celsius
         ? (value) => value * 1.8 + 32
         : (value) => (value - 32) / 1.8;
-  }
-
-  /// `c` or `f`, for units naming a temperature scale - `C`, `°C`, `deg F` -
-  /// and `null` for any others, plain `deg` of ignition timing included.
-  static String? _temperatureScale(String units) {
-    final bare = units
-        .replaceAll('\u00B0', '')
-        .replaceAll(RegExp('deg', caseSensitive: false), '')
-        .replaceAll(RegExp(r'\s'), '')
-        .toLowerCase();
-    return bare == 'c' || bare == 'f' ? bare : null;
   }
 
   static bool _applyField(TuneState tune, int page, IniField field, String text,

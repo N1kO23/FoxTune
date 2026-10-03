@@ -11,11 +11,13 @@
 library;
 
 export 'src/autotune/autotune_settings.dart';
+export 'src/autotune/log_replay.dart';
 export 'src/autotune/mixture_units.dart';
 export 'src/autotune/ve_autotuner.dart';
 export 'src/curve_view.dart';
 export 'src/label_expressions.dart';
 export 'src/log_recorder.dart';
+export 'src/msl_reader.dart';
 export 'src/msl_writer.dart';
 export 'src/msq_codec.dart';
 export 'src/sensor_calibration.dart';

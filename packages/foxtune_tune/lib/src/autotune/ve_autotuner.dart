@@ -11,8 +11,23 @@ import 'readiness_checks.dart';
 /// Reads one channel of a sample, in engineering units.
 ///
 /// Deliberately not a `RealtimeSnapshot`: the same analyser has to serve the
-/// live feed and, later, a row of a recorded log.
+/// live feed and a row of a recorded log.
 typedef AnalyzeSample = double? Function(String channel);
+
+/// Where samples come from, which decides when corrections are applied.
+enum AutotuneMode {
+  /// From the running engine. A cell moves a bounded step as soon as it has
+  /// enough evidence, and the samples taken once the ECU runs that step -
+  /// burned, or sent to its RAM - judge it.
+  live,
+
+  /// From a recorded log. Every row describes the table the log was recorded
+  /// with, so a step taken part-way through would be judged by rows that
+  /// never saw it - and taken again, and again. Evidence is gathered from the
+  /// whole log instead, and each cell corrected once by
+  /// [VeAutotuner.applyGathered].
+  replay,
+}
 
 /// What happened to one offered sample.
 class AutotuneOutcome {
@@ -115,6 +130,7 @@ class VeAutotuner {
     required this.settings,
     required this.permission,
     required this.units,
+    required this.mode,
     required double stoich,
   }) : _stoich = stoich;
 
@@ -127,6 +143,7 @@ class VeAutotuner {
     required WritePermission permission,
     TuneValueResolver? resolver,
     AutotuneSettings settings = const AutotuneSettings(),
+    AutotuneMode mode = AutotuneMode.live,
   }) {
     final definition = tune.definition;
     final config = definition.veAnalyze;
@@ -175,6 +192,22 @@ class VeAutotuner {
       return (tuner: null, readiness: AutotuneReadiness.blocked(problem));
     }
 
+    // Live, only the ECU can say whether a correction has reached the engine
+    // yet, by reporting the VE it looked up. A log says for itself, row by
+    // row, and a replay checks for the column.
+    if (mode == AutotuneMode.live &&
+        !runningVeChannels.any(definition.outputChannels.allNames.contains)) {
+      return (
+        tuner: null,
+        readiness: AutotuneReadiness.blocked(
+          'This firmware does not report the VE it is running '
+          '(${runningVeChannels.join(' or ')}), so there is no telling when a '
+          'correction has reached the engine. Autotuning stays off rather '
+          'than correct the same error twice.',
+        ),
+      );
+    }
+
     if (!permission.allowed) {
       return (
         tuner: null,
@@ -193,6 +226,7 @@ class VeAutotuner {
         settings: settings,
         permission: permission,
         units: mixtureUnitsOf(config, target),
+        mode: mode,
         // rusEFI declares no `stoich`, and needs none: its AFR is always
         // gasoline-scaled - lambda times 14.7 - whatever the fuel.
         stoich: shared.resolve('stoich') ?? 14.7,
@@ -220,6 +254,9 @@ class VeAutotuner {
 
   /// Whether readings and targets are lambda or AFR, fixed when armed.
   final MixtureUnits units;
+
+  /// Whether samples are live or replayed from a log.
+  final AutotuneMode mode;
 
   final double _stoich;
 
@@ -263,13 +300,69 @@ class VeAutotuner {
     label: 'Mixture reading',
   );
 
+  /// The rule that a sample was taken with the ECU running the table loaded
+  /// now.
+  ///
+  /// A sample's correction is relative to the VE the engine actually ran.
+  /// Live, the tune changes the moment a correction is made, but the ECU runs
+  /// it only once it is burned or sent: until then every sample in that cell
+  /// still shows the error just corrected, and would correct it again, and
+  /// again. A replayed log was recorded with one table throughout, and applied
+  /// to a table that has moved since - by replaying the same log before, say -
+  /// it would be applied on top of itself.
+  static const runningVeFilter = IniAnalyzeFilter(
+    id: 'std_RunningVe',
+    label: 'Table since changed',
+  );
+
+  /// Channels carrying the VE the ECU looked up, in the order tried.
+  ///
+  /// The definition does not say which channel this is, so it is keyed on the
+  /// name: Speeduino's `VE1` is the first VE table's own lookup, rusEFI's
+  /// `veValue` its VE table's.
+  static const runningVeChannels = ['VE1', 'veValue'];
+
+  /// How far a running VE may sit from the table's, in storage steps.
+  ///
+  /// More than one: Speeduino interpolates in integer arithmetic and reports
+  /// a whole number, so a sample taken on this very table can be a step out.
+  static const _runningVeSteps = 1.5;
+
   /// Discards everything gathered, and re-reads each cell's starting value.
   void reset() {
     _cells.clear();
-    _lastCell = null;
-    _cellEnteredAt = null;
+    interrupt();
     _accepted = 0;
     _rejected = 0;
+  }
+
+  /// Restarts the settling wait, as though the engine had just arrived.
+  ///
+  /// For a break in the samples - a gap in a log, or its clock running
+  /// backwards where two recordings were joined - across which the operating
+  /// point cannot be assumed to have held still.
+  void interrupt() {
+    _lastCell = null;
+    _cellEnteredAt = null;
+  }
+
+  /// Corrects each cell once from everything gathered, and returns the cells
+  /// whose stored value changed.
+  ///
+  /// For [AutotuneMode.replay]. There is no loop to converge, so the step
+  /// limit - which exists to let the next measurement judge the last one -
+  /// does not apply; the session limit still bounds how far a cell moves.
+  /// A cell with less evidence than [AutotuneSettings.minWeight] is left
+  /// alone, as it would be live.
+  List<({int row, int column})> applyGathered() {
+    final moved = <({int row, int column})>[];
+    for (final entry in _cells.entries) {
+      if (entry.value.weight < settings.minWeight) continue;
+      if (_apply(entry.key, entry.value, maxStep: settings.maxTotalPercent)) {
+        moved.add(entry.key);
+      }
+    }
+    return moved;
   }
 
   /// Offers one sample, applying a correction if it earns one.
@@ -312,6 +405,12 @@ class VeAutotuner {
         _rejected++;
         return rejection;
       }
+    }
+
+    final stale = _runningVeCheck(read, x, y);
+    if (stale != null) {
+      _rejected++;
+      return stale;
     }
 
     final measured = read(config.measuredChannel);
@@ -388,6 +487,38 @@ class VeAutotuner {
     AnalyzeSample read,
   ) =>
       channel == null || channel == veChannel ? shared : read(channel);
+
+  /// Rejects a sample taken while the ECU ran something other than what the
+  /// table gives there now.
+  ///
+  /// A sample that does not say what the ECU ran is rejected too: nothing then
+  /// says which table it describes.
+  AutotuneOutcome? _runningVeCheck(AnalyzeSample read, double x, double y) {
+    double? running;
+    for (final channel in runningVeChannels) {
+      running = read(channel);
+      if (running != null) break;
+    }
+    final current = table.interpolatedAt(x, y);
+    if (running == null || current == null) {
+      return const AutotuneOutcome.rejected(runningVeFilter);
+    }
+    if ((running - current).abs() <= table.zStep * _runningVeSteps) {
+      return null;
+    }
+
+    final ran = running.toStringAsFixed(1);
+    final now = current.toStringAsFixed(1);
+    return AutotuneOutcome.rejected(
+      runningVeFilter,
+      detail: switch (mode) {
+        AutotuneMode.live =>
+          'The ECU is still running $ran here; the table now holds $now',
+        AutotuneMode.replay =>
+          'Recorded on a VE of $ran here, where the table now has $now',
+      },
+    );
+  }
 
   AutotuneOutcome? _settlingCheck(double x, double y, DateTime at) {
     final cell = table.cellFor(x, y);
@@ -527,21 +658,28 @@ class VeAutotuner {
       cell.weightedRatio += entry.weight * ratio;
       cell.samples++;
 
+      // A replay only gathers: see [AutotuneMode.replay].
+      if (mode == AutotuneMode.replay) continue;
       if (cell.weight < settings.minWeight) continue;
-      if (_apply(key, cell)) moved.add(key);
+      if (_apply(key, cell, maxStep: settings.maxStepPercent)) moved.add(key);
     }
 
     return moved;
   }
 
-  /// Moves one cell towards what its samples are asking for.
+  /// Moves one cell towards what its samples are asking for, by at most
+  /// [maxStep] percent.
   ///
   /// Returns whether the stored value actually changed, which is not the same
   /// as whether a correction was book-kept: the running total accumulates
   /// steps too small for the storage to hold, so a cell on a coarse table
   /// still reaches its target over several passes rather than being rounded
   /// away to nothing each time.
-  bool _apply(({int row, int column}) key, AutotuneCell cell) {
+  bool _apply(
+    ({int row, int column}) key,
+    AutotuneCell cell, {
+    required double maxStep,
+  }) {
     final mean = cell.pendingRatio;
     final wanted = mean == null ? 0.0 : (mean - 1) * 100;
 
@@ -557,8 +695,7 @@ class VeAutotuner {
     // sample reads as a change to the tune.
     if (wanted.abs() < _deadbandPercent(cell.baseline)) return false;
 
-    final step =
-        wanted.clamp(-settings.maxStepPercent, settings.maxStepPercent);
+    final step = wanted.clamp(-maxStep, maxStep);
     final next = (cell.appliedPercent + step)
         .clamp(-settings.maxTotalPercent, settings.maxTotalPercent);
     if (next == cell.appliedPercent) return false;

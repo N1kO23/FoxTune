@@ -3,11 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:foxtune_ini/foxtune_ini.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
 
-import '../connection/connection_state.dart';
 import '../dashboard/dashboard_controller.dart';
 import '../dashboard/gauge_status.dart';
 import 'burn_actions.dart';
 import 'msq_actions.dart';
+import 'offline_tune.dart';
 import 'table_file_actions.dart';
 import 'cursor_readout.dart';
 import 'surface_view.dart';
@@ -34,9 +34,7 @@ class SelectedTableController extends Notifier<String?> {
 /// default state of this screen - even connected to a running engine - cannot
 /// change anything.
 class TableEditorScreen extends ConsumerStatefulWidget {
-  const TableEditorScreen({super.key, required this.connection});
-
-  final EcuConnected connection;
+  const TableEditorScreen({super.key});
 
   @override
   ConsumerState<TableEditorScreen> createState() => _TableEditorScreenState();
@@ -49,7 +47,7 @@ class _TableEditorScreenState extends ConsumerState<TableEditorScreen> {
   @override
   Widget build(BuildContext context) {
     final tuneAsync = ref.watch(tuneProvider);
-    final permission = ref.watch(writePermissionProvider);
+    final permission = ref.watch(editPermissionProvider);
 
     return tuneAsync.when(
       loading: () => const _LoadingTune(),
@@ -57,7 +55,7 @@ class _TableEditorScreenState extends ConsumerState<TableEditorScreen> {
       data: (tune) {
         if (tune == null) return const _ErrorPane(message: 'No tune loaded.');
 
-        final definition = widget.connection.definition!;
+        final definition = tune.definition;
         final tables = definition.tables;
         if (tables.isEmpty) {
           return const _ErrorPane(
@@ -257,6 +255,9 @@ class _Toolbar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final writeMode = ref.watch(writeModeProvider);
+    // A file being edited has no ECU to write to, re-read from or burn: it
+    // is saved instead, and reaches an ECU by being loaded into one's tune.
+    final offline = ref.watch(editingOfflineProvider);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -286,17 +287,18 @@ class _Toolbar extends ConsumerWidget {
             ),
           ),
           // The write-mode switch is the deliberate act that unlocks editing.
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Switch(
-                value: writeMode,
-                onChanged: (v) => ref.read(writeModeProvider.notifier).set(v),
-              ),
-              const SizedBox(width: 4),
-              Text('Write mode', style: theme.textTheme.labelLarge),
-            ],
-          ),
+          if (!offline)
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Switch(
+                  value: writeMode,
+                  onChanged: (v) => ref.read(writeModeProvider.notifier).set(v),
+                ),
+                const SizedBox(width: 4),
+                Text('Write mode', style: theme.textTheme.labelLarge),
+              ],
+            ),
           if (!permission.allowed)
             Tooltip(
               message: permission.reason ?? '',
@@ -323,13 +325,20 @@ class _Toolbar extends ConsumerWidget {
                 ),
               ],
             ),
-          FilledButton.icon(
-            onPressed: permission.allowed && tune.isDirty
-                ? () => BurnActions.confirmAndBurn(context, ref, tune)
-                : null,
-            icon: const Icon(Icons.save),
-            label: const Text('Burn to ECU'),
-          ),
+          if (offline)
+            FilledButton.icon(
+              onPressed: () => MsqActions.save(context, ref, tune),
+              icon: const Icon(Icons.save),
+              label: const Text('Save .msq'),
+            )
+          else
+            FilledButton.icon(
+              onPressed: permission.allowed && tune.isDirty
+                  ? () => BurnActions.confirmAndBurn(context, ref, tune)
+                  : null,
+              icon: const Icon(Icons.save),
+              label: const Text('Burn to ECU'),
+            ),
           IconButton(
             tooltip: showSurface ? 'Hide 3D surface' : 'Show 3D surface',
             isSelected: showSurface,
@@ -337,11 +346,12 @@ class _Toolbar extends ConsumerWidget {
             selectedIcon: const Icon(Icons.view_in_ar),
             onPressed: onToggleSurface,
           ),
-          TextButton.icon(
-            onPressed: () => ref.read(tuneProvider.notifier).reload(),
-            icon: const Icon(Icons.refresh),
-            label: const Text('Re-read'),
-          ),
+          if (!offline)
+            TextButton.icon(
+              onPressed: () => ref.read(tuneProvider.notifier).reload(),
+              icon: const Icon(Icons.refresh),
+              label: const Text('Re-read'),
+            ),
           MenuAnchor(
             builder: (context, controller, _) => IconButton(
               tooltip: 'Tune file',
@@ -365,13 +375,16 @@ class _Toolbar extends ConsumerWidget {
                 onPressed: () => TableFileActions.import(context, ref, view),
                 child: const Text('Import into this table'),
               ),
-              MenuItemButton(
-                leadingIcon: const Icon(Icons.file_open_outlined),
-                // Loading only changes the in-memory tune; the ECU is not
-                // touched until the user burns.
-                onPressed: () => MsqActions.load(context, ref, tune),
-                child: const Text('Load .msq into editor'),
-              ),
+              // How a file reaches an ECU: loaded into its tune, which only
+              // changes the in-memory tune; the ECU is not touched until the
+              // user burns. With no ECU, opening another file is the port
+              // list's job.
+              if (!offline)
+                MenuItemButton(
+                  leadingIcon: const Icon(Icons.file_open_outlined),
+                  onPressed: () => MsqActions.load(context, ref, tune),
+                  child: const Text('Load .msq into editor'),
+                ),
             ],
           ),
         ],

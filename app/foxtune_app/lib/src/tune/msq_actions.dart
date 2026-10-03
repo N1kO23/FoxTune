@@ -4,6 +4,7 @@ import 'package:foxtune_tune/foxtune_tune.dart';
 
 import '../dashboard/gauge_status.dart';
 import '../files/file_saving.dart';
+import 'offline_tune.dart';
 import 'tune_controller.dart';
 
 /// Saving and loading TunerStudio `.msq` tune files.
@@ -23,8 +24,12 @@ abstract final class MsqActions {
   ) async {
     final messenger = ScaffoldMessenger.of(context);
     final signature = tune.definition.identity.signature ?? 'tune';
-    final suggested =
-        '${signature.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_')}.msq';
+    // A file being edited is saved under its own name by default.
+    final open = ref.read(offlineTuneProvider);
+    final isOpenFile = identical(open?.tune, tune);
+    final suggested = isOpenFile
+        ? open!.fileName
+        : '${signature.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_')}.msq';
 
     try {
       final saved = await ref
@@ -36,6 +41,12 @@ abstract final class MsqActions {
             text: MsqCodec.encode(tune, tuneComment: 'Saved by FoxTune'),
           );
       if (saved == null) return false;
+      if (isOpenFile) {
+        ref
+            .read(offlineTuneProvider.notifier)
+            .markSaved(saved.split(RegExp(r'[/\\]')).last);
+        ref.read(tuneProvider.notifier).notifyEdited();
+      }
       messenger.showSnackBar(SnackBar(content: Text('Saved $saved')));
       return true;
     } on Object catch (error) {
@@ -56,13 +67,33 @@ abstract final class MsqActions {
     TuneState tune,
   ) async {
     final messenger = ScaffoldMessenger.of(context);
-    String xml;
+    final picked = await pick(context, ref);
+    if (picked == null || !context.mounted) return;
+
+    final outcome = await decodeInto(context, tune, picked.text);
+    if (outcome == null) return;
+
+    ref.read(tuneProvider.notifier).notifyEdited();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text('${describe(outcome)} Burn to apply them to the ECU.'),
+        duration: const Duration(seconds: 6),
+      ),
+    );
+  }
+
+  /// Asks the user for a `.msq`; `null` if they cancelled or it could not be
+  /// read, which is said.
+  static Future<PickedFile?> pick(
+    BuildContext context,
+    WidgetRef ref, {
+    String dialogTitle = 'Open tune',
+  }) async {
+    final messenger = ScaffoldMessenger.of(context);
     try {
-      final picked = await ref
+      return await ref
           .read(fileSavingProvider)
-          .pickFile(dialogTitle: 'Open tune', extensions: const ['msq']);
-      if (picked == null || !context.mounted) return;
-      xml = picked.text;
+          .pickFile(dialogTitle: dialogTitle, extensions: const ['msq']);
     } on Object catch (error) {
       messenger.showSnackBar(
         SnackBar(
@@ -74,23 +105,31 @@ abstract final class MsqActions {
           ),
         ),
       );
-      return;
+      return null;
     }
+  }
 
+  /// Reads [xml] into [tune]; `null` if the user declined a mismatch or the
+  /// file could not be read, which is said.
+  static Future<MsqImportResult?> decodeInto(
+    BuildContext context,
+    TuneState tune,
+    String xml,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
     // Try strictly first. A signature mismatch is a real hazard, so the user
     // has to see it and agree rather than having it waved through.
-    MsqImportResult outcome;
     try {
-      outcome = MsqCodec.decode(xml, tune);
+      return MsqCodec.decode(xml, tune);
     } on MsqException catch (error) {
-      if (!context.mounted) return;
+      if (!context.mounted) return null;
       final proceed = await showDialog<bool>(
         context: context,
         builder: (_) => _MismatchDialog(message: error.message),
       );
-      if (proceed != true) return;
+      if (proceed != true) return null;
       try {
-        outcome = MsqCodec.decode(xml, tune, requireSignatureMatch: false);
+        return MsqCodec.decode(xml, tune, requireSignatureMatch: false);
       } on MsqException catch (retryError) {
         messenger.showSnackBar(
           SnackBar(
@@ -98,32 +137,24 @@ abstract final class MsqActions {
             content: Text(retryError.message),
           ),
         );
-        return;
+        return null;
       }
     }
-
-    ref.read(tuneProvider.notifier).notifyEdited();
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(
-          [
-            outcome.isClean
-                ? 'Loaded ${outcome.applied} values.'
-                : 'Loaded ${outcome.applied} values; '
-                      '${outcome.skipped.length} skipped, '
-                      '${outcome.unknown.length} unrecognised.',
-            // Said, because a tuner comparing against the file would
-            // otherwise see every temperature changed.
-            if (outcome.converted.isNotEmpty)
-              '${outcome.converted.length} were saved in the other '
-                  'temperature scale, and converted.',
-            'Burn to apply them to the ECU.',
-          ].join(' '),
-        ),
-        duration: const Duration(seconds: 6),
-      ),
-    );
   }
+
+  /// What a load came to, fit to show a user.
+  static String describe(MsqImportResult outcome) => [
+    outcome.isClean
+        ? 'Loaded ${outcome.applied} values.'
+        : 'Loaded ${outcome.applied} values; '
+              '${outcome.skipped.length} skipped, '
+              '${outcome.unknown.length} unrecognised.',
+    // Said, because a tuner comparing against the file would otherwise see
+    // every temperature changed.
+    if (outcome.converted.isNotEmpty)
+      '${outcome.converted.length} were saved in the other temperature '
+          'scale, and converted.',
+  ].join(' ');
 }
 
 class _MismatchDialog extends StatelessWidget {

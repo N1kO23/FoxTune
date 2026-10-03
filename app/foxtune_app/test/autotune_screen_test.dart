@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:foxtune_app/src/autotune/autotune_controller.dart';
 import 'package:foxtune_app/src/autotune/autotune_screen.dart';
 import 'package:foxtune_app/src/branding/brand_theme.dart';
+import 'package:foxtune_app/src/connection/connection_controller.dart';
 import 'package:foxtune_app/src/connection/connection_state.dart';
 import 'package:foxtune_app/src/dashboard/dashboard_controller.dart';
 import 'package:foxtune_app/src/tune/table_grid.dart';
@@ -18,13 +19,49 @@ import 'package:foxtune_transport/foxtune_transport.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
 
 /// Supplies a ready-made tune instead of reading one from an ECU.
+///
+/// What is sent to the ECU lands in [ecu], its pages, rather than on a wire.
 class _FakeTuneController extends TuneController {
-  _FakeTuneController(this._tune);
+  _FakeTuneController(this._tune, this.ecu, {this.failure});
 
   final TuneState _tune;
+  final List<Uint8List> ecu;
+
+  /// Thrown by every send, where given.
+  final Object? failure;
+
+  /// Ranges sent, in order.
+  final sent = <({int page, int offset, int length})>[];
 
   @override
   Future<TuneState?> build() async => _tune;
+
+  @override
+  Future<void> sendToEcu(
+    int page, {
+    required int offset,
+    required int length,
+  }) async {
+    if (failure case final failure?) throw failure;
+    sent.add((page: page, offset: offset, length: length));
+    ecu[page - 1].setRange(
+      offset,
+      offset + length,
+      _tune.page(page).sublist(offset, offset + length),
+    );
+  }
+}
+
+/// A connection that can be dropped.
+class _Connection extends ConnectionController {
+  _Connection(this._connected);
+
+  final EcuConnected _connected;
+
+  @override
+  EcuConnectionState build() => _connected;
+
+  void drop() => state = const EcuDisconnected();
 }
 
 /// VE autotuning, driven through the screen against the real definition.
@@ -40,8 +77,17 @@ void main() {
   late StreamController<RealtimeSnapshot> feed;
   late DateTime clock;
 
+  /// The ECU's own pages: what it runs, and what it reports running.
+  late List<Uint8List> ecu;
+
+  /// Whether the ECU runs whatever the tune holds, as if every correction
+  /// reached it at once.
+  late bool ecuRunsTune;
+
+  late String source;
+
   setUpAll(() async {
-    final source = await rootBundle.loadString('assets/speeduino.ini');
+    source = await rootBundle.loadString('assets/speeduino.ini');
     doc = IniParser(defined: {'CELSIUS'}).parse(source);
   });
 
@@ -81,9 +127,17 @@ void main() {
     }
 
     tune.markClean();
+    ecu = [
+      for (var page = 1; page <= tune.pageCount; page++)
+        Uint8List.fromList(tune.page(page)),
+    ];
+    ecuRunsTune = false;
   });
 
   tearDown(() => feed.close());
+
+  TableView veOf(TuneState state) =>
+      TableView.of(state, doc.tableNamed('veTable1Tbl')!)!;
 
   EcuConnected connectionFor({EcuFamily? family}) => EcuConnected(
     port: const EcuPort(address: '/dev/ttyACM0'),
@@ -133,6 +187,13 @@ void main() {
     put('coolantRaw', coolant + 40);
     put('engine', engine);
     put('pulseWidth', pulseWidthUs);
+    // What the ECU looked up, from what it holds - which is not what the tune
+    // holds until a correction is sent or burned.
+    final running = ecuRunsTune ? tune : TuneState.fromPages(doc, ecu);
+    put(
+      'VE1',
+      veOf(running).interpolatedAt(rpm.toDouble(), load.toDouble())!.round(),
+    );
 
     return RealtimeDecoder(
       channels,
@@ -147,13 +208,19 @@ void main() {
     bool realtimeDependsOnTune = false,
     Size size = const Size(1400, 1200),
     EcuFamily? family,
+    Object? sendFailure,
   }) async {
     await tester.binding.setSurfaceSize(size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     final container = ProviderContainer(
       overrides: [
-        tuneProvider.overrideWith(() => _FakeTuneController(tune)),
+        tuneProvider.overrideWith(
+          () => _FakeTuneController(tune, ecu, failure: sendFailure),
+        ),
+        connectionProvider.overrideWith(
+          () => _Connection(connectionFor(family: family)),
+        ),
         writePermissionProvider.overrideWithValue(permission),
         realtimeMonitorProvider.overrideWithValue(null),
         realtimeProvider.overrideWith((ref) {
@@ -326,9 +393,11 @@ void main() {
     // downstream of it - including the realtime feed this is being notified
     // by. Reading the session back at that moment asks Riverpod to rebuild a
     // provider that is still mid-notification.
-    final container = await pumpAutotune(tester, realtimeDependsOnTune: true);
     // Every sample moves a cell, so every notification marks the tune edited
-    // - which is what drives the re-entry.
+    // - which is what drives the re-entry. For that the ECU has to be running
+    // each correction as it is made.
+    ecuRunsTune = true;
+    final container = await pumpAutotune(tester, realtimeDependsOnTune: true);
     container
         .read(autotuneProvider.notifier)
         .updateSettings(const AutotuneSettings(minWeight: 1));
@@ -355,5 +424,138 @@ void main() {
     expect(container.read(autotuneProvider).armed, isFalse);
     expect(container.read(autotuneProvider).moved, moved);
     expect(tune.isDirty, isTrue);
+  });
+
+  group('sending to the ECU', () {
+    /// The VE cell the samples sit in, in [state].
+    double veAtPoint(TuneState state) {
+      final ve = veOf(state);
+      final cell = ve.cellFor(2000, 60)!;
+      return ve.valueAt(cell.row, cell.column)!;
+    }
+
+    _FakeTuneController tuneController(ProviderContainer container) =>
+        container.read(tuneProvider.notifier) as _FakeTuneController;
+
+    Finder sendSwitch() => find.descendant(
+      of: find.ancestor(
+        of: find.text('Send to ECU'),
+        matching: find.byType(Row),
+      ),
+      matching: find.byType(Switch),
+    );
+
+    testWidgets('off, a corrected cell waits for a burn, and says so', (
+      tester,
+    ) async {
+      final container = await pumpAutotune(tester);
+      await tester.tap(find.text('Start autotune'));
+      await tester.pumpAndSettle();
+
+      // 20% lean: far more than two steps' worth.
+      await drive(tester, afr: 17.6, count: 60);
+
+      // Two 2% steps, and then the ECU is too far behind for a sample here
+      // to say anything about the table.
+      expect(veAtPoint(tune), 52);
+      expect(veAtPoint(TuneState.fromPages(doc, ecu)), 50);
+      expect(
+        container.read(autotuneProvider).last?.rejectedBy?.id,
+        'std_RunningVe',
+      );
+      expect(find.textContaining('still running'), findsOneWidget);
+      expect(
+        find.text('Burn, or switch on Send to ECU, to go on tuning here.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('on, each correction reaches the ECU and tuning goes on', (
+      tester,
+    ) async {
+      final container = await pumpAutotune(tester);
+      await tester.tap(sendSwitch());
+      await tester.tap(find.text('Start autotune'));
+      await tester.pumpAndSettle();
+      expect(container.read(autotuneProvider).sendToEcu, isTrue);
+
+      await drive(tester, afr: 17.6, count: 120);
+
+      expect(tuneController(container).sent, isNotEmpty);
+      expect(veAtPoint(tune), greaterThan(55));
+      expect(veAtPoint(TuneState.fromPages(doc, ecu)), veAtPoint(tune));
+      // Sent is not burned.
+      expect(tune.isDirty, isTrue);
+    });
+
+    testWidgets('switched on part-way, sends what is waiting', (tester) async {
+      final container = await pumpAutotune(tester);
+      await tester.tap(find.text('Start autotune'));
+      await tester.pumpAndSettle();
+      await drive(tester, afr: 17.6, count: 60);
+      expect(veAtPoint(TuneState.fromPages(doc, ecu)), 50);
+
+      await tester.tap(sendSwitch());
+      await tester.pumpAndSettle();
+
+      expect(container.read(autotuneProvider).sendToEcu, isTrue);
+      expect(veAtPoint(TuneState.fromPages(doc, ecu)), 52);
+    });
+
+    testWidgets('a send that fails turns sending off, and says why', (
+      tester,
+    ) async {
+      final container = await pumpAutotune(
+        tester,
+        sendFailure: EcuProtocolException('no reply'),
+      );
+      await tester.tap(sendSwitch());
+      await tester.tap(find.text('Start autotune'));
+      await tester.pumpAndSettle();
+
+      await drive(tester, afr: 17.6, count: 30);
+
+      expect(container.read(autotuneProvider).sendToEcu, isFalse);
+      expect(find.textContaining('Sending to the ECU stopped'), findsOneWidget);
+      expect(find.textContaining('no reply'), findsOneWidget);
+    });
+
+    testWidgets('a read-only session cannot switch it on', (tester) async {
+      await pumpAutotune(
+        tester,
+        permission: const WritePermission.refused('Write mode is off.'),
+      );
+
+      expect(tester.widget<Switch>(sendSwitch()).onChanged, isNull);
+    });
+
+    testWidgets('is not offered where the definition cannot write the page', (
+      tester,
+    ) async {
+      final silent = IniParser(defined: {'CELSIUS'}).parse(
+        source.replaceAll(
+          RegExp(r'^[ \t]*page(Value|Chunk)Write[ \t]*=.*$', multiLine: true),
+          '',
+        ),
+      );
+      tune = TuneState.fromPages(silent, [
+        for (var page = 1; page <= tune.pageCount; page++) tune.page(page),
+      ]);
+      await pumpAutotune(tester);
+
+      expect(find.text('Send to ECU'), findsNothing);
+    });
+
+    testWidgets('turns off when the connection ends', (tester) async {
+      final container = await pumpAutotune(tester);
+      await tester.tap(sendSwitch());
+      await tester.pumpAndSettle();
+      expect(container.read(autotuneProvider).sendToEcu, isTrue);
+
+      (container.read(connectionProvider.notifier) as _Connection).drop();
+      await tester.pumpAndSettle();
+
+      expect(container.read(autotuneProvider).sendToEcu, isFalse);
+    });
   });
 }

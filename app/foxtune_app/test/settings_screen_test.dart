@@ -3,7 +3,6 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:foxtune_app/src/branding/brand_theme.dart';
-import 'package:foxtune_app/src/connection/connection_state.dart';
 import 'package:foxtune_app/src/dashboard/dashboard_controller.dart';
 import 'package:foxtune_app/src/settings/curve_editor.dart';
 import 'package:foxtune_app/src/settings/setting_field.dart';
@@ -13,7 +12,6 @@ import 'package:foxtune_app/src/tune/table_grid.dart';
 import 'package:foxtune_app/src/tune/tune_controller.dart';
 import 'package:foxtune_ini/foxtune_ini.dart';
 import 'package:foxtune_protocol/foxtune_protocol.dart';
-import 'package:foxtune_transport/foxtune_transport.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
 
 /// Supplies a ready-made tune instead of reading one from an ECU.
@@ -47,17 +45,6 @@ void main() {
     tune.markClean();
   });
 
-  EcuConnected connectionFor() => EcuConnected(
-    port: const EcuPort(address: '/dev/ttyACM0'),
-    identification: EcuIdentification(
-      signature: doc.identity.signature!,
-      version: 'Speeduino test',
-    ),
-    signatureStatus: SignatureStatus.matched,
-    expectedSignature: doc.identity.signature,
-    definition: doc,
-  );
-
   Future<void> pumpSettings(
     WidgetTester tester, {
     WritePermission permission = const WritePermission.granted(),
@@ -81,7 +68,9 @@ void main() {
         ],
         child: MaterialApp(
           theme: brandTheme(Brightness.light),
-          home: Scaffold(body: SettingsScreen(connection: connectionFor())),
+          // A fresh screen each pump: tests change the tune between pumps
+          // without telling it.
+          home: Scaffold(body: SettingsScreen(key: UniqueKey())),
         ),
       ),
     );

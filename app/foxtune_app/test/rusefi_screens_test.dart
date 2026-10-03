@@ -190,12 +190,7 @@ void main() {
 
         final broken = <String>[];
         for (final target in all) {
-          await pump(
-            tester,
-            SettingsScreen(connection: connection()),
-            size: size,
-            open: target,
-          );
+          await pump(tester, const SettingsScreen(), size: size, open: target);
           final failure = tester.takeException();
           if (failure != null) broken.add('$target: $failure');
         }
@@ -221,9 +216,7 @@ void main() {
             ),
             selectedTableProvider.overrideWithBuild((ref, _) => table.id),
           ],
-          child: MaterialApp(
-            home: Scaffold(body: TableEditorScreen(connection: connection())),
-          ),
+          child: MaterialApp(home: const Scaffold(body: TableEditorScreen())),
         ),
       );
       await tester.pumpAndSettle();

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:foxtune_app/src/connection/connection_state.dart';
 import 'package:foxtune_app/src/dashboard/dashboard_controller.dart';
 import 'package:foxtune_app/src/settings/builtin_panels.dart';
 import 'package:foxtune_app/src/settings/setting_field.dart';
@@ -10,7 +9,6 @@ import 'package:foxtune_app/src/settings/settings_screen.dart';
 import 'package:foxtune_app/src/tune/tune_controller.dart';
 import 'package:foxtune_ini/foxtune_ini.dart';
 import 'package:foxtune_protocol/foxtune_protocol.dart';
-import 'package:foxtune_transport/foxtune_transport.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
 
 class _FakeTuneController extends TuneController {
@@ -66,22 +64,7 @@ void main() {
           ),
           selectedSettingProvider.overrideWithBuild((ref, _) => open),
         ],
-        child: MaterialApp(
-          home: Scaffold(
-            body: SettingsScreen(
-              connection: EcuConnected(
-                port: const EcuPort(address: '/dev/ttyACM0'),
-                identification: EcuIdentification(
-                  signature: doc.identity.signature!,
-                  version: 'Speeduino test',
-                ),
-                signatureStatus: SignatureStatus.matched,
-                expectedSignature: doc.identity.signature,
-                definition: doc,
-              ),
-            ),
-          ),
-        ),
+        child: MaterialApp(home: const Scaffold(body: SettingsScreen())),
       ),
     );
     await tester.pumpAndSettle();

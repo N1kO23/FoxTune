@@ -40,11 +40,12 @@ licensed closed source software, it is very good and gets the job done. On the m
 is ECU Manager, a pretty good and polished tuning software for Speeduino.
 
 FoxTune's goal is to not replace TunerStudio and in fact I highly encourage people to use it
-and support its creators, it's **way** more ironed out. FoxTune also won't implement offline tuning,
-at least for the time being, if you want to adjust your tune while not hooked to the ECU, then you 
-are out of luck. That being said, FoxTune comes with **no warranty**, if you ECU and/or anything tied 
-to it (including, but not limited to, engine) breaks or gets damaged due to an issue with FoxTune 
-(such as a software bug, miscommunication with ECU, corrupted write, etc), I take no responsibility. 
+and support its creators, it's **way** more ironed out. A tune can be edited offline as a `.msq`
+file, but FoxTune only ever writes to an ECU while connected to one - see
+[Editing offline](#editing-offline). That being said, FoxTune comes with **no warranty**, if you
+ECU and/or anything tied to it (including, but not limited to, engine) breaks or gets damaged due
+to an issue with FoxTune (such as a software bug, miscommunication with ECU, corrupted write,
+etc), I take no responsibility.
 If you want a known good and stable tuning software, use TunerStudio.
 
 **Use FoxTune at your own risk!**
@@ -113,14 +114,15 @@ added without disturbing anything above it.
 | **Curves**        | Editable point list and plot, with the live operating point marked                                                                                                                                                  |
 | **Calibration**   | Coolant, air and O2 sensor tables made from the definition's own choices, checked by the ECU's checksum; TPS from the sensor                                                                                        |
 | **Trigger logs**  | Tooth and composite loggers from `[LoggerDefinition]`: tooth times as bars with the gap picked out, edges as traces, a whole run saved as CSV                                                                       |
-| **Autotune**      | VE table tuned against the AFR/lambda target from live wideband data, filtered by the definition's own `[VeAnalyze]` rules                                                                                          |
+| **Autotune**      | VE table tuned against the AFR/lambda target from live wideband data or a recorded log, filtered by the definition's own `[VeAnalyze]` rules                                                                        |
 | **Live position** | The operating cell ringed, the four interpolation neighbours marked, and a dot at the exact interpolated point - in the grid and on the 3D surface                                                                  |
 | **3D surface**    | Orbitable isometric mesh, no GL dependency                                                                                                                                                                          |
 | **Writing**       | Write to RAM, verify by the ECU's own page CRC, then burn                                                                                                                                                           |
-| **Tune files**    | `.msq` read and write, matched by name                                                                                                                                                                              |
+| **Tune files**    | `.msq` read and write, matched by name; edited with no ECU connected and saved back out                                                                                                                             |
 | **Logging**       | MegaLogViewer-compatible `.msl`, columns from `[Datalog]`                                                                                                                                                           |
 
-Not yet: rusEFI's bench tests and Lua, a sensor calibration from an `.inc` file, replaying a recorded `.msl` log into the autotuner, warmup autotuning, `commandButton`
+Not yet: rusEFI's bench tests and Lua, a sensor calibration from an `.inc` file, replaying
+TunerStudio's binary `.mlg` logs (text `.msl` logs replay), warmup autotuning, `commandButton`
 actions, TunerStudio's SD card browser, and the `string` PC variables used for auxiliary-channel
 aliases.
 
@@ -525,6 +527,21 @@ Corrections are written as a percentage of the cell's starting value, so repeate
 cannot walk a cell away. After each application the cell's evidence is cleared, so the next
 correction is judged against the fuelling the engine now has: a loop, not a ramp.
 
+The engine has that fuelling only once the ECU runs it, though, and a correction lands in the
+loaded tune, not in the ECU. Until it is burned or sent, every sample from that cell still shows
+the error just corrected, and would correct it again, step after step, all the way to the
+session limit. So each sample is checked against the VE the ECU reports running (`VE1` on
+Speeduino, `veValue` on rusEFI), and one taken while the ECU runs something other than what the
+table now holds is skipped as **Table since changed**. A corrected cell waits - a storage step
+ahead of the ECU at most - until you burn. Firmware that does not report its VE is refused.
+
+Or it need not wait: **Send to ECU**, beside Write mode, writes each correction into the ECU's
+RAM as it is made - just that cell, read back to check it arrived - so the engine runs it at
+once and the cell goes on collecting. It is offered where the definition declares a write
+command for the VE table's page, needs write mode, and switches off on every disconnect or at
+the first send that fails. Sent is not burned: the corrections are gone when the ECU is
+switched off, until you burn them.
+
 Some refusals are absolute. A narrowband O2 sensor reports only rich or lean of stoichiometric
 while publishing on the same channel as a wideband, so tuning on it would produce a table that
 is confidently wrong everywhere the engine is not meant to run at stoich - autotuning will not
@@ -536,13 +553,47 @@ load axis is shown in psi, since the live load stays in kPa and every reading wo
 wrong cell; or when one of the definition's filters could not be read, rather than run without
 it. And it needs the same write permission as any other edit.
 
-**Autotuning never touches the ECU.** Corrections land in the loaded tune and show as ordinary
-red/blue changed cells; the ECU changes only when you burn, through the same
-write-verify-CRC-burn path as a hand edit.
+**Autotuning never burns.** Corrections land in the loaded tune and show as ordinary red/blue
+changed cells. Nothing reaches the ECU at all unless you burn, through the same
+write-verify-CRC-burn path as a hand edit - or switch on Send to ECU, which writes to RAM only.
 
 **How far it has been tested.** Against the simulated engine, whose VE table starts out wrong
 by a set amount (`--ve-error`), and on a real Speeduino. On rusEFI, against the same engine
 behind a simulated rusEFI, in both its AFR and lambda display; not yet on a rusEFI engine.
+Table since changed and Send to ECU only against the simulator so far - over a real socket,
+where a session with Send to ECU brought a cell to within 3% with nothing burned - not yet
+on a real ECU.
+
+### Replaying a log
+
+A drive already logged can tune the table too - a FoxTune log, or a text `.msl` from TunerStudio
+or MegaLogViewer. **Replay log** on the Autotune tab works on the connected ECU's tune, or on a
+file [opened with no ECU](#editing-offline), to be saved back out. Either way the log is worked
+through first and what it would change is shown - changed cells marked, and every row skipped
+counted under why - and nothing changes until Apply. On an ECU, applying is an ordinary edit:
+nothing reaches it until you burn.
+
+A log is filtered exactly as live data is, and read the same way: columns are matched to
+channels by the headings `[Datalog]` gives them, and a channel the log does not carry is
+worked out from ones it does, as the definition says - which is how rusEFI's mixture reading
+comes out of a log that never recorded it by name.
+
+What differs is when cells move. Live, a cell moves a small step and the next readings judge
+it. Every row of a log was recorded against the same table, so stepping part-way through would
+have rows that never saw a step judge it, and take it again. A replay gathers everything first
+and moves each cell once, by all of its evidence; the session limit still applies, the step
+limit does not.
+
+That makes a log good for one table only - the one it was recorded with. Each row carries the
+VE the ECU actually ran (`VE1` on Speeduino, `veValue` on rusEFI), and a row where that is not
+what the table gives now is skipped as **Table since changed**. Replaying the same log twice
+changes nothing the second time, and a log with part of its table edited since still counts
+for the rest. A log without that column, without a Time column to judge settling by, or
+recorded in the other temperature scale is refused, with the reason.
+
+Tested against logs of the simulated engine, recorded through the real decoder and log writer
+for Speeduino and rusEFI, and against its scripted drive: one replay of ten minutes took every
+cell it reached from 10% lean to within a few percent. Not yet against a log of a real engine.
 
 ## Tune files
 
@@ -553,6 +604,25 @@ confirmed explicitly.
 
 Loading a `.msq` only changes the in-memory tune. Nothing reaches the ECU until you burn, so
 the guard rails below stay in one place.
+
+### Editing offline
+
+**Open a tune file** on the port list opens a `.msq` with no ECU at all. Its definition is found
+the way a connection finds one, from the signature the file was saved for: built in, kept on
+this device, downloaded, or chosen. The tables, the 3D surface and the settings screens are the
+same ones a connection gets, editable straight away - there is no write mode, because there is
+nothing to write to - with changes marked against the file as opened or last saved. Autotune
+offers [log replay](#replaying-a-log); the dashboard, the trigger loggers and the sensor
+calibrations, which need an ECU, are not there.
+
+Save writes the tune back out as a `.msq`, under the name it was opened with unless you choose
+another, and closing the file with unsaved changes asks first. Gauge Limits and the rest of
+`[PcVariables]` are this computer's, kept per ECU family as they are when connected - a `.msq`
+carries none - so they follow you between files.
+
+A file never reaches an ECU from here. To put one on an ECU, connect, load the file from the
+Tables tab, and burn: the one write path, with every guard rail on it. Connecting while a file
+is open sets the file aside, changes and all, until the connection ends.
 
 ## Temperature scale
 
@@ -577,13 +647,17 @@ has to _earn_:
 2. **Clamped.** Every value is pinned to the `lo`/`hi` bounds the definition declares before it
    reaches the wire, and again to what the storage type can hold - 256 wrapping to 0 in a `U08`
    would turn a rich cell into a lean one.
-3. **Snapshotted.** A restore point is written to disk before the first write of a session.
+3. **Snapshotted.** A restore point is written to disk before the first write of a session -
+   and for cells sent to RAM as autotuning makes them, once a session, of what the ECU held
+   before anything was sent.
 4. **Verified before it is permanent.** Each page is written to RAM, then the ECU is asked for
    that page's own CRC-32. Only on a match is it burned to EEPROM. RAM can be rewritten; a
    corrupt page burned to EEPROM is what strands someone at the roadside.
 5. **Bounded when automatic.** Autotuning moves a cell by a small step at a time and never
-   further from where it started than the session limit, refuses to run on a sensor that cannot
-   measure what it needs, and still cannot reach the ECU without a burn.
+   further from where it started than the session limit, waits for the ECU to be running a
+   correction before judging it, and refuses to run on a sensor that cannot measure what it
+   needs. It never burns: without a burn its corrections reach the ECU only when Send to ECU is
+   on, into RAM, a cell at a time, each read back.
 6. **Confirmed when there is no burn.** A sensor calibration is saved by the ECU the moment it
    arrives. Sending one needs write mode as well, is confirmed first, and is checked against
    the checksum the ECU keeps of what it saved.

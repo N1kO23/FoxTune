@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:foxtune_ini/foxtune_ini.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -8,6 +9,7 @@ import '../connection/connection_controller.dart';
 import '../connection/connection_state.dart';
 import '../storage/json_store.dart';
 import 'host_values.dart';
+import 'offline_tune.dart';
 
 /// Whether the user has deliberately enabled writing.
 ///
@@ -45,6 +47,17 @@ final writePermissionProvider = Provider<WritePermission>((ref) {
   );
 });
 
+/// Whether the loaded tune may be edited, and why not if it may not.
+///
+/// An ECU's tune is edited for the ECU, so editing it needs what writing to
+/// the ECU needs. A file opened with no ECU is only a file: nothing done to it
+/// can reach an ECU except by loading it into one's tune later, which asks for
+/// all of that then.
+final editPermissionProvider = Provider<WritePermission>((ref) {
+  if (ref.watch(editingOfflineProvider)) return const WritePermission.granted();
+  return ref.watch(writePermissionProvider);
+});
+
 /// How far through reading the tune we are.
 class TuneLoadProgress {
   const TuneLoadProgress(this.page, this.total);
@@ -54,7 +67,8 @@ class TuneLoadProgress {
   double get fraction => total == 0 ? 0 : page / total;
 }
 
-/// The tune read from the connected ECU.
+/// The tune read from the connected ECU - or, with none connected, the file
+/// open for editing, if one is.
 final tuneProvider = AsyncNotifierProvider<TuneController, TuneState?>(
   TuneController.new,
 );
@@ -66,7 +80,8 @@ final tuneResolverProvider = Provider<TuneValueResolver?>((ref) {
   return ref.read(tuneProvider.notifier).resolver;
 });
 
-/// The tune as it was last read from the ECU, or last burned to it.
+/// The tune as it was last read from the ECU, or last burned to it - or, for
+/// a file, as opened or last saved.
 ///
 /// Editing is compared against this so the editor can show what this session
 /// has changed but not yet committed.
@@ -84,8 +99,17 @@ class TuneController extends AsyncNotifier<TuneState?> {
   /// Host-side values as last saved, so a save happens only on a change.
   Map<String, List<double>> _savedHost = const {};
 
-  /// The tune as last synchronised with the ECU.
-  TuneState? get baseline => _baseline;
+  /// Whether this session's restore point has been taken for cells sent to
+  /// the ECU's RAM.
+  bool _sentRestorePoint = false;
+
+  /// Whether the tune is the ECU's rather than a file's.
+  bool _fromEcu = false;
+
+  /// The tune as last synchronised with the ECU - or, for a file, as opened
+  /// or last saved.
+  TuneState? get baseline =>
+      _fromEcu ? _baseline : ref.read(offlineTuneProvider)?.saved;
 
   /// A resolver shared across the screens reading this tune.
   ///
@@ -111,7 +135,18 @@ class TuneController extends AsyncNotifier<TuneState?> {
   @override
   Future<TuneState?> build() async {
     final connection = ref.watch(connectionProvider);
-    if (connection is! EcuConnected) return null;
+    if (connection is! EcuConnected) {
+      // With no ECU, the tune is a file's, if one is open. Watched for which
+      // file, not for when it was last saved: saving must not reload the tune
+      // under the screens showing it.
+      _fromEcu = false;
+      final tune = ref.watch(offlineTuneProvider.select((open) => open?.tune));
+      _baseline = null;
+      _resolver = tune == null ? null : TuneValueResolver(tune);
+      _savedHost = tune?.hostOverrides() ?? const {};
+      return tune;
+    }
+    _fromEcu = true;
 
     final definition = connection.definition;
     final client = ref.read(connectionProvider.notifier).client;
@@ -125,6 +160,7 @@ class TuneController extends AsyncNotifier<TuneState?> {
       );
     }
 
+    _sentRestorePoint = false;
     final tune = TuneState.empty(definition);
     await TuneWriter.readAll(
       client,
@@ -188,6 +224,54 @@ class TuneController extends AsyncNotifier<TuneState?> {
     _baseline = tune.copy();
     notifyEdited();
     return results;
+  }
+
+  /// Whether [definition] declares a command that writes [page] into the
+  /// ECU's RAM on its own, without the rest of the tune.
+  ///
+  /// Declared, not assumed: without one the client falls back to Speeduino's
+  /// command, which is a guess for any other firmware.
+  static bool writesPage(IniDocument definition, int page) {
+    final commands = definition.constants.pageWriteCommands;
+    return page >= 1 &&
+        page <= commands.length &&
+        commands[page - 1].trim().isNotEmpty;
+  }
+
+  /// Sends [length] bytes of [page] from [offset] to the ECU's RAM, where
+  /// they take effect at once.
+  ///
+  /// Nothing is burned and the page stays changed: until it is burned, what
+  /// was sent is gone when the ECU is switched off. Throws
+  /// [WriteRefusedException] if the guard rails forbid it.
+  Future<void> sendToEcu(
+    int page, {
+    required int offset,
+    required int length,
+  }) async {
+    final tune = state.value;
+    final connection = ref.read(connectionProvider);
+    final client = ref.read(connectionProvider.notifier).client;
+    if (tune == null || client == null || connection is! EcuConnected) {
+      throw WriteRefusedException('Not connected to an ECU.');
+    }
+
+    final writer = TuneWriter(
+      client: client,
+      tune: tune,
+      permission: ref.read(writePermissionProvider),
+      blockingFactor: connection.definition!.constants.blockingFactor,
+      // One restore point for the session rather than one per send - they
+      // come every few seconds while autotuning - and of what the ECU held
+      // before anything was sent, not of the tune with the change in it.
+      onSnapshot: _sentRestorePoint
+          ? null
+          : (_) {
+              _sentRestorePoint = true;
+              return _saveSnapshot(_baseline ?? tune);
+            },
+    );
+    await writer.sendRange(page, offset: offset, length: length);
   }
 
   /// Writes a restore point before the session's first write.

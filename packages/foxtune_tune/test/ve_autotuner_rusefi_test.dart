@@ -137,6 +137,8 @@ void main() {
         'TPSValue': 30,
         'veAnalyzeAfrLambda1': measured,
         'egoCorrectionForVeAnalyze': 100,
+        // The ECU running what the table holds there.
+        'veValue': tuner.table.valueAt(9, 6),
         ...overrides,
       };
       return (name) => values[name];

@@ -144,7 +144,7 @@ void main() {
   }
 
   Widget detail(String target, {EcuConnected? connected}) =>
-      SettingDetail(target: target, connection: connected ?? connection());
+      SettingDetail(target: target);
 
   Future<void> choose(WidgetTester tester, Type field, String option) async {
     await tester.tap(find.byType(field));
@@ -170,7 +170,7 @@ void main() {
   testWidgets('the Tools menu offers the calibrations, the throttle\'s after '
       'them', (tester) async {
     SettingView.of(tune, 'egoType')!.setOptionIndex(2);
-    await pump(tester, SettingsScreen(connection: connection()));
+    await pump(tester, const SettingsScreen());
     await tester.enterText(find.byType(TextField).first, 'calibrate');
     await tester.pumpAndSettle();
 

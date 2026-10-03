@@ -90,8 +90,17 @@ class MslLogWriter {
   /// Channels excluded, and why they would have been blank.
   final List<String> dropped;
 
-  static String _computedUnits(IniDocument definition, String channel) =>
-      definition.outputChannels.computedNamed(channel)?.units ?? '';
+  /// Units for a computed channel: its own, or its gauge's where it declares
+  /// none.
+  ///
+  /// Speeduino's `coolant` and `iat` give none, and whether they are Celsius
+  /// or Fahrenheit depends on how the definition was read. A log that says
+  /// which is one a replay can check against the definition it is read with.
+  static String _computedUnits(IniDocument definition, String channel) {
+    final own = definition.outputChannels.computedNamed(channel)?.units ?? '';
+    if (own.isNotEmpty) return own;
+    return definition.gaugeForChannel(channel)?.units ?? '';
+  }
 
   /// The four header lines, newline-terminated.
   String header({DateTime? capturedAt}) {

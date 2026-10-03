@@ -15,6 +15,8 @@ class AutotuneSession {
     this.tuner,
     this.last,
     this.blockedReason,
+    this.sendToEcu = false,
+    this.sendProblem,
   });
 
   /// The limits a session would run, or is running, under.
@@ -31,6 +33,15 @@ class AutotuneSession {
 
   /// Why arming was refused, if it was.
   final String? blockedReason;
+
+  /// Whether corrections go to the ECU's RAM as they are made.
+  ///
+  /// Off, the ECU runs a correction only once it is burned, and the cells it
+  /// touches wait until then. Resets on every disconnect, as write mode does.
+  final bool sendToEcu;
+
+  /// Why sending stopped, if it did.
+  final String? sendProblem;
 
   /// Samples used so far this session.
   int get accepted => tuner?.acceptedSamples ?? 0;
@@ -50,14 +61,19 @@ class AutotuneSession {
     VeAutotuner? tuner,
     AutotuneOutcome? last,
     String? blockedReason,
+    bool? sendToEcu,
+    String? sendProblem,
     bool clearTuner = false,
     bool clearBlocked = false,
+    bool clearSendProblem = false,
   }) => AutotuneSession(
     settings: settings ?? this.settings,
     armed: armed ?? this.armed,
     tuner: clearTuner ? null : (tuner ?? this.tuner),
     last: last ?? this.last,
     blockedReason: clearBlocked ? null : (blockedReason ?? this.blockedReason),
+    sendToEcu: sendToEcu ?? this.sendToEcu,
+    sendProblem: clearSendProblem ? null : (sendProblem ?? this.sendProblem),
   );
 }
 
@@ -108,7 +124,10 @@ class AutotuneController extends Notifier<AutotuneSession> {
     });
 
     ref.listen(connectionProvider, (previous, next) {
-      if (next is! EcuConnected) disarm();
+      if (next is EcuConnected) return;
+      disarm();
+      _pending.clear();
+      if (_session.sendToEcu) _emit(_session.copyWith(sendToEcu: false));
     });
 
     return _session;
@@ -175,6 +194,72 @@ class AutotuneController extends Notifier<AutotuneSession> {
     if (wasArmed) arm();
   }
 
+  /// Starts or stops sending corrections to the ECU's RAM as they are made.
+  ///
+  /// Starting sends the corrections this session has already made, so the
+  /// cells waiting for them can go on collecting.
+  void setSendToEcu(bool on) {
+    _emit(_session.copyWith(sendToEcu: on, clearSendProblem: true));
+    if (!on) {
+      _pending.clear();
+      return;
+    }
+    final tuner = _session.tuner;
+    if (tuner == null) return;
+    _send([
+      for (final entry in tuner.cells.entries)
+        if (entry.value.appliedPercent != 0) entry.key,
+    ]);
+  }
+
+  /// Cells waiting to be sent, as byte ranges of their page.
+  final _pending = <({int page, int offset, int length})>{};
+  bool _sending = false;
+
+  void _send(Iterable<({int row, int column})> cells) {
+    final table = _session.tuner?.table;
+    if (table == null) return;
+    for (final cell in cells) {
+      final at = table.storageOf(cell.row, cell.column);
+      _pending.add((page: table.page, offset: at.offset, length: at.length));
+    }
+    if (_pending.isEmpty || _sending) return;
+    _sending = true;
+    // Once the realtime notification this may be called from has returned:
+    // see [_session].
+    Future.microtask(_flush);
+  }
+
+  /// Sends what is waiting, one range at a time, until none is left.
+  ///
+  /// Each range is read from the tune when it is sent, so a cell corrected
+  /// twice while waiting goes once, with its latest value.
+  Future<void> _flush() async {
+    try {
+      while (_pending.isNotEmpty && _session.sendToEcu && ref.mounted) {
+        final next = _pending.first;
+        _pending.remove(next);
+        await ref
+            .read(tuneProvider.notifier)
+            .sendToEcu(next.page, offset: next.offset, length: next.length);
+      }
+    } on Object catch (error) {
+      _pending.clear();
+      if (ref.mounted) {
+        _emit(
+          _session.copyWith(
+            sendToEcu: false,
+            sendProblem:
+                'Sending to the ECU stopped: $error. Corrections stay in the '
+                'tune; burn to keep them.',
+          ),
+        );
+      }
+    } finally {
+      _sending = false;
+    }
+  }
+
   void _consume(RealtimeSnapshot snapshot) {
     final session = _session;
     final tuner = session.tuner;
@@ -189,6 +274,7 @@ class AutotuneController extends Notifier<AutotuneSession> {
     if (outcome.moved.isNotEmpty) {
       // The tune changed, so everything showing it has to hear about it.
       ref.read(tuneProvider.notifier).notifyEdited();
+      if (session.sendToEcu) _send(outcome.moved);
       _publish(outcome, at);
       return;
     }

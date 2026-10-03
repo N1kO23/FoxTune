@@ -5,10 +5,13 @@ import 'package:foxtune_tune/foxtune_tune.dart';
 
 import '../calibration/sensor_calibration_panel.dart';
 import '../calibration/tps_calibration_panel.dart';
+import '../connection/connection_controller.dart';
 import '../connection/connection_state.dart';
 import '../dashboard/dashboard_controller.dart';
 import '../dashboard/gauge_status.dart';
 import '../tune/burn_actions.dart';
+import '../tune/msq_actions.dart';
+import '../tune/offline_tune.dart';
 import '../tune/surface_screen.dart';
 import '../tune/table_editor_screen.dart';
 import '../tune/tune_controller.dart';
@@ -39,9 +42,7 @@ class SelectedSettingController extends Notifier<String?> {
 /// the rules for which fields apply all come out of the `.ini`, which is what
 /// lets FoxTune follow a firmware release rather than trail it.
 class SettingsScreen extends ConsumerStatefulWidget {
-  const SettingsScreen({super.key, required this.connection});
-
-  final EcuConnected connection;
+  const SettingsScreen({super.key});
 
   @override
   ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
@@ -58,10 +59,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (error, _) => _Message(text: '$error'),
       data: (tune) {
-        final definition = widget.connection.definition;
-        if (tune == null || definition == null) {
-          return const _Message(text: 'No tune loaded.');
-        }
+        if (tune == null) return const _Message(text: 'No tune loaded.');
+        final definition = tune.definition;
         if (definition.menus.isEmpty) {
           return const _Message(
             text: 'This definition declares no settings menus.',
@@ -76,7 +75,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           realtime: watchWhileVisible(ref, context, realtimeProvider).value,
         );
 
-        final permission = ref.watch(writePermissionProvider);
+        final permission = ref.watch(editPermissionProvider);
         final selected = ref.watch(selectedSettingProvider);
 
         return Column(
@@ -93,6 +92,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     onQueryChanged: (q) => setState(() => _query = q),
                     onSelect: (target) => _open(
                       context,
+                      definition,
                       target,
                       wide: constraints.maxWidth >= 880,
                     ),
@@ -110,10 +110,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             ? const _Message(
                                 text: 'Choose a setting group on the left.',
                               )
-                            : SettingDetail(
-                                target: selected,
-                                connection: widget.connection,
-                              ),
+                            : SettingDetail(target: selected),
                       ),
                     ],
                   );
@@ -126,22 +123,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  void _open(BuildContext context, String target, {required bool wide}) {
+  void _open(
+    BuildContext context,
+    IniDocument definition,
+    String target, {
+    required bool wide,
+  }) {
     ref.read(selectedSettingProvider.notifier).select(target);
     if (wide) return;
 
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => Scaffold(
-          appBar: WindowAppBar(title: Text(_titleFor(target))),
-          body: SettingDetail(target: target, connection: widget.connection),
+          appBar: WindowAppBar(title: Text(_titleFor(definition, target))),
+          body: SettingDetail(target: target),
         ),
       ),
     );
   }
 
-  String _titleFor(String target) {
-    final definition = widget.connection.definition!;
+  static String _titleFor(IniDocument definition, String target) {
     if (target == TpsCalibrationPanel.target) return TpsCalibrationPanel.title;
     return definition.dialogNamed(target)?.title.ifNotEmpty ??
         definition.tableNamed(target)?.title ??
@@ -155,7 +156,8 @@ extension on String {
   String? get ifNotEmpty => isEmpty ? null : this;
 }
 
-/// Write mode, unsaved-change count and the Burn button.
+/// Write mode, unsaved-change count and the Burn button - or, for a file
+/// being edited with no ECU, Save.
 class _Toolbar extends ConsumerWidget {
   const _Toolbar({required this.tune, required this.permission});
 
@@ -166,6 +168,7 @@ class _Toolbar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final writeMode = ref.watch(writeModeProvider);
+    final offline = ref.watch(editingOfflineProvider);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -174,17 +177,18 @@ class _Toolbar extends ConsumerWidget {
         runSpacing: 8,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Switch(
-                value: writeMode,
-                onChanged: (v) => ref.read(writeModeProvider.notifier).set(v),
-              ),
-              const SizedBox(width: 4),
-              Text('Write mode', style: theme.textTheme.labelLarge),
-            ],
-          ),
+          if (!offline)
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Switch(
+                  value: writeMode,
+                  onChanged: (v) => ref.read(writeModeProvider.notifier).set(v),
+                ),
+                const SizedBox(width: 4),
+                Text('Write mode', style: theme.textTheme.labelLarge),
+              ],
+            ),
           if (!permission.allowed)
             Tooltip(
               message: permission.reason ?? '',
@@ -211,13 +215,20 @@ class _Toolbar extends ConsumerWidget {
                 ),
               ],
             ),
-          FilledButton.icon(
-            onPressed: permission.allowed && tune.isDirty
-                ? () => BurnActions.confirmAndBurn(context, ref, tune)
-                : null,
-            icon: const Icon(Icons.save),
-            label: const Text('Burn to ECU'),
-          ),
+          if (offline)
+            FilledButton.icon(
+              onPressed: () => MsqActions.save(context, ref, tune),
+              icon: const Icon(Icons.save),
+              label: const Text('Save .msq'),
+            )
+          else
+            FilledButton.icon(
+              onPressed: permission.allowed && tune.isDirty
+                  ? () => BurnActions.confirmAndBurn(context, ref, tune)
+                  : null,
+              icon: const Icon(Icons.save),
+              label: const Text('Burn to ECU'),
+            ),
         ],
       ),
     );
@@ -415,24 +426,16 @@ class _MenuList extends StatelessWidget {
 
 /// Whatever a menu entry points at: a dialog, a curve or a table.
 class SettingDetail extends ConsumerWidget {
-  const SettingDetail({
-    super.key,
-    required this.target,
-    required this.connection,
-  });
+  const SettingDetail({super.key, required this.target});
 
   /// The `subMenu` or `panel` target to show.
   final String target;
 
-  final EcuConnected connection;
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tune = ref.watch(tuneProvider).value;
-    final definition = connection.definition;
-    if (tune == null || definition == null) {
-      return const _Message(text: 'No tune loaded.');
-    }
+    if (tune == null) return const _Message(text: 'No tune loaded.');
+    final definition = tune.definition;
 
     final resolver = ref.watch(tuneResolverProvider) ?? TuneValueResolver(tune);
     final scope = SettingsScope(
@@ -440,7 +443,7 @@ class SettingDetail extends ConsumerWidget {
       resolver: resolver,
       realtime: watchWhileVisible(ref, context, realtimeProvider).value,
     );
-    final editable = ref.watch(writePermissionProvider).allowed;
+    final editable = ref.watch(editPermissionProvider).allowed;
     final baseline = ref.watch(tuneBaselineProvider);
 
     void edited() => ref.read(tuneProvider.notifier).notifyEdited();
@@ -467,8 +470,8 @@ class SettingDetail extends ConsumerWidget {
               title: Text(asSurface ? '$title - 3D' : title),
             ),
             body: asSurface
-                ? SurfaceScreen(connection: connection, tableId: tableId)
-                : TableEditorScreen(connection: connection),
+                ? SurfaceScreen(tableId: tableId)
+                : const TableEditorScreen(),
           ),
         ),
       );
@@ -539,7 +542,15 @@ class SettingDetail extends ConsumerWidget {
 
       case IniTargetKind.builtIn:
         final reference = definition.referenceTables?.tableNamed(target);
-        if (reference != null) {
+        final connection = ref.watch(connectionProvider);
+        if (reference != null && connection is! EcuConnected) {
+          return const _Message(
+            text:
+                'A sensor calibration is sent to the ECU and saved there, '
+                'apart from the tune, so it needs one connected.',
+          );
+        }
+        if (reference != null && connection is EcuConnected) {
           return _ToolPane(
             child: SensorCalibrationPanel(
               // One per table: its choices are the table's own.

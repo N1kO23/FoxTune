@@ -119,6 +119,55 @@ class TuneWriter {
     );
   }
 
+  /// Writes [length] bytes of [page] from [offset] to the ECU's RAM, and
+  /// reads them back.
+  ///
+  /// For a change meant to take effect while the engine runs - autotuning's
+  /// corrections, as they are made - without sending the rest of the page's
+  /// edits or burning anything. The page stays dirty: whether to burn it is
+  /// still the tuner's call, and until then it is lost when the ECU is
+  /// switched off. Checked by reading back rather than by the page's CRC,
+  /// which the page's other unsent edits would throw off.
+  ///
+  /// Throws [WriteRefusedException] if the guard rails forbid it, and
+  /// [EcuProtocolException] if what reads back is not what was sent.
+  Future<void> sendRange(
+    int page, {
+    required int offset,
+    required int length,
+  }) async {
+    final reason = permission.reason;
+    if (!permission.allowed) {
+      throw WriteRefusedException(reason ?? 'Writing is not permitted.');
+    }
+
+    await _ensureSnapshot();
+
+    final bytes = Uint8List.fromList(
+      tune.page(page).sublist(offset, offset + length),
+    );
+    await client.writePage(
+      page,
+      data: bytes,
+      offset: offset,
+      blockingFactor: blockingFactor,
+    );
+
+    final back = await client.readPage(
+      page,
+      count: length,
+      offset: offset,
+      blockingFactor: blockingFactor,
+    );
+    for (var i = 0; i < length; i++) {
+      if (back[i] != bytes[i]) {
+        throw EcuProtocolException(
+            'Page $page: the $length bytes sent at $offset read back '
+            'differently.');
+      }
+    }
+  }
+
   /// Commits every page with unsaved changes, lowest page first.
   ///
   /// Stops at the first failure rather than pressing on, so a verification

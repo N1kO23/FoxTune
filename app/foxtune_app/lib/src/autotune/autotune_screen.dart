@@ -10,6 +10,8 @@ import '../tune/burn_actions.dart';
 import '../tune/table_grid.dart';
 import '../tune/tune_controller.dart';
 import 'autotune_controller.dart';
+import 'autotune_widgets.dart';
+import 'log_replay_screen.dart';
 
 /// VE autotuning.
 ///
@@ -53,9 +55,11 @@ class AutotuneScreen extends ConsumerWidget {
           children: [
             _Toolbar(tune: tune, session: session),
             const Divider(height: 1),
-            _StatusStrip(session: session),
+            _StatusStrip(session: session, canSend: _canSend(tune)),
             if (session.blockedReason case final reason?)
               _Blocked(reason: reason),
+            if (session.sendProblem case final problem?)
+              _Blocked(reason: problem),
             const Divider(height: 1),
             Expanded(
               child: _Body(tune: tune, session: session),
@@ -63,6 +67,69 @@ class AutotuneScreen extends ConsumerWidget {
           ],
         );
       },
+    );
+  }
+}
+
+/// Whether corrections to [tune]'s VE table can go to the ECU's RAM as they
+/// are made: whether the definition declares a write for its page.
+bool _canSend(TuneState tune) {
+  final definition = tune.definition;
+  final page = definition.tableNamed(definition.veAnalyze!.table)?.page;
+  return page != null && TuneController.writesPage(definition, page);
+}
+
+/// Autotuning for a file opened with no ECU: replaying a log into it.
+///
+/// Live autotuning needs an engine running on the tune; a log of one that
+/// already ran is the next best thing, and the only one without an ECU.
+class OfflineAutotunePane extends ConsumerWidget {
+  const OfflineAutotunePane({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final tune = ref.watch(tuneProvider).value;
+    if (tune == null) return const _Message(text: 'No tune loaded.');
+    // As live: checked for these two firmwares only.
+    final signature = tune.definition.identity.signature ?? '';
+    if (EcuFamily.of(signature) == EcuFamily.other) {
+      return const _Message(
+        text:
+            'Autotune is not yet available for this firmware. It has been '
+            'built and checked against Speeduino and rusEFI.',
+      );
+    }
+    if (tune.definition.veAnalyze == null) {
+      return const _Message(
+        text: 'This definition does not describe VE autotuning.',
+      );
+    }
+
+    final theme = Theme.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Live autotuning needs a running engine. With no ECU, a log '
+                'of one can correct this tune instead.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: () => LogReplayScreen.open(context),
+                icon: const Icon(Icons.replay),
+                label: const Text('Replay a log'),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -98,10 +165,40 @@ class _Toolbar extends ConsumerWidget {
               Text('Write mode', style: theme.textTheme.labelLarge),
             ],
           ),
+          if (_canSend(tune))
+            Tooltip(
+              message:
+                  'Write each correction to the ECU\'s RAM as it is made, so '
+                  'the engine runs it straight away and tuning carries on. '
+                  'Nothing is burned: burn to keep them, or they are gone '
+                  'when the ECU is switched off.',
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Switch(
+                    value: session.sendToEcu,
+                    onChanged: permission.allowed || session.sendToEcu
+                        ? controller.setSendToEcu
+                        : null,
+                  ),
+                  const SizedBox(width: 4),
+                  Text('Send to ECU', style: theme.textTheme.labelLarge),
+                ],
+              ),
+            ),
           FilledButton.icon(
             onPressed: session.armed ? controller.disarm : controller.arm,
             icon: Icon(session.armed ? Icons.stop : Icons.play_arrow),
             label: Text(session.armed ? 'Stop' : 'Start autotune'),
+          ),
+          // A replay reads the same table a live session is writing; one at
+          // a time.
+          TextButton.icon(
+            onPressed: session.armed
+                ? null
+                : () => LogReplayScreen.open(context),
+            icon: const Icon(Icons.replay),
+            label: const Text('Replay log'),
           ),
           TextButton.icon(
             onPressed: session.tuner == null ? null : controller.resetSession,
@@ -144,10 +241,7 @@ class _Toolbar extends ConsumerWidget {
     WidgetRef ref,
     AutotuneSettings current,
   ) async {
-    final updated = await showDialog<AutotuneSettings>(
-      context: context,
-      builder: (_) => _LimitsDialog(settings: current),
-    );
+    final updated = await AutotuneLimitsDialog.show(context, current);
     if (updated != null) {
       ref.read(autotuneProvider.notifier).updateSettings(updated);
     }
@@ -156,9 +250,13 @@ class _Toolbar extends ConsumerWidget {
 
 /// Whether data is being collected and, when it is not, what is stopping it.
 class _StatusStrip extends StatelessWidget {
-  const _StatusStrip({required this.session});
+  const _StatusStrip({required this.session, required this.canSend});
 
   final AutotuneSession session;
+
+  /// Whether sending to the ECU is on offer, for saying how to get a waiting
+  /// cell going again.
+  final bool canSend;
 
   @override
   Widget build(BuildContext context) {
@@ -189,34 +287,29 @@ class _StatusStrip extends StatelessWidget {
                 color: collecting ? StatusPalette.good : scheme.outline,
               ),
               const SizedBox(width: 6),
-              Text(status, style: theme.textTheme.labelLarge),
+              Flexible(child: Text(status, style: theme.textTheme.labelLarge)),
             ],
           ),
-          _Stat(label: 'Used', value: '${session.accepted}'),
-          _Stat(label: 'Skipped', value: '${session.rejected}'),
-          _Stat(label: 'Cells with data', value: '${session.covered}'),
-          _Stat(label: 'Cells changed', value: '${session.moved}'),
+          // The engine is still running what the table held before the
+          // correction, so that cell has nothing more to say until it runs
+          // the new one.
+          if (session.armed &&
+              !session.sendToEcu &&
+              last?.rejectedBy?.id == VeAutotuner.runningVeFilter.id)
+            Text(
+              canSend
+                  ? 'Burn, or switch on Send to ECU, to go on tuning here.'
+                  : 'Burn to go on tuning here.',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: StatusPalette.warning,
+              ),
+            ),
+          AutotuneStat(label: 'Used', value: '${session.accepted}'),
+          AutotuneStat(label: 'Skipped', value: '${session.rejected}'),
+          AutotuneStat(label: 'Cells with data', value: '${session.covered}'),
+          AutotuneStat(label: 'Cells changed', value: '${session.moved}'),
         ],
       ),
-    );
-  }
-}
-
-class _Stat extends StatelessWidget {
-  const _Stat({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text('$label ', style: theme.textTheme.labelSmall),
-        Text(value, style: theme.textTheme.labelLarge),
-      ],
     );
   }
 }
@@ -353,133 +446,6 @@ class _BodyState extends ConsumerState<_Body> {
     return {
       for (final entry in cells.entries) entry.key: entry.value.samples / most,
     };
-  }
-}
-
-/// The limits a session runs under.
-class _LimitsDialog extends StatefulWidget {
-  const _LimitsDialog({required this.settings});
-
-  final AutotuneSettings settings;
-
-  @override
-  State<_LimitsDialog> createState() => _LimitsDialogState();
-}
-
-class _LimitsDialogState extends State<_LimitsDialog> {
-  late final _step = TextEditingController(
-    text: '${widget.settings.maxStepPercent}',
-  );
-  late final _total = TextEditingController(
-    text: '${widget.settings.maxTotalPercent}',
-  );
-  late final _weight = TextEditingController(
-    text: '${widget.settings.minWeight}',
-  );
-  late final _settling = TextEditingController(
-    text: '${widget.settings.settlingTime.inMilliseconds}',
-  );
-  late final _lambdaMin = TextEditingController(
-    text: '${widget.settings.lambdaMin}',
-  );
-  late final _lambdaMax = TextEditingController(
-    text: '${widget.settings.lambdaMax}',
-  );
-  late final _custom = TextEditingController(
-    text: widget.settings.customFilter,
-  );
-
-  @override
-  void dispose() {
-    for (final controller in [
-      _step,
-      _total,
-      _weight,
-      _settling,
-      _lambdaMin,
-      _lambdaMax,
-      _custom,
-    ]) {
-      controller.dispose();
-    }
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Autotune limits'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _field(_step, 'Most one correction may move a cell', '%'),
-            _field(_total, 'Most this session may move a cell', '%'),
-            _field(_weight, 'Samples a cell needs before it moves', ''),
-            _field(_settling, 'Settling time before a reading counts', 'ms'),
-            _field(_lambdaMin, 'Lowest believable lambda', ''),
-            _field(_lambdaMax, 'Highest believable lambda', ''),
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 6),
-              child: TextField(
-                controller: _custom,
-                decoration: const InputDecoration(
-                  labelText: 'Extra filter expression',
-                  helperText: 'Samples are skipped while this holds',
-                  border: OutlineInputBorder(),
-                  isDense: true,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(context).pop(_build()),
-          child: const Text('Apply'),
-        ),
-      ],
-    );
-  }
-
-  Widget _field(TextEditingController controller, String label, String units) =>
-      Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: TextField(
-          controller: controller,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: InputDecoration(
-            labelText: label,
-            suffixText: units.isEmpty ? null : units,
-            border: const OutlineInputBorder(),
-            isDense: true,
-          ),
-        ),
-      );
-
-  AutotuneSettings _build() {
-    double number(TextEditingController controller, double fallback) =>
-        double.tryParse(controller.text.trim()) ?? fallback;
-
-    final base = widget.settings;
-    return base.copyWith(
-      // Clamped rather than trusted: these are the limits on how far the fuel
-      // table may move, so a mistyped entry must not widen them without bound.
-      maxStepPercent: number(_step, base.maxStepPercent).clamp(0.1, 25),
-      maxTotalPercent: number(_total, base.maxTotalPercent).clamp(1, 100),
-      minWeight: number(_weight, base.minWeight).clamp(1, 1000),
-      settlingTime: Duration(
-        milliseconds: number(_settling, 500).clamp(0, 10000).round(),
-      ),
-      lambdaMin: number(_lambdaMin, base.lambdaMin).clamp(0.1, 1.0),
-      lambdaMax: number(_lambdaMax, base.lambdaMax).clamp(1.0, 3.0),
-      customFilter: _custom.text.trim(),
-    );
   }
 }
 

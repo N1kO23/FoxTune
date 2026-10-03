@@ -23,6 +23,10 @@ page = 1
   afrTable = array,  U08, 26, [2x2], "AFR", 0.1,   0.0, 10.0,  25.0,    1
   afrRpm   = array,  U08, 30, [2],   "RPM", 100.0, 0.0, 100.0, 25500.0, 0
   afrLoad  = array,  U08, 32, [2],   "kPa", 2.0,   0.0, 0.0,   510.0,   0
+[OutputChannels]
+  ochGetCommand = "r"
+  ochBlockSize  = 1
+  VE1      = scalar, U08, 0, "%", 1.0, 0.0
 [TableEditor]
   table = veTable1Tbl, veTable1Map, "VE Table", 1
     xBins = rpmBins, rpm
@@ -103,6 +107,10 @@ void main() {
       ).tuner!;
 
   /// One sample, with everything set so nothing but the mixture is in play.
+  ///
+  /// The ECU reports running whatever the table holds at the operating point
+  /// when the sample is read - as it does once a correction is burned or sent
+  /// to it - unless [ve] says otherwise.
   AnalyzeSample sample({
     double rpm = 1500,
     double load = 40,
@@ -111,6 +119,7 @@ void main() {
     double coolant = 85,
     double engine = 0,
     double pulseWidth = 3,
+    double? ve,
   }) =>
       (channel) => switch (channel) {
             'rpm' => rpm,
@@ -120,6 +129,9 @@ void main() {
             'coolant' => coolant,
             'engine' => engine,
             'pulseWidth' => pulseWidth,
+            'VE1' => ve ??
+                TableView.of(tune, tune.definition.tableNamed('veTable1Tbl')!)!
+                    .interpolatedAt(rpm, load),
             _ => null,
           };
 
@@ -174,6 +186,22 @@ void main() {
 
       expect(result.readiness.ready, isTrue);
       expect(result.tuner, isNotNull);
+    });
+
+    test('refuses firmware that does not say what VE it is running', () {
+      // Without it there is no telling when a correction has reached the
+      // engine, and every sample until then would ask for it again.
+      final silent = IniParser().parse(_source.replaceFirst(
+        '  VE1      = scalar, U08, 0, "%", 1.0, 0.0\n',
+        '',
+      ));
+      final result = VeAutotuner.create(
+        tune: TuneState.fromPages(silent, [tune.page(1)]),
+        permission: const WritePermission.granted(),
+      );
+
+      expect(result.tuner, isNull);
+      expect(result.readiness.reason, contains('VE1'));
     });
 
     test('refuses a filter it could not read', () {
@@ -408,6 +436,55 @@ void main() {
     });
   });
 
+  group('an ECU that has not caught up', () {
+    test('a corrected cell waits until the ECU runs the correction', () {
+      final subject = tuner(
+        settings: const AutotuneSettings(
+          minWeight: 1,
+          maxStepPercent: 2,
+          maxTotalPercent: 10,
+        ),
+      );
+      // 30% lean, and the ECU still running the 50 it started with: nothing
+      // burned, nothing sent.
+      final outcomes = feed(subject, sample(afr: 19.1, ve: 50), count: 100);
+
+      // Two steps: the first leaves the table within a storage step of what
+      // the ECU runs, which Speeduino's whole-number VE cannot tell apart.
+      expect(subject.cells.values.first.appliedPercent, closeTo(4, 1e-9));
+      expect(outcomes.last.rejectedBy?.id, 'std_RunningVe');
+      expect(outcomes.last.description, contains('still running'));
+    });
+
+    test('carries on once the ECU runs it', () {
+      final subject = tuner(
+        settings: const AutotuneSettings(
+          minWeight: 1,
+          maxStepPercent: 2,
+          maxTotalPercent: 10,
+        ),
+      );
+      feed(subject, sample(afr: 19.1, ve: 50), count: 20);
+      expect(subject.cells.values.first.appliedPercent, closeTo(4, 1e-9));
+
+      // Burned, or sent: the ECU now reports what the table holds.
+      feed(subject, sample(afr: 19.1), count: 20);
+      expect(subject.cells.values.first.appliedPercent, closeTo(10, 1e-9));
+    });
+
+    test('a sample that does not say what the ECU ran is not used', () {
+      final subject = tuner();
+      final quiet = sample();
+      final outcomes = feed(
+        subject,
+        (channel) => channel == 'VE1' ? null : quiet(channel),
+        count: 3,
+      );
+
+      expect(outcomes.last.rejectedBy?.id, 'std_RunningVe');
+    });
+  });
+
   group('convergence', () {
     test('a table that is 20% low is brought to target and held there', () {
       // The closed loop that matters: fuelling actually responds to what the
@@ -433,6 +510,135 @@ void main() {
         clock = clock.add(const Duration(milliseconds: 50));
       }
       expect(view.valueAt(1, 1), closeTo(requiredVe, view.zStep));
+    });
+  });
+
+  group('replay', () {
+    VeAutotuner replayer({
+      AutotuneSettings settings = const AutotuneSettings(),
+    }) =>
+        VeAutotuner.create(
+          tune: tune,
+          permission: const WritePermission.granted(),
+          settings: settings,
+          mode: AutotuneMode.replay,
+        ).tuner!;
+
+    /// A logged row: [sample] plus the VE the ECU looked up there.
+    AnalyzeSample logged(AnalyzeSample row, {double? ve = 50}) =>
+        (channel) => channel == 'VE1' ? ve : row(channel);
+
+    test('gathers without moving anything', () {
+      final subject = replayer(settings: const AutotuneSettings(minWeight: 1));
+      final outcomes = feed(subject, logged(sample(afr: 15.4)), count: 20);
+
+      expect(outcomes.where((o) => o.accepted), hasLength(20));
+      expect(outcomes.expand((o) => o.moved), isEmpty);
+      expect(subject.table.valueAt(1, 1), 50);
+      expect(tune.isDirty, isFalse);
+    });
+
+    test('corrects each cell once, by the mean of its evidence', () {
+      final subject = replayer(settings: const AutotuneSettings(minWeight: 1));
+      // Half the rows 10% lean, half on target: 5% short of fuel on average.
+      // The second batch's settling offer counts too, as the operating point
+      // has not moved, so it is one shorter.
+      feed(subject, logged(sample(afr: 14.7 * 1.1)), count: 10);
+      feed(subject, logged(sample()), count: 9);
+      expect(subject.acceptedSamples, 20);
+
+      final moved = subject.applyGathered();
+
+      expect(moved, [(row: 1, column: 1)]);
+      expect(
+          subject.cells[(row: 1, column: 1)]!.appliedPercent, closeTo(5, 1e-9));
+      expect(subject.table.valueAt(1, 1), closeTo(52.5, subject.table.zStep));
+    });
+
+    test('is bounded by the session limit, not the step limit', () {
+      final subject = replayer(
+        settings: const AutotuneSettings(
+          minWeight: 1,
+          maxStepPercent: 2,
+          maxTotalPercent: 10,
+        ),
+      );
+      feed(subject, logged(sample(afr: 14.7 * 1.06)), count: 10);
+      subject.applyGathered();
+      // One step would have been 2%; the whole log asks for 6%.
+      expect(subject.cells.values.first.appliedPercent, closeTo(6, 1e-9));
+    });
+
+    test('is still bounded by the session limit', () {
+      final subject = replayer(
+        settings: const AutotuneSettings(minWeight: 1, maxTotalPercent: 10),
+      );
+      // 30% lean.
+      feed(subject, logged(sample(afr: 19.1)), count: 10);
+      subject.applyGathered();
+
+      expect(subject.cells.values.first.appliedPercent, closeTo(10, 1e-9));
+    });
+
+    test('a second pass over the same rows changes nothing', () {
+      final subject = replayer(settings: const AutotuneSettings(minWeight: 1));
+      final row = logged(sample(afr: 14.7 * 1.06));
+      feed(subject, row, count: 10);
+      expect(subject.applyGathered(), isNotEmpty);
+
+      // The same log again: its rows still say the ECU ran 50, where the
+      // table now holds 53.
+      final again = replayer(settings: const AutotuneSettings(minWeight: 1));
+      final outcomes = feed(again, row, count: 10);
+
+      expect(
+          outcomes.every((o) => o.rejectedBy?.id == 'std_RunningVe'), isTrue);
+      expect(again.applyGathered(), isEmpty);
+    });
+
+    test('leaves a cell with too little evidence alone', () {
+      final subject = replayer(settings: const AutotuneSettings(minWeight: 20));
+      feed(subject, logged(sample(afr: 15.4)), count: 5);
+
+      expect(subject.applyGathered(), isEmpty);
+      expect(subject.table.valueAt(1, 1), 50);
+    });
+
+    test('rejects a row recorded with a different table, by name', () {
+      final subject = replayer();
+      // The ECU ran 45 here, but the table now holds 50: this row describes
+      // fuelling the table no longer gives.
+      final outcomes = feed(subject, logged(sample(), ve: 45), count: 3);
+
+      expect(outcomes.last.rejectedBy?.id, 'std_RunningVe');
+      expect(outcomes.last.description, contains('45'));
+    });
+
+    test('accepts a row a storage step out, as integer lookups are', () {
+      final subject = replayer();
+      expect(feed(subject, logged(sample(), ve: 49), count: 3).last.accepted,
+          isTrue);
+    });
+
+    test('rejects a row with no recorded VE', () {
+      final subject = replayer();
+      final outcomes = feed(subject, logged(sample(), ve: null), count: 3);
+
+      expect(outcomes.last.rejectedBy?.id, 'std_RunningVe');
+    });
+
+    test('the live mode does not ask for a recorded VE', () {
+      final subject = tuner();
+      expect(feed(subject, sample(), count: 3).last.accepted, isTrue);
+    });
+
+    test('an interruption restarts settling', () {
+      final subject = replayer();
+      feed(subject, logged(sample()), count: 3);
+
+      subject.interrupt();
+      expect(subject.offer(logged(sample()), clock).rejectedBy?.id,
+          'std_Settling');
     });
   });
 

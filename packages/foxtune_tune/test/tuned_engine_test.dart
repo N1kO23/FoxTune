@@ -268,6 +268,7 @@ void main() {
       required double rpm,
       required double map,
       double seconds = 40,
+      bool reachesEcu = true,
     }) {
       final tune = TuneState.fromPages(doc, pages);
       final result = VeAutotuner.create(
@@ -294,6 +295,7 @@ void main() {
           start.add(Duration(milliseconds: (t * 1000).round())),
         );
 
+        if (!reachesEcu) continue;
         for (var page = 1; page <= pages.length; page++) {
           pages[page - 1].setAll(0, tune.page(page));
         }
@@ -305,6 +307,34 @@ void main() {
         truth: TunedEngineSimulation.defaultAirflow(rpm, map),
       );
     }
+
+    test('does not run away while nothing reaches the ECU', () {
+      // Nothing burned, nothing sent: the engine goes on running the table
+      // it started with, and every sample shows the same error. Correcting
+      // it again for each would walk the cell to the session limit - 25%
+      // up, twice the 12% it was wrong by.
+      final pages = freshPages();
+      final engine = engineOn(pages, veError: -12, closedLoop: false);
+      final ve = TableView.of(
+          TuneState.fromPages(doc, pages), doc.tableNamed('veTable1Tbl')!)!;
+      final rpm = ve.xAt(6)!;
+      final map = ve.yAt(9)!;
+      final start = ve.valueAt(9, 6)!;
+
+      final outcome = converge(
+        pages,
+        engine,
+        rpm: rpm,
+        map: map,
+        seconds: 60,
+        reachesEcu: false,
+      );
+
+      // A storage step or so ahead of the ECU, and no further.
+      expect(outcome.tuned, greaterThan(start));
+      expect(outcome.tuned, lessThanOrEqualTo(start + 2 * ve.zStep));
+      expect(outcome.tuned, lessThan(outcome.truth));
+    });
 
     test('brings a VE table that is low up to the engine', () {
       final pages = freshPages();

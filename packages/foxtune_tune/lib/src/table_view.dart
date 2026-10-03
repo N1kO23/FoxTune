@@ -296,6 +296,22 @@ class TableView {
       ? tune.readRaw(page, zField, _cellIndex(row, column))
       : null;
 
+  /// Where [row], [column] is stored: its byte offset within [page], and how
+  /// many bytes it takes.
+  ///
+  /// For sending a cell to the ECU without the rest of its page.
+  ({int offset, int length}) storageOf(int row, int column) {
+    if (!_inBounds(row, column)) {
+      throw RangeError('Cell ($row, $column) is outside '
+          '${rows}x$columns');
+    }
+    final size = zField.type.bytes;
+    return (
+      offset: zField.offset! + _cellIndex(row, column) * size,
+      length: size
+    );
+  }
+
   /// Writes [value] (engineering units) at [row], [column].
   ///
   /// The value is clamped to the definition's declared bounds before it is

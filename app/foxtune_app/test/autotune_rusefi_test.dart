@@ -34,6 +34,10 @@ void main() {
 
   late IniDocument doc;
   late TuneState tune;
+
+  /// What the ECU runs: the tune as seeded, until something is sent or
+  /// burned.
+  late TuneState ecu;
   late StreamController<RealtimeSnapshot> feed;
   late DateTime clock;
 
@@ -50,6 +54,7 @@ void main() {
     final pages = [for (final size in doc.constants.pageSizes) Uint8List(size)];
     TunedEngineSimulation(definition: doc, pages: pages).seedTune();
     tune = TuneState.fromPages(doc, pages);
+    ecu = tune.copy();
     feed = StreamController<RealtimeSnapshot>.broadcast();
     clock = DateTime(2026, 1, 1);
   });
@@ -106,6 +111,13 @@ void main() {
     put('afrGasolineScale', afr);
     put('lambdaValue', afr / 14.7);
     put('Gego', 100);
+    put(
+      'veValue',
+      TableView.of(
+        ecu,
+        doc.tableNamed('veTableTbl')!,
+      )!.interpolatedAt(rpm, load)!,
+    );
 
     return RealtimeDecoder(
       channels,

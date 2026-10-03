@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
 
-import '../connection/connection_state.dart';
 import '../dashboard/dashboard_controller.dart';
 import '../window/window_app_bar.dart';
 import 'cursor_readout.dart';
@@ -22,13 +21,7 @@ import 'tune_controller.dart';
 /// isometric mesh, and a surface that silently accepted an edit would be worse
 /// than one that sends you to the grid for it.
 class SurfaceScreen extends ConsumerWidget {
-  const SurfaceScreen({
-    super.key,
-    required this.connection,
-    required this.tableId,
-  });
-
-  final EcuConnected connection;
+  const SurfaceScreen({super.key, required this.tableId});
 
   /// Identifier of the table to show - its `[TableEditor]` id, not its map id.
   final String tableId;
@@ -36,8 +29,7 @@ class SurfaceScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tune = ref.watch(tuneProvider).value;
-    final definition = connection.definition;
-    final table = definition?.tableNamed(tableId);
+    final table = tune?.definition.tableNamed(tableId);
 
     if (tune == null || table == null) {
       return const Center(
@@ -102,7 +94,7 @@ class SurfaceScreen extends ConsumerWidget {
                     MaterialPageRoute<void>(
                       builder: (_) => Scaffold(
                         appBar: WindowAppBar(title: Text(table.title)),
-                        body: TableEditorScreen(connection: connection),
+                        body: const TableEditorScreen(),
                       ),
                     ),
                   );

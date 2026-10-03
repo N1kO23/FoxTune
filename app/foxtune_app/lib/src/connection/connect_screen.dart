@@ -22,6 +22,7 @@ import '../loggers/trigger_logger_controller.dart';
 import '../loggers/trigger_logger_screen.dart';
 import '../settings/settings_screen.dart';
 import '../tune/msq_actions.dart';
+import '../tune/offline_tune.dart';
 import '../tune/recovered_edits.dart';
 import '../tune/table_editor_screen.dart';
 import '../tune/tune_controller.dart';
@@ -64,12 +65,33 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   @override
   Widget build(BuildContext context) {
     final connection = ref.watch(connectionProvider);
+    // A file open with no ECU takes the port list's place until it is closed.
+    final file = connection is EcuDisconnected
+        ? ref.watch(offlineTuneProvider)
+        : null;
 
     return Scaffold(
       appBar: WindowAppBar(
         title: const FoxTuneLogo(),
         actions: [
-          if (connection is EcuDisconnected ||
+          if (file != null) ...[
+            IconButton(
+              tooltip: 'Save as .msq',
+              icon: const Icon(Icons.save_outlined),
+              onPressed: () => MsqActions.save(context, ref, file.tune),
+            ),
+            IconButton(
+              tooltip: 'Close ${file.fileName}',
+              icon: const Icon(Icons.close),
+              onPressed: () async {
+                final open = ref.read(offlineTuneProvider);
+                if (open == null) return;
+                if (await OfflineTuneController.confirmClose(context, open)) {
+                  ref.read(offlineTuneProvider.notifier).close();
+                }
+              },
+            ),
+          ] else if (connection is EcuDisconnected ||
               connection is EcuConnectionFailed ||
               connection is EcuConnectionLost)
             IconButton(
@@ -122,6 +144,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
             EcuConnectionLost() => _WithRecoveredEdits(
               child: _LostView(state: connection),
             ),
+            EcuDisconnected() when file != null => const _OfflineShell(),
             EcuDisconnected() => const _WithRecoveredEdits(child: _PortList()),
           },
         ),
@@ -183,16 +206,18 @@ class _PortList extends ConsumerWidget {
                 ),
                 const SizedBox(height: 8),
                 const _NetworkTile(),
+                const _OpenTuneTile(),
               ],
             ),
           );
         }
         return ListView.separated(
           padding: const EdgeInsets.symmetric(vertical: 8),
-          itemCount: list.length + 1,
+          itemCount: list.length + 2,
           separatorBuilder: (_, _) => const Divider(height: 1),
           itemBuilder: (context, index) {
             if (index == list.length) return const _NetworkTile();
+            if (index == list.length + 1) return const _OpenTuneTile();
             final port = list[index];
             return ListTile(
               leading: Icon(port.isLikelyEcu ? Icons.memory : Icons.usb),
@@ -740,6 +765,20 @@ class _NetworkTile extends ConsumerWidget {
   );
 }
 
+/// Entry point for editing a saved tune with no ECU.
+class _OpenTuneTile extends ConsumerWidget {
+  const _OpenTuneTile();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => ListTile(
+    leading: const Icon(Icons.file_open_outlined),
+    title: const Text('Open a tune file'),
+    subtitle: const Text('Edit a .msq with no ECU, or replay a log into it'),
+    trailing: const Icon(Icons.chevron_right),
+    onTap: () => OfflineTuneController.pickAndOpen(context, ref),
+  );
+}
+
 class _AddressDialog extends StatefulWidget {
   const _AddressDialog();
 
@@ -820,8 +859,8 @@ class _ConnectedShellState extends ConsumerState<_ConnectedShell> {
     final triggers = triggerLoggersOf(widget.connection.definition).isNotEmpty;
     final pages = [
       DashboardScreen(connection: widget.connection),
-      TableEditorScreen(connection: widget.connection),
-      SettingsScreen(connection: widget.connection),
+      const TableEditorScreen(),
+      const SettingsScreen(),
       AutotuneScreen(connection: widget.connection),
       if (triggers) TriggerLoggerScreen(connection: widget.connection),
     ];
@@ -872,6 +911,87 @@ class _ConnectedShellState extends ConsumerState<_ConnectedShell> {
                 selectedIcon: Icon(Icons.monitor_heart),
                 label: 'Triggers',
               ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// Tables, settings and log replay for a file opened with no ECU.
+///
+/// Only what works without one: no dashboard or trigger logger, which have
+/// nothing to show, and no live autotuning.
+class _OfflineShell extends ConsumerStatefulWidget {
+  const _OfflineShell();
+
+  @override
+  ConsumerState<_OfflineShell> createState() => _OfflineShellState();
+}
+
+class _OfflineShellState extends ConsumerState<_OfflineShell> {
+  int _index = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final file = ref.watch(offlineTuneProvider);
+    // Rebuilt as edits land, for the unsaved marker.
+    ref.watch(tuneProvider);
+    if (file == null) return const SizedBox.shrink();
+
+    return Column(
+      children: [
+        Material(
+          color: theme.colorScheme.secondaryContainer.withValues(alpha: 0.5),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                const Icon(Icons.description_outlined, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '${file.fileName}${file.unsaved ? ' - unsaved changes' : ''}'
+                    '. No ECU: to put it on one, connect, load this file '
+                    'from the Tables tab, and burn.',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        Expanded(
+          child: IndexedStack(
+            index: _index,
+            children: const [
+              TableEditorScreen(),
+              SettingsScreen(),
+              OfflineAutotunePane(),
+            ],
+          ),
+        ),
+        NavigationBar(
+          selectedIndex: _index,
+          height: 60,
+          onDestinationSelected: (i) => setState(() => _index = i),
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.grid_on_outlined),
+              selectedIcon: Icon(Icons.grid_on),
+              label: 'Tables',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.tune_outlined),
+              selectedIcon: Icon(Icons.tune),
+              label: 'Settings',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.auto_graph_outlined),
+              selectedIcon: Icon(Icons.auto_graph),
+              label: 'Autotune',
+            ),
           ],
         ),
       ],
