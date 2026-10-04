@@ -23,11 +23,15 @@ import 'package:foxtune_app/src/definitions/definition_library.dart';
 import 'package:foxtune_app/src/definitions/definitions_screen.dart';
 import 'package:foxtune_app/src/files/file_saving.dart';
 import 'package:foxtune_app/src/storage/json_store.dart';
+import 'package:foxtune_app/src/window/window_app_bar.dart';
 import 'package:foxtune_app/src/window/window_controls.dart';
+import 'package:foxtune_app/src/window/window_frame.dart';
 import 'package:foxtune_ini/foxtune_ini.dart';
 import 'package:foxtune_protocol/foxtune_protocol.dart';
 import 'package:foxtune_protocol/testing.dart';
 import 'package:foxtune_transport/foxtune_transport.dart';
+
+import 'fake_window.dart';
 
 const _connected = EcuConnected(
   port: EcuPort(address: '/dev/ttyACM0'),
@@ -99,23 +103,6 @@ class _RecordingWake implements ScreenWake {
   Future<void> release() async => calls.add('release');
 }
 
-class _FakeWindow implements WindowControls {
-  @override
-  final ValueNotifier<bool> maximized = ValueNotifier(false);
-
-  @override
-  Future<void> startDragging() async {}
-
-  @override
-  Future<void> minimize() async {}
-
-  @override
-  Future<void> toggleMaximize() async {}
-
-  @override
-  Future<void> close() async {}
-}
-
 void main() {
   late IniDocument speeduino;
   late Directory storage;
@@ -132,6 +119,7 @@ void main() {
     test('reads back what it writes', () {
       const settings = AppSettings(
         themeMode: ThemeMode.dark,
+        windowFrame: WindowFrame.gnome,
         temperatureUnit: TemperatureUnit.fahrenheit,
         downloadDefinitionsFor: {EcuFamily.rusefi},
         keepScreenOn: false,
@@ -147,6 +135,7 @@ void main() {
       expect(
         AppSettings.fromJson({
           'theme': 'purple',
+          'windowFrame': 'amiga',
           'temperature': 'kelvin',
           'keepScreenOn': 'yes',
           'downloadDefinitions': {'rusefi': false, 'speeduino': 'maybe'},
@@ -186,10 +175,13 @@ void main() {
     Future<ProviderContainer> pumpSettings(
       WidgetTester tester, {
       EcuConnectionState connection = const EcuDisconnected(),
+      WindowControls? window,
     }) async {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
+            if (window != null)
+              windowControlsProvider.overrideWithValue(window),
             appStorageDirectoryProvider.overrideWith((ref) async => storage),
             bundledDefinitionProvider.overrideWith((ref) async => speeduino),
             connectionProvider.overrideWith(() => _FixedConnection(connection)),
@@ -273,6 +265,58 @@ void main() {
         find.textContaining('Applies from the next connection'),
         findsNothing,
       );
+    });
+
+    testWidgets('offers a title bar only where there is a window to draw', (
+      tester,
+    ) async {
+      await pumpSettings(tester);
+      expect(find.text('Title bar'), findsNothing);
+    });
+
+    testWidgets('a title bar style is drawn at once, and kept', (tester) async {
+      final window = FakeWindow();
+      final container = await pumpSettings(tester, window: window);
+      WindowFrame drawn() =>
+          tester.widget<WindowButtons>(find.byType(WindowButtons)).style;
+      expect(drawn(), WindowFrame.windows);
+
+      await tester.tap(find.text('GNOME'));
+      await tester.pumpAndSettle();
+      expect(drawn(), WindowFrame.gnome);
+      expect(
+        container.read(appSettingsProvider).windowFrame,
+        WindowFrame.gnome,
+      );
+      final saved = File('${storage.path}/settings.json');
+      expect(
+        (jsonDecode(saved.readAsStringSync()) as Map)['windowFrame'],
+        'gnome',
+      );
+
+      await tester.tap(find.text('Native'));
+      await tester.pumpAndSettle();
+      expect(find.byType(WindowButtons), findsNothing);
+      expect(find.textContaining('next starts'), findsNothing);
+    });
+
+    testWidgets('says the native frame waits for a restart where the window '
+        'cannot change to it at once', (tester) async {
+      await pumpSettings(tester, window: FakeWindow(nativeFrameFixed: false));
+      expect(find.textContaining('next starts'), findsNothing);
+
+      await tester.tap(find.text('Native'));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('Applies when FoxTune next starts.'),
+        findsOneWidget,
+      );
+      // The bar this session started with stays until then.
+      expect(find.byType(WindowButtons), findsOneWidget);
+
+      await tester.tap(find.text('macOS'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('next starts'), findsNothing);
     });
 
     testWidgets('leads to the ECU definitions', (tester) async {
@@ -499,12 +543,41 @@ void main() {
     expect(brightness(), Brightness.light);
   });
 
+  testWidgets('the window is given the title bar chosen', (tester) async {
+    final window = FakeWindow();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          windowControlsProvider.overrideWithValue(window),
+          appStorageDirectoryProvider.overrideWith((ref) async => storage),
+          portsProvider.overrideWith((ref) async => const []),
+          screenWakeProvider.overrideWithValue(_RecordingWake()),
+        ],
+        child: const FoxTuneApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    // Given at start by initWindowFrame, not again here.
+    expect(window.applied, isEmpty);
+
+    void choose(WindowFrame frame) =>
+        ProviderScope.containerOf(tester.element(find.byType(ConnectScreen)))
+            .read(appSettingsProvider.notifier)
+            .update((s) => s.copyWith(windowFrame: frame));
+
+    choose(WindowFrame.native);
+    await tester.pumpAndSettle();
+    choose(WindowFrame.macos);
+    await tester.pumpAndSettle();
+    expect(window.applied, [WindowFrame.native, WindowFrame.macos]);
+  });
+
   testWidgets('the top bar ends with App settings, just before the window '
       'buttons', (tester) async {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          windowControlsProvider.overrideWithValue(_FakeWindow()),
+          windowControlsProvider.overrideWithValue(FakeWindow()),
           portsProvider.overrideWith((ref) async => const []),
           screenWakeProvider.overrideWithValue(_RecordingWake()),
           bundledDefinitionProvider.overrideWith((ref) async => speeduino),

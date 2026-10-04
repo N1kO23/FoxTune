@@ -12,6 +12,8 @@ import '../definitions/definitions_screen.dart';
 import '../files/file_saving.dart';
 import '../storage/json_store.dart';
 import '../window/window_app_bar.dart';
+import '../window/window_controls.dart';
+import '../window/window_frame.dart';
 import 'app_settings.dart';
 import 'gauge_appearance_screen.dart';
 import 'map_colours_screen.dart';
@@ -31,6 +33,8 @@ class AppSettingsScreen extends ConsumerWidget {
     final settings = ref.watch(appSettingsProvider);
     final controller = ref.read(appSettingsProvider.notifier);
     final connected = ref.watch(connectionProvider) is EcuConnected;
+    final hasWindow = ref.watch(windowControlsProvider) != null;
+    final windowFrame = settings.windowFrame ?? WindowFrame.platformDefault;
 
     return Scaffold(
       appBar: const WindowAppBar(title: Text('App settings')),
@@ -54,6 +58,25 @@ class AppSettingsScreen extends ConsumerWidget {
                   onChanged: (mode) =>
                       controller.update((s) => s.copyWith(themeMode: mode)),
                 ),
+                if (hasWindow)
+                  _Choice<WindowFrame>(
+                    title: 'Title bar',
+                    detail: [
+                      "How the window's title bar and buttons are drawn. "
+                          'Native leaves it to the desktop. F11 goes full '
+                          'screen.',
+                      if (windowFrame != ref.watch(windowFrameProvider))
+                        'Applies when FoxTune next starts.',
+                    ].join(' '),
+                    selected: windowFrame,
+                    choices: {
+                      for (final frame in WindowFrame.values)
+                        frame: frame.label,
+                    },
+                    onChanged: (frame) => controller.update(
+                      (s) => s.copyWith(windowFrame: frame),
+                    ),
+                  ),
                 _Choice<TemperatureUnit>(
                   title: 'Temperature',
                   detail: [

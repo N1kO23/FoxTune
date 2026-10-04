@@ -12,6 +12,39 @@ struct _MyApplication
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
+// Whether the frame is left to the desktop: "windowFrame": "native" in the
+// app's settings.json. The app keeps that in FoxTune under the documents folder,
+// found as path_provider finds it - xdg-user-dir, which falls back to home. Read
+// here because it has to be settled before the window is made; anything that
+// cannot be read means the app's own frame, as before there was a choice.
+static gboolean wants_native_frame()
+{
+  const gchar *documents = g_get_user_special_dir(G_USER_DIRECTORY_DOCUMENTS);
+  if (documents == nullptr)
+  {
+    documents = g_get_home_dir();
+  }
+  g_autofree gchar *path =
+      g_build_filename(documents, "FoxTune", "settings.json", nullptr);
+  g_autofree gchar *text = nullptr;
+  if (!g_file_get_contents(path, &text, nullptr, nullptr))
+  {
+    return FALSE;
+  }
+
+  g_autoptr(FlJsonMessageCodec) codec = fl_json_message_codec_new();
+  g_autoptr(FlValue) settings =
+      fl_json_message_codec_decode(codec, text, nullptr);
+  if (settings == nullptr || fl_value_get_type(settings) != FL_VALUE_TYPE_MAP)
+  {
+    return FALSE;
+  }
+  FlValue *frame = fl_value_lookup_string(settings, "windowFrame");
+  return frame != nullptr &&
+         fl_value_get_type(frame) == FL_VALUE_TYPE_STRING &&
+         g_strcmp0(fl_value_get_string(frame), "native") == 0;
+}
+
 // Called when first Flutter frame received.
 static void first_frame_cb(MyApplication *self, FlView *view)
 {
@@ -25,17 +58,27 @@ static void my_application_activate(GApplication *application)
   GtkWindow *window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
 
-  // The app draws its own title bar (see lib/src/window/), and hides this one
-  // through window_manager before the first frame. It is created anyway, on
-  // every session, because a window with a GTK titlebar stays client-side
-  // decorated: GTK keeps drawing the shadow and the resize edges, and tells
-  // KWin not to add a title bar of its own. Without it, window_manager falls
-  // back to gtk_window_set_decorated(false), which loses both.
-  GtkHeaderBar *header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
-  gtk_widget_show(GTK_WIDGET(header_bar));
-  gtk_header_bar_set_title(header_bar, "FoxTune");
-  gtk_header_bar_set_show_close_button(header_bar, TRUE);
-  gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
+  // Unless the frame is left to the desktop, the app draws its own title bar
+  // (see lib/src/window/), and hides this one through window_manager before
+  // the first frame. It is created anyway, because a window with a GTK titlebar
+  // stays client-side decorated: GTK keeps drawing the shadow and the resize
+  // edges, and tells KWin not to add a title bar of its own. Without it,
+  // window_manager falls back to gtk_window_set_decorated(false), which loses
+  // both. Which of the two a window is cannot change once it is made, so a
+  // change between them waits for the next start.
+  //
+  // Left to the desktop, there is no header bar: GTK asks the compositor to
+  // decorate the window - KWin draws its own - or, where it will not, as on
+  // GNOME, draws a plain title bar itself.
+  const gboolean native_frame = wants_native_frame();
+  if (!native_frame)
+  {
+    GtkHeaderBar *header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
+    gtk_widget_show(GTK_WIDGET(header_bar));
+    gtk_header_bar_set_title(header_bar, "FoxTune");
+    gtk_header_bar_set_show_close_button(header_bar, TRUE);
+    gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
+  }
   // What the task manager and alt-tab show; the header bar title is only drawn.
   gtk_window_set_title(window, "FoxTune");
 
@@ -69,6 +112,23 @@ static void my_application_activate(GApplication *application)
     }
     gtk_window_set_icon_list(window, icons);
     g_list_free_full(icons, g_object_unref);
+  }
+
+  // Tells the app the desktop has the frame, so it neither hides a header bar
+  // that is not there nor draws a title bar of its own under the desktop's.
+  if (native_frame)
+  {
+    const guint count = self->dart_entrypoint_arguments == nullptr
+                            ? 0
+                            : g_strv_length(self->dart_entrypoint_arguments);
+    gchar **arguments = g_new0(gchar *, count + 2);
+    for (guint i = 0; i < count; ++i)
+    {
+      arguments[i] = g_strdup(self->dart_entrypoint_arguments[i]);
+    }
+    arguments[count] = g_strdup("--native-frame");
+    g_strfreev(self->dart_entrypoint_arguments);
+    self->dart_entrypoint_arguments = arguments;
   }
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();

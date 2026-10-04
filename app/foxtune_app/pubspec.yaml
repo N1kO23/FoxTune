@@ -45,9 +45,9 @@ dependencies:
   # logging keeps running on a drive rather than being throttled once the
   # screen times out.
   wakelock_plus: ^1.8.0
-  # Lets the app draw its own title bar on Linux and Windows: hides the native
-  # one, and moves, minimizes and maximizes the window from Flutter. Only
-  # initialized on those two platforms - see lib/src/window/.
+  # Lets the app draw its own title bar on a desktop: hides the native one,
+  # and moves, minimizes, maximizes and fills the screen with the window from
+  # Flutter. Only initialized on Linux, Windows and macOS - see lib/src/window/.
   window_manager: ^0.5.2
   # Draws the brand artwork from its SVGs, sharp at whatever size and pixel
   # density it lands on - which pre-rendered PNGs are only at the densities

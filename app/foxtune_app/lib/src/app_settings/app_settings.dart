@@ -9,6 +9,7 @@ import 'package:foxtune_transport/foxtune_transport.dart';
 import '../dashboard/gauge_appearance.dart';
 import '../dashboard/gauge_status.dart';
 import '../storage/json_store.dart';
+import '../window/window_frame.dart';
 import 'map_colours.dart';
 import 'wallpaper.dart';
 
@@ -21,6 +22,7 @@ import 'wallpaper.dart';
 class AppSettings {
   const AppSettings({
     this.themeMode = ThemeMode.system,
+    this.windowFrame,
     this.temperatureUnit = TemperatureUnit.celsius,
     this.downloadDefinitionsFor = downloadable,
     this.keepScreenOn = true,
@@ -61,6 +63,11 @@ class AppSettings {
   static const liveDataRates = [10, 15, 20, 30, 50];
 
   final ThemeMode themeMode;
+
+  /// How the window's title bar is drawn on a desktop; `null` for
+  /// [WindowFrame.platformDefault]. See [windowFrameProvider] for when a
+  /// change applies.
+  final WindowFrame? windowFrame;
 
   /// The scale definitions are parsed for. See [TemperatureUnit].
   final TemperatureUnit temperatureUnit;
@@ -103,6 +110,7 @@ class AppSettings {
 
   AppSettings copyWith({
     ThemeMode? themeMode,
+    WindowFrame? windowFrame,
     TemperatureUnit? temperatureUnit,
     Set<EcuFamily>? downloadDefinitionsFor,
     bool? keepScreenOn,
@@ -115,6 +123,7 @@ class AppSettings {
     GaugeAppearance? gaugeAppearance,
   }) => AppSettings(
     themeMode: themeMode ?? this.themeMode,
+    windowFrame: windowFrame ?? this.windowFrame,
     temperatureUnit: temperatureUnit ?? this.temperatureUnit,
     downloadDefinitionsFor:
         downloadDefinitionsFor ?? this.downloadDefinitionsFor,
@@ -138,6 +147,9 @@ class AppSettings {
 
   Map<String, Object?> toJson() => {
     'theme': themeMode.name,
+    // Read before the app starts, too, by the Linux runner - which leaves the
+    // frame to the desktop for 'native'.
+    'windowFrame': ?windowFrame?.name,
     'temperature': temperatureUnit.name,
     'downloadDefinitions': {
       for (final family in downloadable)
@@ -168,6 +180,7 @@ class AppSettings {
     return AppSettings(
       themeMode:
           ThemeMode.values.asNameMap()[json['theme']] ?? defaults.themeMode,
+      windowFrame: WindowFrame.values.asNameMap()[json['windowFrame']],
       temperatureUnit:
           TemperatureUnit.values.asNameMap()[json['temperature']] ??
           defaults.temperatureUnit,
@@ -209,6 +222,7 @@ class AppSettings {
   bool operator ==(Object other) =>
       other is AppSettings &&
       other.themeMode == themeMode &&
+      other.windowFrame == windowFrame &&
       other.temperatureUnit == temperatureUnit &&
       setEquals(other.downloadDefinitionsFor, downloadDefinitionsFor) &&
       other.keepScreenOn == keepScreenOn &&
@@ -223,6 +237,7 @@ class AppSettings {
   @override
   int get hashCode => Object.hash(
     themeMode,
+    windowFrame,
     temperatureUnit,
     Object.hashAllUnordered(downloadDefinitionsFor),
     keepScreenOn,

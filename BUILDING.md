@@ -103,15 +103,31 @@ from their own directories.
 
 ## The desktop window frame
 
-On Linux and Windows the app draws its own title bar: the top app bar of each screen doubles as
-it (`WindowAppBar`, in `lib/src/window/`), and `window_manager` hides the native one at startup.
-New full-window screens should use `WindowAppBar` rather than `AppBar`, or they will have no
-way to move or close the window. macOS and Android keep their native frame.
+On a desktop, App settings → Title bar picks how the window's title bar is drawn: Windows,
+macOS or GNOME style, drawn by the app, or Native, drawn by the desktop. Unless one is chosen,
+Linux and Windows get the Windows style and macOS its native frame. For a drawn style, the top
+app bar of each screen doubles as the title bar (`WindowAppBar`, in `lib/src/window/`), and
+`window_manager` hides the native one. New full-window screens should use `WindowAppBar` rather
+than `AppBar`, or they will have no way to move or close the window. F11 (Ctrl+Cmd+F on a Mac)
+toggles full screen, Esc leaves it, and right-clicking the bar (or a long press on a touch
+screen) opens a window menu. Android keeps its native frame.
 
-The Linux runner still creates a GTK header bar on every session, only for it to be hidden. That
-is deliberate: a window with a GTK titlebar stays client-side decorated, so GTK keeps drawing the
-shadow and the resize edges, and tells KWin not to add a title bar of its own. Without one,
-`window_manager` falls back to an undecorated window, which has neither.
+On Windows and macOS every change applies at once. On a Mac, the macOS style keeps the window's
+own buttons and draws the app bar beneath them; the other drawn styles hide them.
+
+On Linux, whether the desktop draws the frame has to be settled before the window is made, so
+the runner (`linux/runner/my_application.cc`) reads `windowFrame` from the app's
+`settings.json` itself, from `FoxTune` under the XDG documents folder, where path_provider puts
+it. A change between Native and a drawn style then applies from the next start; a change between
+drawn styles applies at once.
+
+- **Drawn**: the runner creates a GTK header bar, only for it to be hidden. That is deliberate: a
+  window with a GTK titlebar stays client-side decorated, so GTK keeps drawing the shadow and
+  the resize edges, and tells KWin not to add a title bar of its own. Without one,
+  `window_manager` falls back to an undecorated window, which has neither.
+- **Native**: the runner creates no header bar, so the compositor decorates the window (KWin
+  draws its own; on GNOME, GTK draws a plain title bar). It passes `--native-frame` to `main`,
+  so the app neither hides a header bar that is not there nor draws a title bar of its own.
 
 ### The icon on Wayland
 
