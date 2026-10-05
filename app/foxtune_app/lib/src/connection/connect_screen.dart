@@ -20,6 +20,7 @@ import '../definitions/definitions_screen.dart';
 import '../logging/log_controller.dart';
 import '../loggers/trigger_logger_controller.dart';
 import '../loggers/trigger_logger_screen.dart';
+import '../motion/transitions.dart';
 import '../settings/settings_screen.dart';
 import '../tune/msq_actions.dart';
 import '../tune/offline_tune.dart';
@@ -870,8 +871,8 @@ class _ConnectedShellState extends ConsumerState<_ConnectedShell> {
       children: [
         Expanded(
           // Kept alive so switching tabs does not restart polling or discard
-          // an in-progress edit.
-          child: IndexedStack(index: index, children: pages),
+          // an in-progress edit - and faded in as it is shown.
+          child: FadeIndexedStack(index: index, children: pages),
         ),
         NavigationBar(
           selectedIndex: index,
@@ -963,7 +964,7 @@ class _OfflineShellState extends ConsumerState<_OfflineShell> {
           ),
         ),
         Expanded(
-          child: IndexedStack(
+          child: FadeIndexedStack(
             index: _index,
             children: const [
               TableEditorScreen(),

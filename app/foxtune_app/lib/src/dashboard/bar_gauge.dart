@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 
+import '../motion/gliding_value.dart';
+import '../motion/motion.dart';
 import 'gauge_appearance.dart';
 import 'gauge_status.dart';
 import 'meter_gauge.dart' show AlarmBadge, alarmRanges;
@@ -37,6 +39,7 @@ class BarGauge extends StatelessWidget {
     final colours = look.colours;
     final status = spec.statusFor(value);
     final accent = colours.forStatus(status, normal: scheme.onSurface);
+    final glow = Motion.of(context).glow;
     final caption = theme.textTheme.labelSmall?.copyWith(
       color: colours.captionOn(scheme),
     );
@@ -77,18 +80,24 @@ class BarGauge extends StatelessWidget {
               ],
             ],
           );
-          final painted = CustomPaint(
-            painter: BarPainter(
-              fraction: spec.fractionFor(value),
-              vertical: vertical,
-              fill: accent,
-              track: colours.track,
-              hasValue: value != null,
-              segmented: bar.segmented,
-              alarms: bar.alarms,
-              ranges: bar.alarms == AlarmMarks.none
-                  ? const []
-                  : alarmRanges(spec, colours),
+          final ranges = bar.alarms == AlarmMarks.none
+              ? const <(double, double, Color)>[]
+              : alarmRanges(spec, colours);
+          // The fill glides to each new reading; its colour does not.
+          final painted = GlidingValue<double>(
+            value: spec.fractionFor(value),
+            builder: (context, fraction, _) => CustomPaint(
+              painter: BarPainter(
+                fraction: fraction,
+                vertical: vertical,
+                fill: accent,
+                track: colours.track,
+                hasValue: value != null,
+                segmented: bar.segmented,
+                alarms: bar.alarms,
+                ranges: ranges,
+                glow: glow,
+              ),
             ),
           );
 
@@ -206,6 +215,7 @@ class BarPainter extends CustomPainter {
     this.segmented = false,
     this.alarms = AlarmMarks.none,
     this.ranges = const [],
+    this.glow = false,
   });
 
   final double fraction;
@@ -223,6 +233,16 @@ class BarPainter extends CustomPainter {
 
   /// Where the gauge alarms along the bar, from 0 to 1, and in what colour.
   final List<(double, double, Color)> ranges;
+
+  /// Whether the fill glows in its own colour.
+  final bool glow;
+
+  /// The fill's glow, where it has one: its colour, blurred.
+  Paint? get _glow => glow
+      ? (Paint()
+          ..color = fill.withValues(alpha: 0.5)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4))
+      : null;
 
   /// Round at the data end only; the baseline end stays square.
   static const _radius = Radius.circular(4);
@@ -291,26 +311,24 @@ class BarPainter extends CustomPainter {
     }
     if (!hasValue || fraction <= 0) return;
 
-    final paint = Paint()..color = fill;
-    if (vertical) {
-      final height = size.height * fraction;
-      canvas.drawRRect(
-        RRect.fromRectAndCorners(
-          Rect.fromLTWH(0, size.height - height, size.width, height),
-          topLeft: _radius,
-          topRight: _radius,
-        ),
-        paint,
-      );
-    } else {
-      canvas.drawRRect(
-        RRect.fromRectAndCorners(
-          Rect.fromLTWH(0, 0, size.width * fraction, size.height),
-          topRight: _radius,
-          bottomRight: _radius,
-        ),
-        paint,
-      );
+    final filled = vertical
+        ? RRect.fromRectAndCorners(
+            Rect.fromLTWH(
+              0,
+              size.height * (1 - fraction),
+              size.width,
+              size.height * fraction,
+            ),
+            topLeft: _radius,
+            topRight: _radius,
+          )
+        : RRect.fromRectAndCorners(
+            Rect.fromLTWH(0, 0, size.width * fraction, size.height),
+            topRight: _radius,
+            bottomRight: _radius,
+          );
+    for (final paint in [?_glow, Paint()..color = fill]) {
+      canvas.drawRRect(filled, paint);
     }
   }
 
@@ -321,6 +339,7 @@ class BarPainter extends CustomPainter {
     final count = (length / (breadth * 0.9 + 3)).floor().clamp(4, 40);
     final gap = (length / count) * 0.25;
     final lit = Paint()..color = fill;
+    final glow = _glow;
     for (var i = 0; i < count; i++) {
       final from = i / count;
       final to = (i + 1) / count;
@@ -340,8 +359,10 @@ class BarPainter extends CustomPainter {
               rect.bottom,
             );
       final on = hasValue && fraction > 0 && middle <= fraction;
+      final shape = RRect.fromRectAndRadius(block, const Radius.circular(2));
+      if (on && glow != null) canvas.drawRRect(shape, glow);
       canvas.drawRRect(
-        RRect.fromRectAndRadius(block, const Radius.circular(2)),
+        shape,
         on ? lit : (Paint()..color = _alarmAt(middle) ?? _track),
       );
     }
@@ -356,5 +377,6 @@ class BarPainter extends CustomPainter {
       old.track != track ||
       old.segmented != segmented ||
       old.alarms != alarms ||
+      old.glow != glow ||
       !listEquals(old.ranges, ranges);
 }

@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
 
 import '../app_settings/map_colours.dart';
+import '../motion/gliding_value.dart';
+import '../motion/motion.dart';
 
 /// Projects a point on the table onto the isometric view.
 ///
@@ -156,6 +158,27 @@ class _SurfaceViewState extends State<SurfaceView> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // Once a build, not once a frame of the marker's glide.
+    final grid = widget.view.toGrid();
+    final glow = Motion.of(context).glow;
+    final precise = widget.preciseCursor;
+
+    Widget paintedAt(({double row, double column})? marker) => CustomPaint(
+      painter: _SurfacePainter(
+        grid: grid,
+        rotation: _rotation,
+        tilt: _tilt,
+        cursor: widget.cursor,
+        precise: marker,
+        colours: MapColours.of(context),
+        base: scheme.surfaceContainerHighest,
+        edgeColor: scheme.outlineVariant,
+        cursorColor: scheme.tertiary,
+        markerHalo: scheme.surface,
+        glow: glow,
+      ),
+      size: Size.infinite,
+    );
 
     return SizedBox(
       height: widget.height,
@@ -165,21 +188,14 @@ class _SurfaceViewState extends State<SurfaceView> {
           _rotation += details.delta.dx * 0.01;
           _tilt = (_tilt + details.delta.dy * 0.005).clamp(0.05, 1.4);
         }),
-        child: CustomPaint(
-          painter: _SurfacePainter(
-            grid: widget.view.toGrid(),
-            rotation: _rotation,
-            tilt: _tilt,
-            cursor: widget.cursor,
-            precise: widget.preciseCursor,
-            colours: MapColours.of(context),
-            base: scheme.surfaceContainerHighest,
-            edgeColor: scheme.outlineVariant,
-            cursorColor: scheme.tertiary,
-            markerHalo: scheme.surface,
-          ),
-          size: Size.infinite,
-        ),
+        // The live marker glides between readings, as on the grid.
+        child: precise == null
+            ? paintedAt(null)
+            : GlidingValue<Offset>(
+                value: Offset(precise.column, precise.row),
+                builder: (context, at, _) =>
+                    paintedAt((row: at.dy, column: at.dx)),
+              ),
       ),
     );
   }
@@ -197,6 +213,7 @@ class _SurfacePainter extends CustomPainter {
     required this.edgeColor,
     required this.cursorColor,
     required this.markerHalo,
+    this.glow = false,
   });
 
   final List<List<double?>> grid;
@@ -211,6 +228,9 @@ class _SurfacePainter extends CustomPainter {
   final Color edgeColor;
   final Color cursorColor;
   final Color markerHalo;
+
+  /// Whether the live marker glows.
+  final bool glow;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -361,35 +381,46 @@ class _SurfacePainter extends CustomPainter {
         columns: columns,
         rotation: rotation,
       ),
-      paint: (canvas) => canvas
-        ..drawLine(
-          base,
-          top,
-          Paint()
-            ..strokeWidth = 3
-            ..color = markerHalo.withValues(alpha: 0.85),
-        )
-        ..drawLine(
-          base,
-          top,
-          Paint()
-            ..strokeWidth = 1.4
-            ..color = cursorColor.withValues(alpha: 0.85),
-        )
-        ..drawCircle(
-          top,
-          6.5,
-          Paint()..color = markerHalo.withValues(alpha: 0.9),
-        )
-        ..drawCircle(top, 5, Paint()..color = cursorColor)
-        ..drawCircle(
-          top,
-          5,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.5
-            ..color = markerHalo,
-        ),
+      paint: (canvas) {
+        if (glow) {
+          canvas.drawCircle(
+            top,
+            9,
+            Paint()
+              ..color = cursorColor.withValues(alpha: 0.5)
+              ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5),
+          );
+        }
+        canvas
+          ..drawLine(
+            base,
+            top,
+            Paint()
+              ..strokeWidth = 3
+              ..color = markerHalo.withValues(alpha: 0.85),
+          )
+          ..drawLine(
+            base,
+            top,
+            Paint()
+              ..strokeWidth = 1.4
+              ..color = cursorColor.withValues(alpha: 0.85),
+          )
+          ..drawCircle(
+            top,
+            6.5,
+            Paint()..color = markerHalo.withValues(alpha: 0.9),
+          )
+          ..drawCircle(top, 5, Paint()..color = cursorColor)
+          ..drawCircle(
+            top,
+            5,
+            Paint()
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1.5
+              ..color = markerHalo,
+          );
+      },
     ));
   }
 
@@ -413,5 +444,6 @@ class _SurfacePainter extends CustomPainter {
       old.base != base ||
       old.edgeColor != edgeColor ||
       old.cursorColor != cursorColor ||
-      old.markerHalo != markerHalo;
+      old.markerHalo != markerHalo ||
+      old.glow != glow;
 }

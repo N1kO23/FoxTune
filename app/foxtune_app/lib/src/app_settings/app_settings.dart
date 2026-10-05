@@ -11,6 +11,7 @@ import '../dashboard/gauge_status.dart';
 import '../storage/json_store.dart';
 import '../window/window_frame.dart';
 import 'map_colours.dart';
+import 'motion_settings.dart';
 import 'wallpaper.dart';
 
 /// Choices about FoxTune itself, as against the ECU's own settings.
@@ -33,6 +34,7 @@ class AppSettings {
     this.mapGradient = foxTuneGradient,
     this.savedGradients = const [],
     this.gaugeAppearance = const GaugeAppearance(),
+    this.motion = const MotionSettings(),
   });
 
   /// The firmwares whose projects publish their definitions to download.
@@ -104,6 +106,9 @@ class AppSettings {
   /// Anything left unset here is drawn as [GaugeAppearance.builtIn].
   final GaugeAppearance gaugeAppearance;
 
+  /// Which animations and effects are wanted. See [MotionSettings].
+  final MotionSettings motion;
+
   /// The time between live data reads [liveDataRate] asks for.
   Duration get liveDataInterval =>
       Duration(microseconds: Duration.microsecondsPerSecond ~/ liveDataRate);
@@ -121,6 +126,7 @@ class AppSettings {
     MapGradient? mapGradient,
     List<MapGradient>? savedGradients,
     GaugeAppearance? gaugeAppearance,
+    MotionSettings? motion,
   }) => AppSettings(
     themeMode: themeMode ?? this.themeMode,
     windowFrame: windowFrame ?? this.windowFrame,
@@ -135,6 +141,7 @@ class AppSettings {
     mapGradient: mapGradient ?? this.mapGradient,
     savedGradients: savedGradients ?? this.savedGradients,
     gaugeAppearance: gaugeAppearance ?? this.gaugeAppearance,
+    motion: motion ?? this.motion,
   );
 
   /// These settings, with definitions for [family] downloaded or not.
@@ -163,6 +170,7 @@ class AppSettings {
     'mapGradient': mapGradient.toJson(),
     'savedGradients': [for (final saved in savedGradients) saved.toJson()],
     'gaugeAppearance': gaugeAppearance.toJson(),
+    'motion': motion.toJson(),
   };
 
   /// Reads what [toJson] wrote.
@@ -215,6 +223,7 @@ class AppSettings {
         _ => defaults.savedGradients,
       },
       gaugeAppearance: GaugeAppearance.fromJson(json['gaugeAppearance']),
+      motion: MotionSettings.fromJson(json['motion']),
     );
   }
 
@@ -232,7 +241,8 @@ class AppSettings {
       other.wallpaper == wallpaper &&
       other.mapGradient == mapGradient &&
       listEquals(other.savedGradients, savedGradients) &&
-      other.gaugeAppearance == gaugeAppearance;
+      other.gaugeAppearance == gaugeAppearance &&
+      other.motion == motion;
 
   @override
   int get hashCode => Object.hash(
@@ -248,6 +258,7 @@ class AppSettings {
     mapGradient,
     Object.hashAll(savedGradients),
     gaugeAppearance,
+    motion,
   );
 }
 

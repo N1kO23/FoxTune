@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
 
 import '../app_settings/map_colours.dart';
+import '../motion/gliding_value.dart';
+import '../motion/motion.dart';
 
 /// Colours marking a cell this session has changed.
 ///
@@ -326,6 +328,12 @@ class _TableGridState extends State<TableGrid> {
     }
 
     final overlay = widget.preciseCursor;
+    final cursor = widget.cursor;
+    final motion = Motion.of(context);
+    // With live motion, the overlay draws the cursor's ring and glides it from
+    // cell to cell, as the website's table does - so the cell does not draw
+    // one too.
+    final ringGlides = overlay != null && cursor != null && motion.liveData;
 
     return Focus(
       focusNode: _focusNode,
@@ -376,6 +384,7 @@ class _TableGridState extends State<TableGrid> {
                             isCursor:
                                 widget.cursor?.row == r &&
                                 widget.cursor?.column == c,
+                            ringed: !ringGlides,
                             isContributing: widget.contributing.contains((
                               row: r,
                               column: c,
@@ -462,13 +471,30 @@ class _TableGridState extends State<TableGrid> {
                   // Purely decorative, and it sits over the cells - it must
                   // never intercept a tap meant for the cell underneath.
                   child: IgnorePointer(
-                    child: CustomPaint(
-                      painter: _PrecisePositionPainter(
-                        row: overlay.row,
-                        column: overlay.column,
-                        rows: view.rows,
-                        color: theme.colorScheme.tertiary,
-                        haloColor: theme.colorScheme.surface,
+                    // The dot glides at the pace of the readings; the ring
+                    // steps from cell to cell, eased.
+                    child: GlidingValue<Offset>(
+                      value: Offset(overlay.column, overlay.row),
+                      builder: (context, at, _) => GlidingValue<Offset>(
+                        value: cursor == null
+                            ? Offset.zero
+                            : Offset(
+                                cursor.column.toDouble(),
+                                cursor.row.toDouble(),
+                              ),
+                        duration: const Duration(milliseconds: 120),
+                        curve: Curves.easeOut,
+                        builder: (context, ringAt, _) => CustomPaint(
+                          painter: _PrecisePositionPainter(
+                            row: at.dy,
+                            column: at.dx,
+                            ring: ringGlides ? ringAt : null,
+                            rows: view.rows,
+                            color: theme.colorScheme.tertiary,
+                            haloColor: theme.colorScheme.surface,
+                            glow: motion.glow,
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -644,6 +670,7 @@ class _Cell extends StatelessWidget {
     required this.isCursor,
     required this.isContributing,
     required this.onTap,
+    this.ringed = true,
     this.entry,
     this.change,
     this.onLongPress,
@@ -655,6 +682,10 @@ class _Cell extends StatelessWidget {
   final bool selected;
   final bool isFocus;
   final bool isCursor;
+
+  /// Whether the cell rings itself when it is the cursor - not where the ring
+  /// is drawn over the grid, gliding between cells.
+  final bool ringed;
 
   /// One of the four cells the ECU interpolates between right now.
   final bool isContributing;
@@ -704,14 +735,14 @@ class _Cell extends StatelessWidget {
             // screen that moves on its own. The other three cells feeding the
             // interpolation are marked more lightly - present, but not
             // competing with it or with the selection.
-            color: isCursor
+            color: isCursor && ringed
                 ? scheme.tertiary
                 : isFocus
                 ? scheme.primary
                 : isContributing
                 ? scheme.tertiary.withValues(alpha: 0.45)
                 : Colors.transparent,
-            width: isCursor
+            width: isCursor && ringed
                 ? 2.5
                 : isFocus
                 ? 2
@@ -796,11 +827,21 @@ class _PrecisePositionPainter extends CustomPainter {
     required this.rows,
     required this.color,
     required this.haloColor,
+    this.ring,
+    this.glow = false,
   });
 
   /// Continuous indices; 1.5 means halfway between bins 1 and 2.
   final double row;
   final double column;
+
+  /// Where the cursor's ring is, as a column (x) and row (y) - between two
+  /// cells while it glides from one to the next. `null` where each cell rings
+  /// itself.
+  final Offset? ring;
+
+  /// Whether the ring and the marker glow.
+  final bool glow;
 
   /// Total rows, needed because the grid is drawn highest-Y first.
   final int rows;
@@ -812,6 +853,39 @@ class _PrecisePositionPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    final glowing = glow
+        ? (Paint()
+            ..color = color.withValues(alpha: 0.5)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5))
+        : null;
+
+    if (ring case final ring?) {
+      // Where the cell's own ring would be: inside its box, as a border is.
+      final box = RRect.fromRectAndRadius(
+        Rect.fromCenter(
+          center: gridPointFor(row: ring.dy, column: ring.dx, rows: rows),
+          width: _cellWidth,
+          height: _cellHeight,
+        ).deflate(1.25),
+        const Radius.circular(3),
+      );
+      final stroke = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.5
+        ..color = color;
+      if (glowing != null) {
+        canvas.drawRRect(
+          box,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2.5
+            ..color = glowing.color
+            ..maskFilter = glowing.maskFilter,
+        );
+      }
+      canvas.drawRRect(box, stroke);
+    }
+
     final centre = gridPointFor(row: row, column: column, rows: rows);
     final x = centre.dx;
     final y = centre.dy;
@@ -835,6 +909,7 @@ class _PrecisePositionPainter extends CustomPainter {
         ..drawLine(Offset(x, 0), Offset(x, gridBottom), paint);
     }
 
+    if (glowing != null) canvas.drawCircle(centre, 7, glowing);
     canvas
       ..drawCircle(centre, 6, Paint()..color = haloColor.withValues(alpha: 0.9))
       ..drawCircle(centre, 4.5, Paint()..color = color)
@@ -850,5 +925,9 @@ class _PrecisePositionPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_PrecisePositionPainter old) =>
-      old.row != row || old.column != column || old.color != color;
+      old.row != row ||
+      old.column != column ||
+      old.ring != ring ||
+      old.glow != glow ||
+      old.color != color;
 }

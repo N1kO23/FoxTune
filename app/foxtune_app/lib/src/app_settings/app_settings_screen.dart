@@ -17,6 +17,7 @@ import '../window/window_frame.dart';
 import 'app_settings.dart';
 import 'gauge_appearance_screen.dart';
 import 'map_colours_screen.dart';
+import 'motion_screen.dart';
 import 'wallpaper.dart';
 
 /// FoxTune's own settings, as against the ECU's in the Settings tab - and the
@@ -114,6 +115,12 @@ class AppSettingsScreen extends ConsumerWidget {
                   ),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => GaugeAppearanceScreen.open(context),
+                ),
+                ListTile(
+                  title: const Text('Motion & effects'),
+                  subtitle: Text(MotionScreen.summary(settings.motion)),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => MotionScreen.open(context),
                 ),
                 const _Heading('Connection'),
                 _Picked<int>(
@@ -283,6 +290,7 @@ class _WallpaperSettingsState extends ConsumerState<_WallpaperSettings> {
           choices: const {
             WallpaperKind.none: 'None',
             WallpaperKind.branding: 'FoxTune',
+            WallpaperKind.grid: 'Grid',
             WallpaperKind.image: 'Image',
           },
           onChanged: (kind) {

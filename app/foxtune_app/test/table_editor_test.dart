@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:foxtune_app/src/motion/motion.dart';
 import 'package:foxtune_app/src/tune/surface_view.dart';
 import 'package:foxtune_app/src/tune/table_grid.dart';
 import 'package:foxtune_ini/foxtune_ini.dart';
@@ -476,6 +477,48 @@ void _overlayTests() {
           reason: 'y for cell ($row, $column)',
         );
       }
+    });
+
+    testWidgets('with live motion, one ring glides over the grid, and the '
+        'cell does not ring itself as well', (tester) async {
+      final table = buildWideTable();
+      Color ringOf(String text) {
+        final cell = tester.widget<Container>(
+          find
+              .ancestor(of: find.text(text), matching: find.byType(Container))
+              .first,
+        );
+        return ((cell.decoration! as BoxDecoration).border! as Border)
+            .top
+            .color;
+      }
+
+      Future<void> pump(Motion motion) => tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(extensions: [motion]),
+          home: Scaffold(
+            body: TableGrid(
+              view: table.view,
+              selection: const CellSelection.single(0, 0),
+              cursor: (row: 1, column: 1),
+              preciseCursor: (row: 1.2, column: 1.3),
+              onSelectionChanged: (_) {},
+              onEdit: (_) {},
+            ),
+          ),
+        ),
+      );
+      await tester.binding.setSurfaceSize(const Size(1200, 600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await pump(Motion.still);
+      final tertiary = ThemeData().colorScheme.tertiary;
+      expect(ringOf('108'), tertiary);
+
+      await pump(const Motion(liveData: true));
+      // The app animates from one theme to the next.
+      await tester.pumpAndSettle();
+      expect(ringOf('108'), isNot(tertiary));
     });
 
     testWidgets('an interpolated point sits between the cells it spans', (

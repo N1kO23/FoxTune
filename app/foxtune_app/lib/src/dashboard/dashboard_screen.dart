@@ -100,6 +100,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           child: Padding(
                             padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
                             child: DashboardPageView(
+                              // A page of its own each, so switching to one
+                              // brings its gauges in afresh.
+                              key: ValueKey(page.id),
                               page: page,
                               editing: _editing,
                               definition: definition,

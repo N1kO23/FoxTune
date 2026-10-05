@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 
+import '../motion/gliding_value.dart';
+import '../motion/motion.dart';
 import 'gauge_appearance.dart';
 import 'gauge_status.dart';
 
@@ -48,12 +50,7 @@ class MeterGauge extends StatelessWidget {
     final status = spec.statusFor(value);
     final needle = dial.face == DialFace.needle;
     final accent = colours.forStatus(status, normal: scheme.onSurface);
-    final shown = _DialValuePainter(
-      look: look.dial,
-      fraction: spec.fractionFor(value),
-      color: accent,
-      hasValue: value != null,
-    );
+    final glow = Motion.of(context).glow;
     final caption = theme.textTheme.labelSmall?.copyWith(
       color: colours.captionOn(scheme),
     );
@@ -149,53 +146,73 @@ class MeterGauge extends StatelessWidget {
               ),
             ),
             // A band runs round the track, under the text; a needle crosses
-            // the middle, over it.
-            CustomPaint(
-              painter: needle ? null : shown,
-              foregroundPainter: needle ? shown : null,
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final geometry = _DialGeometry.of(
-                    constraints.biggest,
-                    look.dial,
-                  );
-                  final inner = geometry.clear;
-                  final centre = geometry.centre;
-                  if (!needle) {
-                    // The largest box that sits clear of the arc: its corners
-                    // lie just inside the inner edge of the track.
+            // the middle, over it. The reading glides to each new value; the
+            // text, and the colour the reading is drawn in, do not.
+            GlidingValue<double>(
+              value: spec.fractionFor(value),
+              builder: (context, fraction, text) {
+                final shown = _DialValuePainter(
+                  look: look.dial,
+                  fraction: fraction,
+                  color: accent,
+                  hasValue: value != null,
+                  glow: glow,
+                );
+                return CustomPaint(
+                  painter: needle ? null : shown,
+                  foregroundPainter: needle ? shown : null,
+                  child: text,
+                );
+              },
+              // Its own layer, so it is not set again on every frame of a
+              // glide - only when the reading it states changes.
+              child: RepaintBoundary(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final geometry = _DialGeometry.of(
+                      constraints.biggest,
+                      look.dial,
+                    );
+                    final inner = geometry.clear;
+                    final centre = geometry.centre;
+                    if (!needle) {
+                      // The largest box that sits clear of the arc: its corners
+                      // lie just inside the inner edge of the track.
+                      return Stack(
+                        children: [
+                          Positioned(
+                            left: centre.dx - inner * 0.75,
+                            top: centre.dy - inner * 0.65,
+                            child: block(inner * 1.5, inner * 1.3, [
+                              title,
+                              ...reading,
+                            ]),
+                          ),
+                        ],
+                      );
+                    }
+                    // A needle sweeps the middle: the caption above its hub, the
+                    // reading below it, where the scale is open.
+                    final hub = geometry.hub * 1.3;
+                    final below = math.min(inner * 0.78, geometry.floor * 0.95);
                     return Stack(
                       children: [
                         Positioned(
-                          left: centre.dx - inner * 0.75,
-                          top: centre.dy - inner * 0.65,
-                          child: block(inner * 1.5, inner * 1.3, [
+                          left: centre.dx - inner * 0.65,
+                          top: centre.dy - inner * 0.62,
+                          child: block(inner * 1.3, inner * 0.62 - hub, [
                             title,
-                            ...reading,
                           ]),
+                        ),
+                        Positioned(
+                          left: centre.dx - inner * 0.6,
+                          top: centre.dy + hub,
+                          child: block(inner * 1.2, below - hub, reading),
                         ),
                       ],
                     );
-                  }
-                  // A needle sweeps the middle: the caption above its hub, the
-                  // reading below it, where the scale is open.
-                  final hub = geometry.hub * 1.3;
-                  final below = math.min(inner * 0.78, geometry.floor * 0.95);
-                  return Stack(
-                    children: [
-                      Positioned(
-                        left: centre.dx - inner * 0.65,
-                        top: centre.dy - inner * 0.62,
-                        child: block(inner * 1.3, inner * 0.62 - hub, [title]),
-                      ),
-                      Positioned(
-                        left: centre.dx - inner * 0.6,
-                        top: centre.dy + hub,
-                        child: block(inner * 1.2, below - hub, reading),
-                      ),
-                    ],
-                  );
-                },
+                  },
+                ),
               ),
             ),
           ],
@@ -673,12 +690,26 @@ class _DialValuePainter extends CustomPainter {
     required this.fraction,
     required this.color,
     required this.hasValue,
+    this.glow = false,
   });
 
   final DialLook look;
   final double fraction;
   final Color color;
   final bool hasValue;
+
+  /// Whether the reading glows in its own colour, as on the website's dials.
+  final bool glow;
+
+  /// [paint], blurred into a glow under itself - where there is to be one.
+  Paint? _glowFor(Paint paint, double width) => glow
+      ? (Paint()
+          ..style = paint.style
+          ..strokeWidth = paint.strokeWidth
+          ..strokeCap = paint.strokeCap
+          ..color = color.withValues(alpha: 0.55)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, width))
+      : null;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -692,13 +723,15 @@ class _DialValuePainter extends CustomPainter {
         ..strokeWidth = geometry.stroke
         ..strokeCap = StrokeCap.round
         ..color = color;
-      canvas.drawArc(
-        geometry.rect,
-        geometry.startAngle,
-        geometry.sweepAngle * fraction,
-        false,
-        value,
-      );
+      for (final paint in [?_glowFor(value, geometry.stroke * 0.5), value]) {
+        canvas.drawArc(
+          geometry.rect,
+          geometry.startAngle,
+          geometry.sweepAngle * fraction,
+          false,
+          paint,
+        );
+      }
       return;
     }
 
@@ -709,20 +742,23 @@ class _DialValuePainter extends CustomPainter {
       final angle = geometry.angleAt(fraction);
       final direction = Offset(math.cos(angle), math.sin(angle));
       final reach = geometry.trackInner - side * 0.015;
-      canvas.drawLine(
-        geometry.centre - direction * side * 0.06,
-        geometry.centre + direction * reach,
-        Paint()
-          ..color = color
-          ..strokeCap = StrokeCap.round
-          ..strokeWidth =
-              side *
-              switch (geometry.thickness) {
-                Thickness.thin => 0.012,
-                Thickness.regular => 0.02,
-                Thickness.bold => 0.03,
-              },
-      );
+      final needle = Paint()
+        ..color = color
+        ..strokeCap = StrokeCap.round
+        ..strokeWidth =
+            side *
+            switch (geometry.thickness) {
+              Thickness.thin => 0.012,
+              Thickness.regular => 0.02,
+              Thickness.bold => 0.03,
+            };
+      for (final paint in [?_glowFor(needle, side * 0.02), needle]) {
+        canvas.drawLine(
+          geometry.centre - direction * side * 0.06,
+          geometry.centre + direction * reach,
+          paint,
+        );
+      }
     }
     canvas.drawCircle(geometry.centre, geometry.hub, hub);
   }
@@ -732,6 +768,7 @@ class _DialValuePainter extends CustomPainter {
       old.fraction != fraction ||
       old.color != color ||
       old.hasValue != hasValue ||
+      old.glow != glow ||
       old.look != look;
 }
 

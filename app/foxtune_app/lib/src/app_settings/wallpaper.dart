@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../branding/smooth_svg.dart';
 import '../files/file_saving.dart';
+import 'grid_wallpaper.dart';
 
 /// What is drawn behind the main screen.
 enum WallpaperKind {
@@ -13,6 +14,9 @@ enum WallpaperKind {
 
   /// The FoxTune emblem, faintly, in the middle.
   branding,
+
+  /// A hairline grid with a soft pink glow, as on the FoxTune website.
+  grid,
 
   /// An image the user chose.
   image,
@@ -197,6 +201,9 @@ class WallpaperView extends StatelessWidget {
             ),
           ),
         );
+
+      case WallpaperKind.grid:
+        drawn = GridWallpaper(strength: wallpaper.strength);
 
       case WallpaperKind.image:
         final path = wallpaper.image;

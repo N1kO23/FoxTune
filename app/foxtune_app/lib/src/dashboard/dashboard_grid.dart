@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:foxtune_ini/foxtune_ini.dart';
 
+import '../motion/transitions.dart';
 import 'dashboard_editor.dart';
 import 'gauge_catalog.dart';
 import 'gauge_view.dart';
@@ -58,44 +59,56 @@ class DashboardPageView extends StatelessWidget {
             ? (constraints.maxHeight / cell).floor()
             : 0;
         final rows = math.max(contentRows, visibleRows);
+        // The order gauges come in when the page opens: as they are read,
+        // left to right down the page.
+        final order = [
+          ...page.items,
+        ]..sort((a, b) => a.y != b.y ? a.y.compareTo(b.y) : a.x.compareTo(b.x));
 
         return SingleChildScrollView(
           child: Center(
             child: SizedBox(
               width: cell * columns,
               height: rows * cell,
-              child: Stack(
-                children: [
-                  if (editing)
-                    Positioned.fill(
-                      child: CustomPaint(
-                        painter: _GridPainter(
-                          cell: cell,
-                          major: page.density ~/ 12,
-                          color: Theme.of(context).colorScheme.outlineVariant,
+              // Around the page whether editing or not, so turning editing
+              // off does not bring the gauges in all over again.
+              child: StaggeredEntrance(
+                child: Stack(
+                  children: [
+                    if (editing)
+                      Positioned.fill(
+                        child: CustomPaint(
+                          painter: _GridPainter(
+                            cell: cell,
+                            major: page.density ~/ 12,
+                            color: Theme.of(context).colorScheme.outlineVariant,
+                          ),
                         ),
                       ),
-                    ),
-                  for (final item in page.items)
-                    if (editing)
-                      _EditableGauge(
-                        key: ValueKey(item.id),
-                        page: page,
-                        placement: item,
-                        cell: cell,
-                        definition: definition,
-                        catalog: catalog,
-                        child: _view(item),
-                      )
-                    else
-                      Positioned(
-                        left: item.x * cell,
-                        top: item.y * cell,
-                        width: item.width * cell,
-                        height: item.height * cell,
-                        child: _view(item),
-                      ),
-                ],
+                    for (final item in page.items)
+                      if (editing)
+                        _EditableGauge(
+                          key: ValueKey(item.id),
+                          page: page,
+                          placement: item,
+                          cell: cell,
+                          definition: definition,
+                          catalog: catalog,
+                          child: _view(item),
+                        )
+                      else
+                        Positioned(
+                          left: item.x * cell,
+                          top: item.y * cell,
+                          width: item.width * cell,
+                          height: item.height * cell,
+                          child: EntranceItem(
+                            index: order.indexOf(item),
+                            child: _view(item),
+                          ),
+                        ),
+                  ],
+                ),
               ),
             ),
           ),

@@ -15,6 +15,8 @@ import 'package:foxtune_app/src/dashboard/gauge_status.dart';
 import 'package:foxtune_app/src/dashboard/dashboard_screen.dart';
 import 'package:foxtune_app/src/dashboard/gauge_catalog.dart';
 import 'package:foxtune_app/src/definitions/definition_library.dart';
+import 'package:foxtune_app/src/motion/motion.dart';
+import 'package:foxtune_app/src/motion/transitions.dart';
 import 'package:foxtune_app/src/storage/json_store.dart';
 import 'package:foxtune_ini/foxtune_ini.dart';
 import 'package:foxtune_protocol/foxtune_protocol.dart';
@@ -87,6 +89,7 @@ void main() {
     WidgetTester tester,
     Uint8List block, {
     Size size = const Size(1200, 1000),
+    Motion motion = Motion.still,
   }) async {
     final snapshot = RealtimeDecoder(doc.outputChannels).decode(block);
     await tester.binding.setSurfaceSize(size);
@@ -101,7 +104,7 @@ void main() {
           ),
         ],
         child: MaterialApp(
-          theme: brandTheme(Brightness.light),
+          theme: applyMotion(brandTheme(Brightness.light), motion),
           home: Scaffold(body: DashboardScreen(connection: connectionFor())),
         ),
       ),
@@ -132,6 +135,33 @@ void main() {
     // The tachometer's own title and units, from the definition.
     expect(find.text('Engine Speed'), findsOneWidget);
     expect(find.text('RPM'), findsWidgets);
+  });
+
+  testWidgets('a page brings its gauges in one after another - but not '
+      'while it is being edited', (tester) async {
+    await pumpDashboard(
+      tester,
+      blockWith({'rpm': 3500}),
+      motion: const Motion(transitions: true),
+    );
+    List<double> shown() => [
+      for (final item in tester.widgetList<FadeTransition>(
+        find.descendant(
+          of: find.byType(EntranceItem),
+          matching: find.byType(FadeTransition),
+        ),
+      ))
+        item.opacity.value,
+    ];
+    expect(shown(), isNotEmpty);
+    expect(shown(), contains(lessThan(1)));
+
+    await tester.pumpAndSettle();
+    expect(shown(), everyElement(1));
+
+    await tester.tap(find.byTooltip('Edit layout'));
+    await tester.pumpAndSettle();
+    expect(find.byType(EntranceItem), findsNothing);
   });
 
   testWidgets('renders readouts at the definition\'s precision', (

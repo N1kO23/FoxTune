@@ -7,6 +7,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:foxtune_app/src/app_settings/app_settings.dart';
+import 'package:foxtune_app/src/app_settings/grid_wallpaper.dart';
 import 'package:foxtune_app/src/app_settings/wallpaper.dart';
 import 'package:foxtune_app/src/branding/smooth_svg.dart';
 import 'package:foxtune_app/src/connection/connect_screen.dart';
@@ -116,6 +117,11 @@ void main() {
       );
     });
 
+    test('keeps the grid', () {
+      const grid = Wallpaper(kind: WallpaperKind.grid, strength: 0.3);
+      expect(Wallpaper.fromJson(grid.toJson()), grid);
+    });
+
     test('is the FoxTune emblem unless chosen otherwise', () {
       expect(const AppSettings().wallpaper.kind, WallpaperKind.branding);
     });
@@ -162,6 +168,12 @@ void main() {
         emblem().color,
         text(Brightness.light).withValues(alpha: Wallpaper.defaultStrength),
       );
+    });
+
+    testWidgets("as the website's grid and glow", (tester) async {
+      await pumpView(tester, const Wallpaper(kind: WallpaperKind.grid));
+      expect(find.byType(GridWallpaper), findsOneWidget);
+      expect(find.byType(SmoothSvg), findsNothing);
     });
 
     testWidgets('as the chosen image, laid out as set', (tester) async {

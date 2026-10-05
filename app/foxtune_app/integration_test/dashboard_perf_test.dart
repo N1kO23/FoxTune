@@ -8,6 +8,10 @@
 // user's layout (fixtures/speeduino_dashboard.dart) from a synthetic 30 Hz
 // feed, with the whole connected shell up - the other tabs included, since
 // what they do while hidden is part of what the dashboard costs.
+//
+// It runs with the app's default motion and effects - all on. Add
+// --dart-define=FOXTUNE_STILL=true to measure with them all off, to see what
+// they cost.
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -17,6 +21,8 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:foxtune_app/main.dart';
+import 'package:foxtune_app/src/app_settings/app_settings.dart';
+import 'package:foxtune_app/src/app_settings/motion_settings.dart';
 import 'package:foxtune_app/src/connection/connection_controller.dart';
 import 'package:foxtune_app/src/connection/connection_state.dart';
 import 'package:foxtune_app/src/connection/connection_watchdog.dart';
@@ -34,6 +40,9 @@ import 'fixtures/speeduino_dashboard.dart';
 
 /// How long each measurement runs.
 const _measured = Duration(seconds: 15);
+
+/// Whether to measure with every animation and effect off.
+const _still = bool.fromEnvironment('FOXTUNE_STILL');
 
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -65,6 +74,10 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          if (_still)
+            initialAppSettingsProvider.overrideWithValue(
+              const AppSettings(motion: MotionSettings.off),
+            ),
           connectionProvider.overrideWith(() => _Connected(connected)),
           tuneProvider.overrideWith(() => _FixedTune(TuneState.empty(doc))),
           screenWakeProvider.overrideWithValue(_NoWake()),

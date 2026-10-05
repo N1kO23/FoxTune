@@ -10,6 +10,8 @@ import 'package:foxtune_app/main.dart';
 import 'package:foxtune_app/src/app_settings/app_settings.dart';
 import 'package:foxtune_app/src/app_settings/app_settings_screen.dart';
 import 'package:foxtune_app/src/app_settings/gauge_appearance_screen.dart';
+import 'package:foxtune_app/src/app_settings/motion_screen.dart';
+import 'package:foxtune_app/src/app_settings/motion_settings.dart';
 import 'package:foxtune_app/src/app_settings/wallpaper.dart';
 import 'package:foxtune_app/src/connection/connect_screen.dart';
 import 'package:foxtune_app/src/connection/connection_controller.dart';
@@ -22,6 +24,7 @@ import 'package:foxtune_app/src/dashboard/gauge_status.dart';
 import 'package:foxtune_app/src/definitions/definition_library.dart';
 import 'package:foxtune_app/src/definitions/definitions_screen.dart';
 import 'package:foxtune_app/src/files/file_saving.dart';
+import 'package:foxtune_app/src/motion/motion.dart';
 import 'package:foxtune_app/src/storage/json_store.dart';
 import 'package:foxtune_app/src/window/window_app_bar.dart';
 import 'package:foxtune_app/src/window/window_controls.dart';
@@ -126,6 +129,7 @@ void main() {
         baudRate: 57600,
         delayAfterOpen: Duration.zero,
         liveDataRate: 15,
+        motion: MotionSettings(transitions: false, glow: false),
       );
       expect(AppSettings.fromJson(settings.toJson()), settings);
     });
@@ -136,6 +140,7 @@ void main() {
         AppSettings.fromJson({
           'theme': 'purple',
           'windowFrame': 'amiga',
+          'motion': 'fast',
           'temperature': 'kelvin',
           'keepScreenOn': 'yes',
           'downloadDefinitions': {'rusefi': false, 'speeduino': 'maybe'},
@@ -317,6 +322,56 @@ void main() {
       await tester.tap(find.text('macOS'));
       await tester.pumpAndSettle();
       expect(find.textContaining('next starts'), findsNothing);
+    });
+
+    group('motion & effects', () {
+      testWidgets('are all on to begin with, and say so', (tester) async {
+        await pumpSettings(tester);
+        await tester.scrollUntilVisible(find.text('Motion & effects'), 100);
+        expect(find.text('All on'), findsOneWidget);
+      });
+
+      testWidgets('switch one at a time, and are kept', (tester) async {
+        final container = await pumpSettings(tester);
+        final entry = find.text('Motion & effects');
+        await tester.scrollUntilVisible(entry, 100);
+        await tester.tap(entry);
+        // Not settled: the preview runs on for as long as it is shown.
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        expect(find.byType(MotionScreen), findsOneWidget);
+
+        await tester.tap(find.text('Glow'));
+        await tester.pump();
+        await tester.tap(find.text('Transitions'));
+        await tester.pump();
+
+        const expected = MotionSettings(transitions: false, glow: false);
+        expect(container.read(appSettingsProvider).motion, expected);
+        final saved = File('${storage.path}/settings.json');
+        expect(
+          AppSettings.fromJson(jsonDecode(saved.readAsStringSync())).motion,
+          expected,
+        );
+        expect(MotionScreen.summary(expected), 'Smooth live data');
+        expect(MotionScreen.summary(MotionSettings.off), 'Off');
+      });
+
+      testWidgets('say when the system holds everything still', (tester) async {
+        await tester.pumpWidget(
+          const ProviderScope(
+            child: MaterialApp(
+              home: MediaQuery(
+                data: MediaQueryData(disableAnimations: true),
+                child: MotionScreen(),
+              ),
+            ),
+          ),
+        );
+        // Still, so it settles - the preview holds a single moment.
+        await tester.pumpAndSettle();
+        expect(find.textContaining('reduced motion'), findsOneWidget);
+      });
     });
 
     testWidgets('leads to the ECU definitions', (tester) async {
@@ -541,6 +596,42 @@ void main() {
         .update((s) => s.copyWith(themeMode: ThemeMode.light));
     await tester.pumpAndSettle();
     expect(brightness(), Brightness.light);
+  });
+
+  testWidgets('the app animates as chosen', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          appStorageDirectoryProvider.overrideWith((ref) async => storage),
+          portsProvider.overrideWith((ref) async => const []),
+          screenWakeProvider.overrideWithValue(_RecordingWake()),
+        ],
+        child: const FoxTuneApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    BuildContext screen() => tester.element(find.byType(ConnectScreen));
+    expect(
+      Motion.of(screen()),
+      Motion.from(
+        const MotionSettings(),
+        liveDataInterval: const AppSettings().liveDataInterval,
+      ),
+    );
+
+    ProviderScope.containerOf(screen())
+        .read(appSettingsProvider.notifier)
+        .update((s) => s.copyWith(motion: MotionSettings.off));
+    await tester.pumpAndSettle();
+    expect(Motion.of(screen()).liveData, isFalse);
+    expect(
+      Theme.of(screen())
+          .pageTransitionsTheme
+          .builders[TargetPlatform.linux]!
+          .transitionDuration,
+      Duration.zero,
+    );
   });
 
   testWidgets('the window is given the title bar chosen', (tester) async {

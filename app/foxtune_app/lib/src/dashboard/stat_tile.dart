@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../motion/motion.dart';
 import 'gauge_appearance.dart';
 import 'gauge_status.dart';
 
@@ -175,6 +176,12 @@ class FlagLamp extends StatelessWidget {
     final active = on ?? false;
     final lit = lamp.onColour ?? onColor ?? StatusPalette.good;
     final background = colours.background;
+    final motion = Motion.of(context);
+    // Fades on and off, as the website's lamps do - the light's shape, which
+    // carries the state on its own, still changes at once.
+    final fade = motion.liveData
+        ? const Duration(milliseconds: 150)
+        : Duration.zero;
 
     final content = Row(
       mainAxisSize: MainAxisSize.min,
@@ -216,17 +223,28 @@ class FlagLamp extends StatelessWidget {
           lamp.shape == LampShape.pill ? 20 : 4,
         ),
         border: Border.all(color: active ? lit : scheme.outlineVariant),
+        boxShadow: [
+          if (motion.glow)
+            BoxShadow(
+              // Kept in the list when off, only clear, so turning on and off
+              // fades the glow rather than snapping it.
+              color: active ? lit.withValues(alpha: 0.35) : Colors.transparent,
+              blurRadius: 10,
+            ),
+        ],
       ),
     };
 
     if (!expand) {
-      return Container(
+      return AnimatedContainer(
+        duration: fade,
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
         decoration: decoration,
         child: content,
       );
     }
-    return Container(
+    return AnimatedContainer(
+      duration: fade,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
       decoration: decoration,
       alignment: Alignment.centerLeft,

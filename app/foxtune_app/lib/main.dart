@@ -5,6 +5,7 @@ import 'src/app_settings/app_settings.dart';
 import 'src/app_settings/map_colours.dart';
 import 'src/branding/brand_theme.dart';
 import 'src/connection/connect_screen.dart';
+import 'src/motion/motion.dart';
 import 'src/window/window_controls.dart';
 import 'src/window/window_frame.dart';
 import 'src/window/window_shortcuts.dart';
@@ -47,6 +48,18 @@ class FoxTuneApp extends ConsumerWidget {
     final maps = MapColours(
       ref.watch(appSettingsProvider.select((s) => s.mapGradient)),
     );
+    // Likewise the animations, so a dial glides and a tab fades without
+    // either being told to.
+    final motion = Motion.from(
+      ref.watch(appSettingsProvider.select((s) => s.motion)),
+      liveDataInterval: ref.watch(
+        appSettingsProvider.select((s) => s.liveDataInterval),
+      ),
+    );
+    ThemeData themed(Brightness brightness) => applyMotion(
+      brandTheme(brightness).copyWith(extensions: [maps]),
+      motion,
+    );
     final window = ref.watch(windowControlsProvider);
     if (window != null) {
       ref.listen(windowFrameProvider, (_, frame) => window.applyFrame(frame));
@@ -54,8 +67,8 @@ class FoxTuneApp extends ConsumerWidget {
     final app = MaterialApp(
       title: 'FoxTune',
       debugShowCheckedModeBanner: false,
-      theme: brandTheme(Brightness.light).copyWith(extensions: [maps]),
-      darkTheme: brandTheme(Brightness.dark).copyWith(extensions: [maps]),
+      theme: themed(Brightness.light),
+      darkTheme: themed(Brightness.dark),
       themeMode: ref.watch(appSettingsProvider.select((s) => s.themeMode)),
       home: const ConnectScreen(),
     );

@@ -1,7 +1,9 @@
-import 'package:flutter/foundation.dart' show listEquals;
+import 'package:flutter/foundation.dart' show ValueListenable, listEquals;
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../motion/motion.dart';
 import 'dashboard_controller.dart';
 import 'gauge_appearance.dart';
 import 'gauge_status.dart';
@@ -53,7 +55,7 @@ class TimeGraph extends StatelessWidget {
 
     // Not rebuilt per sample: the traces repaint from the history, and each
     // lane's reading follows the feed on its own.
-    final graph = Column(
+    Widget graphTo(ValueListenable<DateTime?>? edge) => Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         for (final spec in lanes)
@@ -62,6 +64,7 @@ class TimeGraph extends StatelessWidget {
               spec: spec,
               history: history,
               window: window,
+              edge: edge,
               look: look,
               readings: readings,
             ),
@@ -82,6 +85,12 @@ class TimeGraph extends StatelessWidget {
       ],
     );
 
+    // With live motion, the traces scroll on between samples rather than
+    // stepping with each one.
+    final graph = Motion.of(context).liveData
+        ? LiveEdge(history: history, builder: (context, edge) => graphTo(edge))
+        : graphTo(null);
+
     final background = look.colours.background;
     if (background == null) return graph;
     return DecoratedBox(
@@ -99,6 +108,7 @@ class _Lane extends StatelessWidget {
     required this.spec,
     required this.history,
     required this.window,
+    required this.edge,
     required this.look,
     required this.readings,
   });
@@ -106,6 +116,7 @@ class _Lane extends StatelessWidget {
   final GaugeSpec spec;
   final SampleHistory history;
   final Duration window;
+  final ValueListenable<DateTime?>? edge;
   final GaugeAppearance look;
   final Map<String, double>? readings;
 
@@ -126,6 +137,7 @@ class _Lane extends StatelessWidget {
               spec: spec,
               history: history,
               window: window,
+              edge: edge,
               line: colours.normal ?? scheme.primary,
               grid: colours.track ?? scheme.outlineVariant,
               label: colours.captionOn(scheme),
@@ -226,11 +238,18 @@ class LanePainter extends CustomPainter {
     this.fill = false,
     this.alarms = AlarmMarks.none,
     this.ranges = const [],
-  }) : super(repaint: history);
+    this.edge,
+  }) : super(
+         repaint: edge == null ? history : Listenable.merge([history, edge]),
+       );
 
   final GaugeSpec spec;
   final SampleHistory history;
   final Duration window;
+
+  /// Where the window ends, while it scrolls on between samples - see
+  /// [LiveEdge]. `null`, or holding `null`: at the newest sample.
+  final ValueListenable<DateTime?>? edge;
   final Color line;
   final Color grid;
   final Color label;
@@ -264,7 +283,8 @@ class LanePainter extends CustomPainter {
   ({List<Offset?> points, ({double min, double max}) scale}) _trace() {
     final latest = history.latest;
     if (latest == null) return (points: const [], scale: _scaleFor(null, null));
-    final start = latest.timestamp.subtract(window);
+    final end = edge?.value ?? latest.timestamp;
+    final start = end.subtract(window);
     final span = window.inMicroseconds.toDouble();
 
     final times = <double>[];
@@ -272,6 +292,11 @@ class LanePainter extends CustomPainter {
     double? low;
     double? high;
     for (final sample in history.since(start)) {
+      // A window scrolling on ends a little short of the newest sample: the
+      // first one past its end is kept, for the trace to run off the edge to,
+      // and no more.
+      final past = sample.timestamp.isAfter(end);
+      if (past && times.isNotEmpty && times.last > 1) break;
       final value = sample[spec.channel];
       times.add(sample.timestamp.difference(start).inMicroseconds / span);
       values.add(value);
@@ -307,6 +332,8 @@ class LanePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    // The trace can run past the edge of a window that scrolls on.
+    canvas.clipRect(Offset.zero & size);
     final hairline = Paint()
       ..color = grid
       ..strokeWidth = 1;
@@ -432,7 +459,103 @@ class LanePainter extends CustomPainter {
       old.lineWidth != lineWidth ||
       old.fill != fill ||
       old.alarms != alarms ||
+      old.edge != edge ||
       !listEquals(old.ranges, ranges);
+}
+
+/// Where a graph's window ends while samples are coming in: run on from the
+/// newest by the time since it arrived, a sample's interval behind it - so
+/// the traces scroll smoothly rather than stepping with each sample.
+///
+/// With samples arriving evenly, the window's end reaches each one just as
+/// the next arrives, and the scroll never stops or jumps. A late sample holds
+/// the window at the newest one, and when samples stop coming, so does the
+/// scrolling - a stalled feed is not scrolled away.
+///
+/// The interval is measured from the samples themselves, so a slow link that
+/// manages less than the rate asked for still scrolls evenly. Arrival is timed
+/// by [clock], so it works whatever clock the samples' timestamps were taken
+/// by.
+@visibleForTesting
+class LiveEdge extends StatefulWidget {
+  const LiveEdge({
+    super.key,
+    required this.history,
+    required this.builder,
+    this.clock = DateTime.now,
+  });
+
+  final SampleHistory history;
+  final Widget Function(BuildContext context, ValueListenable<DateTime?> edge)
+  builder;
+  final DateTime Function() clock;
+
+  @override
+  State<LiveEdge> createState() => _LiveEdgeState();
+}
+
+class _LiveEdgeState extends State<LiveEdge>
+    with SingleTickerProviderStateMixin {
+  final _edge = ValueNotifier<DateTime?>(null);
+  late final Ticker _ticker = createTicker((_) => _advance());
+
+  DateTime? _latest;
+  DateTime? _arrived;
+  Duration _interval = const Duration(milliseconds: 33);
+
+  @override
+  void initState() {
+    super.initState();
+    widget.history.addListener(_onSample);
+  }
+
+  @override
+  void didUpdateWidget(LiveEdge old) {
+    super.didUpdateWidget(old);
+    if (old.history == widget.history) return;
+    old.history.removeListener(_onSample);
+    widget.history.addListener(_onSample);
+    _latest = null;
+    _arrived = null;
+    _edge.value = null;
+  }
+
+  @override
+  void dispose() {
+    widget.history.removeListener(_onSample);
+    _ticker.dispose();
+    _edge.dispose();
+    super.dispose();
+  }
+
+  void _onSample() {
+    final latest = widget.history.latest?.timestamp;
+    if (latest == null || latest == _latest) return;
+    if (_latest case final previous?) {
+      final gap = latest.difference(previous);
+      // A gap of a second or more is a pause, not the rate.
+      if (gap > Duration.zero && gap < const Duration(seconds: 1)) {
+        _interval = _interval * 0.8 + gap * 0.2;
+      }
+    }
+    _latest = latest;
+    _arrived = widget.clock();
+    _advance();
+    if (!_ticker.isActive) _ticker.start();
+  }
+
+  void _advance() {
+    final latest = _latest;
+    final arrived = _arrived;
+    if (latest == null || arrived == null) return;
+    final since = widget.clock().difference(arrived);
+    final lead = since < _interval ? since : _interval;
+    _edge.value = latest.add(lead - _interval);
+    if (since > _interval * 3) _ticker.stop();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(context, _edge);
 }
 
 /// [points] thinned to at most two per column of a lane [columns] pixels
