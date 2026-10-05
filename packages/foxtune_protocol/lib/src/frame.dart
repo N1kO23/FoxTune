@@ -90,7 +90,18 @@ class EcuFrameDecoder {
   /// connection. A frame claiming more than this is treated as desynchronised.
   final int maxPayloadLength;
 
-  final _buffer = BytesBuilder(copy: false);
+  /// Bytes received and not yet decoded: those from [_read] up to [_write].
+  ///
+  /// One buffer, decoded in place: frames are read where they lie, and what
+  /// is held is moved to the front - or the buffer grown - only when there is
+  /// no room after it. Rebuilding the buffer from every chunk instead, as
+  /// this once did, copied a frame over again for each piece it came in, and
+  /// rusEFI's live data comes in pieces of a kilobyte, hundreds of times a
+  /// second.
+  var _bytes = Uint8List(1024);
+  var _read = 0;
+  var _write = 0;
+
   final _controller = StreamController<EcuResponse>.broadcast();
 
   /// Decoded responses, in arrival order.
@@ -105,21 +116,39 @@ class EcuFrameDecoder {
 
   /// Feeds freshly received [bytes] into the decoder.
   void add(List<int> bytes) {
-    _buffer.add(bytes is Uint8List ? bytes : Uint8List.fromList(bytes));
+    _reserve(bytes.length);
+    _bytes.setRange(_write, _write + bytes.length, bytes);
+    _write += bytes.length;
     _drain();
   }
 
+  /// Makes room for [count] more bytes after [_write].
+  void _reserve(int count) {
+    if (_write + count <= _bytes.length) return;
+    final held = _write - _read;
+    if (held + count <= _bytes.length) {
+      // Overlapping, which setRange copes with when copying within a list.
+      _bytes.setRange(0, held, _bytes, _read);
+    } else {
+      var capacity = _bytes.length * 2;
+      while (capacity < held + count) {
+        capacity *= 2;
+      }
+      _bytes = Uint8List(capacity)..setRange(0, held, _bytes, _read);
+    }
+    _read = 0;
+    _write = held;
+  }
+
   void _drain() {
-    final data = _buffer.toBytes();
-    var consumed = 0;
+    final data = _bytes;
+    final view = ByteData.sublistView(data);
 
     while (true) {
-      final available = data.length - consumed;
+      final available = _write - _read;
       if (available < 2) break;
 
-      final length =
-          ByteData.view(data.buffer, data.offsetInBytes + consumed, 2)
-              .getUint16(0, Endian.big);
+      final length = view.getUint16(_read, Endian.big);
 
       if (length > maxPayloadLength) {
         // Unrecoverable without a resync marker, which this protocol lacks.
@@ -128,18 +157,16 @@ class EcuFrameDecoder {
         _errors.add(EcuFrameException(
             'Implausible frame length $length (max $maxPayloadLength); '
             'resynchronising'));
-        consumed += 1;
+        _read += 1;
         continue;
       }
 
       if (available < 2 + length + 4) break;
 
-      final start = consumed + 2;
+      final start = _read + 2;
       final payload = Uint8List.sublistView(data, start, start + length);
-      final expected =
-          ByteData.view(data.buffer, data.offsetInBytes + start + length, 4)
-              .getUint32(0, Endian.big);
-      consumed += 2 + length + 4;
+      final expected = view.getUint32(start + length, Endian.big);
+      _read += 2 + length + 4;
 
       if (crc32(payload) != expected) {
         _errors.add(EcuFrameException(
@@ -154,20 +181,17 @@ class EcuFrameDecoder {
       _controller.add(EcuResponse(
         code: SerialResponse.fromByte(payload[0]),
         rawCode: payload[0],
-        data: Uint8List.fromList(payload.sublist(1)),
+        // Copied once, out of a buffer about to be reused.
+        data: Uint8List.fromList(Uint8List.sublistView(payload, 1)),
       ));
     }
 
-    if (consumed > 0) {
-      final remainder = data.sublist(consumed);
-      _buffer
-        ..clear()
-        ..add(remainder);
-    }
+    // Everything decoded: start again from the front, with nothing to move.
+    if (_read == _write) _read = _write = 0;
   }
 
   /// Discards any partially received frame.
-  void reset() => _buffer.clear();
+  void reset() => _read = _write = 0;
 
   /// Releases the streams.
   Future<void> close() async {

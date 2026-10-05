@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:foxtune_protocol/foxtune_protocol.dart';
@@ -205,6 +206,58 @@ void main() {
 
       expect(seen.single.data, hasLength(251));
       expect(seen.single.data.last, 250);
+    });
+
+    test('decodes a stream however it is cut up, frames of any size and all',
+        () async {
+      // rusEFI's kilobyte replies arrive in whatever pieces the link makes of
+      // them: here, frames from one byte to past the decoder's starting
+      // buffer, one of them damaged, run together and cut at random - down
+      // to single bytes - many times over.
+      final random = math.Random(7);
+      final payloads = [
+        for (var i = 0; i < 40; i++)
+          [
+            0x00,
+            ...List<int>.generate(
+              [0, 1, 7, 250, 1023, 1024, 2100][i % 7],
+              (b) => (b * 31 + i) & 0xFF,
+            ),
+          ],
+      ];
+      final stream = <int>[];
+      for (final (i, payload) in payloads.indexed) {
+        final frame = ecuFrame(payload);
+        if (i == 13) frame[frame.length - 1] ^= 0xFF;
+        stream.addAll(frame);
+      }
+
+      for (var round = 0; round < 20; round++) {
+        final cut = EcuFrameDecoder();
+        final seen = <EcuResponse>[];
+        final errors = <EcuFrameException>[];
+        cut.responses.listen(seen.add);
+        cut.errors.listen(errors.add);
+        var at = 0;
+        while (at < stream.length) {
+          final size = random.nextInt(round.isEven ? 3 : 1500) + 1;
+          final end = math.min(at + size, stream.length);
+          cut.add(Uint8List.fromList(stream.sublist(at, end)));
+          at = end;
+        }
+        await Future<void>.delayed(Duration.zero);
+        await cut.close();
+
+        expect(errors, hasLength(1), reason: 'round $round');
+        expect(
+          [for (final r in seen) r.data],
+          [
+            for (final (i, p) in payloads.indexed)
+              if (i != 13) p.sublist(1),
+          ],
+          reason: 'round $round',
+        );
+      }
     });
   });
 }

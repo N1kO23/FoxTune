@@ -40,14 +40,20 @@ page = 1
 
 IniDocument get definition => IniParser().parse(_source);
 
-RealtimeSnapshot sampleWith({int rpm = 3000, int tps = 84, int clt = 130}) {
+RealtimeSnapshot sampleWith({
+  int rpm = 3000,
+  int tps = 84,
+  int clt = 130,
+  DateTime? at,
+}) {
   final block = Uint8List(8);
   final view = ByteData.sublistView(block);
   view.setUint8(0, 42);
   view.setUint16(1, rpm, Endian.little);
   view.setUint8(3, tps);
   view.setUint8(4, clt);
-  return RealtimeDecoder(definition.outputChannels).decode(block);
+  return RealtimeDecoder(definition.outputChannels)
+      .decode(block, timestamp: at);
 }
 
 void main() {
@@ -219,6 +225,58 @@ void main() {
       await controller.close();
 
       expect(recorder.rowCount, 3);
+    });
+
+    test('stamps each row with when its sample was taken', () async {
+      // Not when it was written: samples that reach the recorder late, behind
+      // a busy moment, keep the times the ECU read them at.
+      final recorder = LogRecorder(definition: definition);
+      final file = File('${dir.path}/times.msl');
+      final start = DateTime(2026);
+      await recorder.start(file, probe: sampleWith());
+      for (final ms in [0, 100, 250, 1000]) {
+        recorder.add(sampleWith(at: start.add(Duration(milliseconds: ms))));
+      }
+      await recorder.stop();
+
+      final times = [
+        for (final line in file.readAsLinesSync().skip(4))
+          line.split('\t').first,
+      ];
+      expect(times, ['0.000', '0.100', '0.250', '1.000']);
+    });
+
+    test('spaces rows on a steady beat when asked', () async {
+      // rusEFI at 200 a second, logged at 50: one in four, jitter and all.
+      final recorder = LogRecorder(
+        definition: definition,
+        spacing: const Duration(milliseconds: 20),
+      );
+      final file = File('${dir.path}/spaced.msl');
+      final start = DateTime(2026);
+      await recorder.start(file, probe: sampleWith());
+      for (var i = 0; i < 400; i++) {
+        final jitter = (i * 7919 % 9) * 100 - 400; // up to 0.4 ms either way
+        recorder.add(
+          sampleWith(
+            at: start.add(Duration(microseconds: i * 5000 + jitter)),
+          ),
+        );
+      }
+      await recorder.stop();
+      expect(recorder.rowCount, inInclusiveRange(99, 101));
+
+      // Slower samples than the beat are all kept.
+      final slow = LogRecorder(
+        definition: definition,
+        spacing: const Duration(milliseconds: 20),
+      );
+      await slow.start(File('${dir.path}/slow.msl'), probe: sampleWith());
+      for (var i = 0; i < 30; i++) {
+        slow.add(sampleWith(at: start.add(Duration(milliseconds: i * 33))));
+      }
+      await slow.stop();
+      expect(slow.rowCount, 30);
     });
 
     test('refuses to start twice', () async {

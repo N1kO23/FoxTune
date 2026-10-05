@@ -128,10 +128,13 @@ void main() {
         keepScreenOn: false,
         baudRate: 57600,
         delayAfterOpen: Duration.zero,
-        liveDataRate: 15,
+        liveDataRate: 200,
+        logRate: 50,
         motion: MotionSettings(transitions: false, glow: false),
       );
       expect(AppSettings.fromJson(settings.toJson()), settings);
+      expect(settings.logSpacing, const Duration(milliseconds: 20));
+      expect(const AppSettings().logSpacing, Duration.zero);
     });
 
     test('keeps the default for anything it cannot use, one at a time', () {
@@ -141,6 +144,7 @@ void main() {
           'theme': 'purple',
           'windowFrame': 'amiga',
           'motion': 'fast',
+          'logRate': -1,
           'temperature': 'kelvin',
           'keepScreenOn': 'yes',
           'downloadDefinitions': {'rusefi': false, 'speeduino': 'maybe'},
@@ -341,12 +345,26 @@ void main() {
         await tester.pump(const Duration(milliseconds: 500));
         expect(find.byType(MotionScreen), findsOneWidget);
 
-        await tester.tap(find.text('Glow'));
-        await tester.pump();
-        await tester.tap(find.text('Transitions'));
-        await tester.pump();
+        // The preview runs on, so each is scrolled to with fixed steps.
+        Future<void> flip(String title) async {
+          await tester.scrollUntilVisible(
+            find.text(title),
+            100,
+            duration: const Duration(milliseconds: 50),
+          );
+          await tester.tap(find.text(title));
+          await tester.pump();
+        }
 
-        const expected = MotionSettings(transitions: false, glow: false);
+        await flip('Glow');
+        await flip('Transitions');
+        await flip('Calm readouts');
+
+        const expected = MotionSettings(
+          transitions: false,
+          glow: false,
+          calmReadouts: false,
+        );
         expect(container.read(appSettingsProvider).motion, expected);
         final saved = File('${storage.path}/settings.json');
         expect(

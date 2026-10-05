@@ -4,9 +4,9 @@ import 'package:foxtune_protocol/foxtune_protocol.dart' show EcuFamily;
 import 'package:foxtune_tune/foxtune_tune.dart';
 
 import '../connection/connection_state.dart';
-import '../dashboard/dashboard_controller.dart';
 import '../dashboard/gauge_status.dart';
 import '../tune/burn_actions.dart';
+import '../tune/live_position.dart';
 import '../tune/table_grid.dart';
 import '../tune/tune_controller.dart';
 import 'autotune_controller.dart';
@@ -353,7 +353,7 @@ class _Body extends ConsumerStatefulWidget {
   ConsumerState<_Body> createState() => _BodyState();
 }
 
-class _BodyState extends ConsumerState<_Body> {
+class _BodyState extends ConsumerState<_Body> with LivePosition {
   CellSelection _selection = const CellSelection.single(0, 0);
   bool _showCoverage = true;
 
@@ -374,10 +374,9 @@ class _BodyState extends ConsumerState<_Body> {
       return const _Message(text: 'The VE table could not be resolved.');
     }
 
-    final live = watchWhileVisible(ref, context, realtimeProvider).value;
-    double? channel(String? name) => name == null ? null : live?[name];
-    final x = channel(table.xBins.channel);
-    final y = channel(table.yBins.channel);
+    // Rebuilt as the engine moves from cell to cell, not for every reading:
+    // the marker follows those on its own.
+    final place = followLive(view);
 
     final baseline = ref.watch(tuneBaselineProvider);
     final before = baseline == null ? null : TableView.of(baseline, table);
@@ -414,10 +413,8 @@ class _BodyState extends ConsumerState<_Body> {
               // Autotuning writes the cells; hand-editing them here as well
               // would race it for the same values.
               editable: false,
-              cursor: x == null || y == null ? null : view.cellFor(x, y),
-              preciseCursor: x == null || y == null
-                  ? null
-                  : view.preciseCellFor(x, y),
+              cursor: place?.cell,
+              preciseCursor: precise,
               changes: before == null ? const {} : view.changesAgainst(before),
               coverage: _showCoverage ? _coverage() : null,
               onSelectionChanged: (s) => setState(() => _selection = s),

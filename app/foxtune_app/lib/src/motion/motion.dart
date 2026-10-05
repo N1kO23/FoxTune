@@ -14,6 +14,7 @@ class Motion extends ThemeExtension<Motion> {
     this.transitions = false,
     this.glow = false,
     this.drift = false,
+    this.calmReadouts = false,
     this.glide = const Duration(milliseconds: 80),
   });
 
@@ -27,6 +28,7 @@ class Motion extends ThemeExtension<Motion> {
     transitions: settings.transitions,
     glow: settings.glow,
     drift: settings.glow,
+    calmReadouts: settings.calmReadouts,
     glide: glideFor(liveDataInterval),
   );
 
@@ -46,6 +48,10 @@ class Motion extends ThemeExtension<Motion> {
   /// The Grid wallpaper's glow drifts. Follows [glow], where motion is
   /// allowed.
   final bool drift;
+
+  /// Numbers stating live readings change at most ten times a second. See
+  /// `ReadoutText`.
+  final bool calmReadouts;
 
   /// How long a live value takes to reach a new reading: a little longer than
   /// the time between readings, so it is still moving when the next one comes
@@ -75,12 +81,14 @@ class Motion extends ThemeExtension<Motion> {
     bool? transitions,
     bool? glow,
     bool? drift,
+    bool? calmReadouts,
     Duration? glide,
   }) => Motion(
     liveData: liveData ?? this.liveData,
     transitions: transitions ?? this.transitions,
     glow: glow ?? this.glow,
     drift: drift ?? this.drift,
+    calmReadouts: calmReadouts ?? this.calmReadouts,
     glide: glide ?? this.glide,
   );
 
@@ -96,10 +104,12 @@ class Motion extends ThemeExtension<Motion> {
       other.transitions == transitions &&
       other.glow == glow &&
       other.drift == drift &&
+      other.calmReadouts == calmReadouts &&
       other.glide == glide;
 
   @override
-  int get hashCode => Object.hash(liveData, transitions, glow, drift, glide);
+  int get hashCode =>
+      Object.hash(liveData, transitions, glow, drift, calmReadouts, glide);
 }
 
 /// [theme] with [motion] in it, and the parts of the theme it decides: how

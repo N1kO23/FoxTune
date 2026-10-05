@@ -46,14 +46,13 @@ class GaugeView extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // At most once a frame, however fast the feed: see [liveProvider].
     watchWhileVisible(
       ref,
       context,
-      realtimeProvider.select(
-        (live) => _shown(catalog.withRealtime(live.value)),
-      ),
+      liveProvider.select((live) => _shown(catalog.withRealtime(live))),
     );
-    final live = catalog.withRealtime(ref.read(realtimeProvider).value);
+    final live = catalog.withRealtime(ref.read(liveProvider));
     final look = placement.appearance
         .over(ref.watch(appSettingsProvider.select((s) => s.gaugeAppearance)))
         .over(GaugeAppearance.builtIn);

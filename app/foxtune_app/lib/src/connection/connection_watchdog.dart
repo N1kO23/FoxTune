@@ -46,7 +46,7 @@ final connectionWatchdogProvider = Provider<void>((ref) {
   ref.onDispose(portEvents.cancel);
 
   StreamSubscription<Object>? pollErrors;
-  ref.listen<RealtimeMonitor?>(realtimeMonitorProvider, (previous, monitor) {
+  ref.listen<RealtimeSource?>(realtimeMonitorProvider, (previous, monitor) {
     unawaited(pollErrors?.cancel());
     pollErrors = monitor?.errors.listen((error) {
       if (error is! RealtimeLinkLost) return;

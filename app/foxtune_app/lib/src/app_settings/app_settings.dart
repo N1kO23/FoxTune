@@ -30,6 +30,7 @@ class AppSettings {
     this.baudRate = kSpeeduinoBaudRate,
     this.delayAfterOpen = kDelayAfterPortOpen,
     this.liveDataRate = 30,
+    this.logRate = 0,
     this.wallpaper = const Wallpaper(),
     this.mapGradient = foxTuneGradient,
     this.savedGradients = const [],
@@ -61,8 +62,12 @@ class AppSettings {
     Duration(seconds: 2),
   ];
 
-  /// The live data rates offered, in reads a second.
-  static const liveDataRates = [10, 15, 20, 30, 50];
+  /// The live data rates offered, in reads a second. The top two are for
+  /// rusEFI, which can answer that fast; a slower link manages what it can.
+  static const liveDataRates = [10, 15, 20, 30, 50, 100, 200];
+
+  /// The log rates offered, in rows a second; 0 for every sample.
+  static const logRates = [0, 100, 50, 20];
 
   final ThemeMode themeMode;
 
@@ -93,6 +98,9 @@ class AppSettings {
   /// what it can.
   final int liveDataRate;
 
+  /// How many rows a second a log keeps, at most; 0 keeps every sample.
+  final int logRate;
+
   /// What is drawn behind the main screen.
   final Wallpaper wallpaper;
 
@@ -109,6 +117,12 @@ class AppSettings {
   /// Which animations and effects are wanted. See [MotionSettings].
   final MotionSettings motion;
 
+  /// The least time between log rows [logRate] asks for; zero for every
+  /// sample.
+  Duration get logSpacing => logRate == 0
+      ? Duration.zero
+      : Duration(microseconds: Duration.microsecondsPerSecond ~/ logRate);
+
   /// The time between live data reads [liveDataRate] asks for.
   Duration get liveDataInterval =>
       Duration(microseconds: Duration.microsecondsPerSecond ~/ liveDataRate);
@@ -122,6 +136,7 @@ class AppSettings {
     int? baudRate,
     Duration? delayAfterOpen,
     int? liveDataRate,
+    int? logRate,
     Wallpaper? wallpaper,
     MapGradient? mapGradient,
     List<MapGradient>? savedGradients,
@@ -137,6 +152,7 @@ class AppSettings {
     baudRate: baudRate ?? this.baudRate,
     delayAfterOpen: delayAfterOpen ?? this.delayAfterOpen,
     liveDataRate: liveDataRate ?? this.liveDataRate,
+    logRate: logRate ?? this.logRate,
     wallpaper: wallpaper ?? this.wallpaper,
     mapGradient: mapGradient ?? this.mapGradient,
     savedGradients: savedGradients ?? this.savedGradients,
@@ -166,6 +182,7 @@ class AppSettings {
     'baudRate': baudRate,
     'delayAfterOpenMs': delayAfterOpen.inMilliseconds,
     'liveDataRate': liveDataRate,
+    'logRate': logRate,
     'wallpaper': wallpaper.toJson(),
     'mapGradient': mapGradient.toJson(),
     'savedGradients': [for (final saved in savedGradients) saved.toJson()],
@@ -209,7 +226,8 @@ class AppSettings {
           ? defaults.delayAfterOpen
           : Duration(milliseconds: delayMs),
       liveDataRate:
-          within(json['liveDataRate'], 1, 100) ?? defaults.liveDataRate,
+          within(json['liveDataRate'], 1, 1000) ?? defaults.liveDataRate,
+      logRate: within(json['logRate'], 0, 1000) ?? defaults.logRate,
       wallpaper: json.containsKey('wallpaper')
           ? Wallpaper.fromJson(json['wallpaper'])
           : defaults.wallpaper,
@@ -238,6 +256,7 @@ class AppSettings {
       other.baudRate == baudRate &&
       other.delayAfterOpen == delayAfterOpen &&
       other.liveDataRate == liveDataRate &&
+      other.logRate == logRate &&
       other.wallpaper == wallpaper &&
       other.mapGradient == mapGradient &&
       listEquals(other.savedGradients, savedGradients) &&
@@ -254,6 +273,7 @@ class AppSettings {
     baudRate,
     delayAfterOpen,
     liveDataRate,
+    logRate,
     wallpaper,
     mapGradient,
     Object.hashAll(savedGradients),

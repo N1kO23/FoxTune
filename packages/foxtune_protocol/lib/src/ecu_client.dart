@@ -1,10 +1,10 @@
 import 'dart:async';
-import 'dart:collection';
 import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:foxtune_ini/foxtune_ini.dart';
 
+import 'command_runner.dart';
 import 'command_set.dart';
 import 'ecu_link.dart';
 import 'frame.dart';
@@ -64,26 +64,28 @@ class EcuIdentification {
 /// exactly one command may be outstanding at a time. Callers need not care:
 /// concurrent calls are queued and issued in order.
 class EcuClient {
+  /// A client over [link], running its commands on this isolate.
   EcuClient(
-    this._link, {
-    this.timeout = const Duration(milliseconds: 1000),
-    this.maxRetries = 3,
-    this.canId = 0,
+    EcuLink link, {
+    Duration timeout = const Duration(milliseconds: 1000),
+    int maxRetries = 3,
+    int canId = 0,
     EcuCommandSet? commands,
     EcuFrameDecoder? decoder,
-  })  : commands = commands ?? EcuCommandSet.speeduino(canId: canId),
-        _decoder = decoder ?? EcuFrameDecoder() {
-    _linkSubscription = _link.incoming.listen(
-      _decoder.add,
-      onError: _failPending,
-    );
-    _responseSubscription = _decoder.responses.listen(_completePending);
-    _errorSubscription = _decoder.errors.listen((e) {
-      // A CRC failure means the reply is gone. Let the command time out and
-      // be retried rather than resolving it with bad data.
-      _frameErrors.add(e);
-    });
-  }
+  }) : this.withRunner(
+          LinkCommandRunner(link, maxRetries: maxRetries, decoder: decoder),
+          timeout: timeout,
+          canId: canId,
+          commands: commands,
+        );
+
+  /// A client whose commands [runner] carries out - on another isolate, say.
+  EcuClient.withRunner(
+    this._runner, {
+    this.timeout = const Duration(milliseconds: 1000),
+    this.canId = 0,
+    EcuCommandSet? commands,
+  }) : commands = commands ?? EcuCommandSet.speeduino(canId: canId);
 
   /// How pages and live data are addressed. Set once the definition for this
   /// ECU is known - see [useDefinition].
@@ -97,31 +99,19 @@ class EcuClient {
     if (declared != null && declared > timeout) timeout = declared;
   }
 
-  final EcuLink _link;
-  final EcuFrameDecoder _decoder;
+  final EcuCommandRunner _runner;
 
   /// How long to wait for a reply before giving up on a command.
   Duration timeout;
 
-  /// How many times a [SerialResponse.busy] reply is retried.
-  final int maxRetries;
-
   /// CAN id this ECU answers on. Substituted for `$tsCanId` in templates.
   final int canId;
 
-  late final StreamSubscription<List<int>> _linkSubscription;
-  late final StreamSubscription<EcuResponse> _responseSubscription;
-  late final StreamSubscription<EcuFrameException> _errorSubscription;
-
-  final _queue = Queue<_PendingRequest>();
-  final _frameErrors = <EcuFrameException>[];
-  _PendingRequest? _inFlight;
   bool _closed = false;
 
   /// Frame-level failures observed since the last command completed. Useful
   /// for reporting link quality rather than for control flow.
-  List<EcuFrameException> get recentFrameErrors =>
-      List.unmodifiable(_frameErrors);
+  List<EcuFrameException> get recentFrameErrors => _runner.recentFrameErrors;
 
   // --- Public commands -----------------------------------------------------
 
@@ -295,15 +285,7 @@ class EcuClient {
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
-    for (final pending in [..._queue, if (_inFlight != null) _inFlight!]) {
-      pending.fail(EcuProtocolException('Client closed'));
-    }
-    _queue.clear();
-    _inFlight = null;
-    await _linkSubscription.cancel();
-    await _responseSubscription.cancel();
-    await _errorSubscription.cancel();
-    await _decoder.close();
+    await _runner.close();
   }
 
   // --- Request plumbing ----------------------------------------------------
@@ -312,86 +294,7 @@ class EcuClient {
     if (_closed) {
       return Future.error(EcuProtocolException('Client is closed'));
     }
-    final request = _PendingRequest(payload, timeout: timeout);
-    _queue.add(request);
-    _pump();
-    return request.future;
-  }
-
-  void _pump() {
-    if (_inFlight != null || _queue.isEmpty || _closed) return;
-    final request = _queue.removeFirst();
-    _inFlight = request;
-    _frameErrors.clear();
-    _dispatch(request);
-  }
-
-  void _dispatch(_PendingRequest request) {
-    _decoder.reset();
-
-    try {
-      _link.send(EcuFrame.encode(request.payload));
-    } on Object catch (error) {
-      // A dead link throws synchronously from send(). Clearing _inFlight here
-      // is essential: leaving it set would wedge the client permanently, with
-      // every later command queued behind a request that can never complete.
-      _inFlight = null;
-      request.fail(EcuProtocolException('Link write failed: $error'));
-      _pump();
-      return;
-    }
-
-    final wait = request.timeout ?? timeout;
-    request.timer = Timer(wait, () {
-      if (!identical(_inFlight, request)) return;
-      _inFlight = null;
-      request.fail(EcuProtocolException(
-          'Timed out after ${wait.inMilliseconds}ms waiting for a reply'
-          '${_frameErrors.isEmpty ? '' : ' (${_frameErrors.length} bad frame(s))'}',
-          response: SerialResponse.timeout));
-      _pump();
-    });
-  }
-
-  void _completePending(EcuResponse response) {
-    final request = _inFlight;
-    if (request == null) return;
-
-    if (response.code?.isRetryable ?? false) {
-      if (request.attempts < maxRetries) {
-        request.attempts++;
-        request.timer?.cancel();
-        _dispatch(request);
-        return;
-      }
-      _inFlight = null;
-      request.fail(EcuProtocolException(
-          'ECU stayed busy after ${request.attempts + 1} attempts',
-          response: response.code));
-      _pump();
-      return;
-    }
-
-    _inFlight = null;
-    request.timer?.cancel();
-
-    if (!response.isOk) {
-      request.fail(EcuProtocolException(
-          'ECU rejected the command'
-          '${response.code == null ? ' with unknown code 0x${response.rawCode.toRadixString(16)}' : ''}',
-          response: response.code));
-    } else {
-      request.complete(response.data);
-    }
-    _pump();
-  }
-
-  void _failPending(Object error, StackTrace stack) {
-    final request = _inFlight;
-    _inFlight = null;
-    request?.timer?.cancel();
-    request?.fail(EcuProtocolException('Link failure: $error'));
-    _pump();
+    return _runner.run(payload, timeout: timeout ?? this.timeout);
   }
 
   static String _asciiOf(Uint8List bytes) {
@@ -400,30 +303,5 @@ class EcuClient {
     final end = bytes.indexOf(0);
     final slice = end < 0 ? bytes : bytes.sublist(0, end);
     return ascii.decode(slice, allowInvalid: true).trim();
-  }
-}
-
-class _PendingRequest {
-  _PendingRequest(this.payload, {this.timeout});
-
-  final List<int> payload;
-
-  /// How long to wait for this one's reply, where not the client's usual.
-  final Duration? timeout;
-  final _completer = Completer<Uint8List>();
-
-  Timer? timer;
-  int attempts = 0;
-
-  Future<Uint8List> get future => _completer.future;
-
-  void complete(Uint8List data) {
-    timer?.cancel();
-    if (!_completer.isCompleted) _completer.complete(data);
-  }
-
-  void fail(Object error) {
-    timer?.cancel();
-    if (!_completer.isCompleted) _completer.completeError(error);
   }
 }

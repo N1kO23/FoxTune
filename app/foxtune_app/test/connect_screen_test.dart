@@ -289,8 +289,16 @@ void main() {
       await tester.pump(const Duration(seconds: 1));
 
       final block = Uint8List(doc.outputChannels.blockSize!);
+      final start = DateTime.now();
       for (var i = 0; i < 3; i++) {
-        feed.add(RealtimeDecoder(doc.outputChannels).decode(block));
+        // Far enough apart to be kept: the history holds at most fifty a
+        // second.
+        feed.add(
+          RealtimeDecoder(doc.outputChannels).decode(
+            block,
+            timestamp: start.add(Duration(milliseconds: 100 * i)),
+          ),
+        );
         await tester.pump();
       }
 

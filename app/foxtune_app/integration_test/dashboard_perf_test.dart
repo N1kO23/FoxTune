@@ -4,14 +4,22 @@
 //     --driver=test_driver/perf_driver.dart \
 //     --target=integration_test/dashboard_perf_test.dart
 //
-// The summary lands in build/integration_response_data.json. It draws a real
-// user's layout (fixtures/speeduino_dashboard.dart) from a synthetic 30 Hz
-// feed, with the whole connected shell up - the other tabs included, since
-// what they do while hidden is part of what the dashboard costs.
+// The summary lands in build/integration_response_data.json. By default it
+// draws a real user's layout (fixtures/speeduino_dashboard.dart) from a
+// synthetic 30 Hz Speeduino feed, with the whole connected shell up - the
+// other tabs included, since what they do while hidden is part of what the
+// dashboard costs.
+//
+// --dart-define=FOXTUNE_FEED=rusefi200 draws rusEFI instead - its definition
+// from the repository's test fixtures, its default layout, and its simulated
+// engine reporting 200 times a second: the rate rusEFI can reach. And
+// speeduino200 draws the Speeduino layout at 200 Hz - not a rate a Speeduino
+// reaches, but a full dashboard at the rate rusEFI's can.
 //
 // It runs with the app's default motion and effects - all on. Add
 // --dart-define=FOXTUNE_STILL=true to measure with them all off, to see what
 // they cost.
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -32,6 +40,7 @@ import 'package:foxtune_app/src/storage/json_store.dart';
 import 'package:foxtune_app/src/tune/tune_controller.dart';
 import 'package:foxtune_ini/foxtune_ini.dart';
 import 'package:foxtune_protocol/foxtune_protocol.dart';
+import 'package:foxtune_protocol/testing.dart';
 import 'package:foxtune_transport/foxtune_transport.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
 import 'package:integration_test/integration_test.dart';
@@ -44,27 +53,51 @@ const _measured = Duration(seconds: 15);
 /// Whether to measure with every animation and effect off.
 const _still = bool.fromEnvironment('FOXTUNE_STILL');
 
+/// Which ECU, and how fast: `speeduino30`, `speeduino200` or `rusefi200`.
+const _feedName = String.fromEnvironment(
+  'FOXTUNE_FEED',
+  defaultValue: 'speeduino30',
+);
+
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   // Draw every frame the app asks for, as it would outside a test.
   binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
 
   testWidgets('dashboard frame times', (tester) async {
-    final doc = IniParser(defined: {'CELSIUS'})
-        .parse(await rootBundle.loadString('assets/speeduino.ini'));
-
     final storage = Directory.systemTemp.createTempSync('foxtune_perf');
     addTearDown(() => storage.deleteSync(recursive: true));
-    File('${storage.path}/FoxTune/dashboards/speeduino.json')
-      ..createSync(recursive: true)
-      ..writeAsStringSync(speeduinoDashboard);
 
-    final feed = _SyntheticFeed(doc);
+    final _Feed feed;
+    if (_feedName == 'rusefi200') {
+      feed = _RusEfiFeed(
+        IniParser().parse(
+          [
+            File('../../packages/foxtune_ini/test/fixtures/rusefi_uaefi.ini'),
+            File('packages/foxtune_ini/test/fixtures/rusefi_uaefi.ini'),
+          ].firstWhere((f) => f.existsSync()).readAsStringSync(),
+        ),
+      );
+      // No saved layout: the definition's default, as a new user sees it.
+    } else {
+      feed = _SpeeduinoFeed(
+        IniParser(defined: {'CELSIUS'})
+            .parse(await rootBundle.loadString('assets/speeduino.ini')),
+        interval: _feedName == 'speeduino200'
+            ? const Duration(milliseconds: 5)
+            : const Duration(milliseconds: 33),
+      );
+      File('${storage.path}/FoxTune/dashboards/speeduino.json')
+        ..createSync(recursive: true)
+        ..writeAsStringSync(speeduinoDashboard);
+    }
+    final doc = feed.doc;
+
     final connected = EcuConnected(
       port: const EcuPort(address: '/dev/ttyACM0'),
       identification: EcuIdentification(
         signature: doc.identity.signature!,
-        version: 'Speeduino benchmark',
+        version: '$_feedName benchmark',
       ),
       signatureStatus: SignatureStatus.matched,
       expectedSignature: doc.identity.signature,
@@ -89,7 +122,7 @@ void main() {
           // Graphs at their worst: the full two minutes of history already
           // held, as after a while connected.
           sampleHistoryProvider.overrideWith((ref) {
-            final history = SampleHistory();
+            final history = SampleHistory.forDashboard();
             feed.backfill(history.span).forEach(history.add);
             ref.listen<AsyncValue<RealtimeSnapshot>>(realtimeProvider, (
               previous,
@@ -109,8 +142,17 @@ void main() {
     await Future<void>.delayed(const Duration(seconds: 3));
     expect(find.byType(NavigationBar), findsOneWidget);
 
+    // What two minutes of graph history holds onto.
+    final history = ProviderScope.containerOf(
+      tester.element(find.byType(NavigationBar)),
+    ).read(sampleHistoryProvider);
+    (binding.reportData ??= {})['history'] = {
+      'samples': history.length,
+      'bytes': history.samples.fold<int>(0, (sum, s) => sum + s.block.length),
+    };
+
     await binding.watchPerformance(
-      () => Future<void>.delayed(_measured),
+      () => _probeLatency(binding, 'dashboard_tab_latency'),
       reportKey: 'dashboard_tab',
     );
 
@@ -123,25 +165,104 @@ void main() {
     );
     await Future<void>.delayed(const Duration(seconds: 2));
     await binding.watchPerformance(
-      () => Future<void>.delayed(_measured),
+      () => _probeLatency(binding, 'tables_tab_latency'),
       reportKey: 'tables_tab',
     );
   });
 }
 
-/// A running engine, as a stream of realtime blocks.
+/// Waits out a measurement while timing how late a 2 ms timer fires - how
+/// long the UI isolate was busy with something else, frames and live data
+/// alike. That is the time a poll loop sharing the isolate would have waited.
+Future<void> _probeLatency(
+  IntegrationTestWidgetsFlutterBinding binding,
+  String key,
+) async {
+  const period = Duration(milliseconds: 2);
+  final clock = Stopwatch()..start();
+  final lateness = <int>[];
+  var expected = period.inMicroseconds;
+  final timer = Timer.periodic(period, (_) {
+    final now = clock.elapsedMicroseconds;
+    lateness.add(now - expected);
+    expected = now + period.inMicroseconds;
+  });
+  await Future<void>.delayed(_measured);
+  timer.cancel();
+  lateness.sort();
+  int at(double q) => lateness[((lateness.length - 1) * q).round()];
+  (binding.reportData ??= {})[key] = {
+    'average_ms': lateness.reduce((a, b) => a + b) / lateness.length / 1000,
+    'p99_ms': at(0.99) / 1000,
+    'worst_ms': lateness.last / 1000,
+  };
+}
+
+/// A running engine, as a stream of realtime samples.
+abstract class _Feed {
+  IniDocument get doc;
+
+  /// The time between samples.
+  Duration get interval;
+
+  RealtimeSnapshot at(DateTime time);
+
+  /// Samples covering [span] up to now, oldest first.
+  Iterable<RealtimeSnapshot> backfill(Duration span) sync* {
+    final now = DateTime.now();
+    final count = span.inMicroseconds ~/ interval.inMicroseconds;
+    for (var i = count; i > 0; i--) {
+      yield at(now.subtract(interval * i));
+    }
+  }
+
+  Stream<RealtimeSnapshot> live() =>
+      Stream.periodic(interval, (_) => at(DateTime.now()));
+}
+
+/// rusEFI at the rate it can report: its simulated engine, sampled 200 times
+/// a second.
+class _RusEfiFeed extends _Feed {
+  _RusEfiFeed(this.doc)
+    : _ecu = FakeRusEfi.fromDefinition(doc),
+      _decoder = RealtimeDecoder(doc.outputChannels);
+
+  @override
+  final IniDocument doc;
+  final FakeRusEfi _ecu;
+  final RealtimeDecoder _decoder;
+  final _engine = EngineSimulation();
+
+  @override
+  Duration get interval => const Duration(milliseconds: 5);
+
+  @override
+  RealtimeSnapshot at(DateTime time) {
+    _ecu.writeEngineSample(
+      _engine,
+      _engine.conditionsAt(time.microsecondsSinceEpoch / 1e6),
+    );
+    return _decoder.decode(Uint8List.fromList(_ecu.realtime), timestamp: time);
+  }
+}
+
+/// Speeduino, at its usual rate unless told otherwise.
 ///
 /// The continuous channels move all the time, as they do on a real engine;
 /// the status bits change every few seconds, so most lamps hold steady from
 /// one sample to the next - as they do on a real engine too.
-class _SyntheticFeed {
-  _SyntheticFeed(this.doc) : _decoder = RealtimeDecoder(doc.outputChannels);
+class _SpeeduinoFeed extends _Feed {
+  _SpeeduinoFeed(this.doc, {required this.interval})
+    : _decoder = RealtimeDecoder(doc.outputChannels);
 
+  @override
   final IniDocument doc;
   final RealtimeDecoder _decoder;
 
-  static const _interval = Duration(milliseconds: 33);
+  @override
+  final Duration interval;
 
+  @override
   RealtimeSnapshot at(DateTime time) {
     final channels = doc.outputChannels;
     final block = Uint8List(channels.blockSize!);
@@ -191,18 +312,6 @@ class _SyntheticFeed {
     set('secl', t % 256);
     return _decoder.decode(block, timestamp: time);
   }
-
-  /// Samples covering [span] up to now, oldest first.
-  Iterable<RealtimeSnapshot> backfill(Duration span) sync* {
-    final now = DateTime.now();
-    final count = span.inMicroseconds ~/ _interval.inMicroseconds;
-    for (var i = count; i > 0; i--) {
-      yield at(now.subtract(_interval * i));
-    }
-  }
-
-  Stream<RealtimeSnapshot> live() =>
-      Stream.periodic(_interval, (_) => at(DateTime.now()));
 }
 
 class _Connected extends ConnectionController {

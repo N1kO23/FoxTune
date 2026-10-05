@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
@@ -179,7 +180,11 @@ class TableGrid extends StatefulWidget {
   /// The snapped cell says which cell is in play; this says whereabouts inside
   /// it - the difference between "you are in this cell" and "you are at its
   /// top-left corner, about to cross into the next one".
-  final ({double row, double column})? preciseCursor;
+  ///
+  /// A listenable rather than a value: it moves with every reading, and the
+  /// overlay follows it alone - the cells are rebuilt only when [cursor] or
+  /// [contributing] change, as the engine moves from one cell to the next.
+  final ValueListenable<({double row, double column})?>? preciseCursor;
 
   /// Whether cells may be changed.
   final bool editable;
@@ -471,31 +476,36 @@ class _TableGridState extends State<TableGrid> {
                   // Purely decorative, and it sits over the cells - it must
                   // never intercept a tap meant for the cell underneath.
                   child: IgnorePointer(
-                    // The dot glides at the pace of the readings; the ring
-                    // steps from cell to cell, eased.
-                    child: GlidingValue<Offset>(
-                      value: Offset(overlay.column, overlay.row),
-                      builder: (context, at, _) => GlidingValue<Offset>(
-                        value: cursor == null
-                            ? Offset.zero
-                            : Offset(
-                                cursor.column.toDouble(),
-                                cursor.row.toDouble(),
+                    child: ValueListenableBuilder(
+                      valueListenable: overlay,
+                      builder: (context, precise, _) => precise == null
+                          ? const SizedBox.shrink()
+                          // The dot glides at the pace of the readings; the
+                          // ring steps from cell to cell, eased.
+                          : GlidingValue<Offset>(
+                              value: Offset(precise.column, precise.row),
+                              builder: (context, at, _) => GlidingValue<Offset>(
+                                value: cursor == null
+                                    ? Offset.zero
+                                    : Offset(
+                                        cursor.column.toDouble(),
+                                        cursor.row.toDouble(),
+                                      ),
+                                duration: const Duration(milliseconds: 120),
+                                curve: Curves.easeOut,
+                                builder: (context, ringAt, _) => CustomPaint(
+                                  painter: _PrecisePositionPainter(
+                                    row: at.dy,
+                                    column: at.dx,
+                                    ring: ringGlides ? ringAt : null,
+                                    rows: view.rows,
+                                    color: theme.colorScheme.tertiary,
+                                    haloColor: theme.colorScheme.surface,
+                                    glow: motion.glow,
+                                  ),
+                                ),
                               ),
-                        duration: const Duration(milliseconds: 120),
-                        curve: Curves.easeOut,
-                        builder: (context, ringAt, _) => CustomPaint(
-                          painter: _PrecisePositionPainter(
-                            row: at.dy,
-                            column: at.dx,
-                            ring: ringGlides ? ringAt : null,
-                            rows: view.rows,
-                            color: theme.colorScheme.tertiary,
-                            haloColor: theme.colorScheme.surface,
-                            glow: motion.glow,
-                          ),
-                        ),
-                      ),
+                            ),
                     ),
                   ),
                 ),

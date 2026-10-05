@@ -6,6 +6,7 @@
 /// no hardware attached.
 library;
 
+export 'src/command_runner.dart';
 export 'src/command_set.dart';
 export 'src/crc32.dart';
 export 'src/ecu_client.dart';
@@ -13,6 +14,7 @@ export 'src/ecu_link.dart';
 export 'src/frame.dart';
 export 'src/realtime_decoder.dart';
 export 'src/realtime_monitor.dart';
+export 'src/realtime_source.dart';
 export 'src/response_code.dart';
 export 'src/sensor_tables.dart';
 export 'src/speeduino_constants.dart';

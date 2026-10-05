@@ -12,7 +12,7 @@ import 'ecu_transport.dart';
 ///
 /// There is nothing to enumerate: the user supplies an address, so
 /// [listPorts] returns empty and [open] takes `host:port`.
-class TcpEcuTransport implements EcuTransport {
+class TcpEcuTransport implements IsolateTransport {
   const TcpEcuTransport({this.defaultPort = 2000});
 
   /// Port assumed when an address omits one.
@@ -54,6 +54,16 @@ class TcpEcuTransport implements EcuTransport {
   /// Splits `host:port`, falling back to [fallbackPort].
   ///
   /// Handles bracketed IPv6 literals, where the colons are part of the host.
+  @override
+  LinkOpener openerFor(
+    EcuPort port, {
+    required int baudRate,
+    required Duration delayAfterOpen,
+  }) {
+    final (host, tcpPort) = parseAddress(port.address, defaultPort);
+    return _TcpOpener(port, host, tcpPort);
+  }
+
   static (String host, int port) parseAddress(
       String address, int fallbackPort) {
     final trimmed = address.trim();
@@ -79,5 +89,27 @@ class TcpEcuTransport implements EcuTransport {
     final port = int.tryParse(trimmed.substring(colon + 1));
     if (port == null) return (trimmed, fallbackPort);
     return (trimmed.substring(0, colon), port);
+  }
+}
+
+/// Connects to a bridge on an `EcuWorker`'s isolate, failing as
+/// [TcpEcuTransport.open] does.
+class _TcpOpener implements LinkOpener {
+  const _TcpOpener(this.port, this.host, this.tcpPort);
+
+  final EcuPort port;
+  final String host;
+  final int tcpPort;
+
+  @override
+  Future<EcuLink> open() async {
+    try {
+      return await SocketEcuLink.connect(host, tcpPort);
+    } on Object catch (error) {
+      throw EcuTransportException(
+        'Could not reach $host:$tcpPort - $error',
+        port: port,
+      );
+    }
   }
 }

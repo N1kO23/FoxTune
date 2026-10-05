@@ -4,6 +4,7 @@ import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../motion/motion.dart';
+import '../motion/readout_text.dart';
 import 'dashboard_controller.dart';
 import 'gauge_appearance.dart';
 import 'gauge_status.dart';
@@ -184,7 +185,7 @@ class _LaneHeader extends ConsumerWidget {
       null => watchWhileVisible(
         ref,
         context,
-        realtimeProvider.select((live) => live.value?[spec.channel]),
+        liveProvider.select((live) => live?[spec.channel]),
       ),
     };
     final status = spec.statusFor(current);
@@ -209,8 +210,9 @@ class _LaneHeader extends ConsumerWidget {
           ],
           // The value sits where the line ends, in ink rather than in the
           // line's colour.
-          Text(
+          ReadoutText(
             spec.format(current),
+            maxLines: null,
             style: theme.textTheme.labelLarge?.copyWith(
               fontWeight: FontWeight.w600,
               color: colours.textOn(scheme),
@@ -281,42 +283,109 @@ class LanePainter extends CustomPainter {
 
   /// The points and the scale, from one pass over the samples in the window.
   ({List<Offset?> points, ({double min, double max}) scale}) _trace() {
-    final latest = history.latest;
-    if (latest == null) return (points: const [], scale: _scaleFor(null, null));
-    final end = edge?.value ?? latest.timestamp;
-    final start = end.subtract(window);
-    final span = window.inMicroseconds.toDouble();
+    final (:column, :first, :stop, :scale) = _window();
+    if (column == null) return (points: const [], scale: scale);
+    final points = <Offset?>[];
+    _plot(column, first, stop, scale, points.add);
+    return (points: points, scale: scale);
+  }
 
-    final times = <double>[];
-    final values = <double?>[];
+  /// The readings in view: [first] up to [stop] in [column], and the scale
+  /// they are drawn on - from the channel's column, decoded once as each
+  /// sample arrived, rather than from the samples on every frame.
+  ({
+    SampleColumn? column,
+    int first,
+    int stop,
+    ({double min, double max}) scale,
+  })
+  _window() {
+    final latest = history.latest;
+    if (latest == null) {
+      return (column: null, first: 0, stop: 0, scale: _scaleFor(null, null));
+    }
+    final column = history.column(spec.channel);
+    final end = (edge?.value ?? latest.timestamp).microsecondsSinceEpoch
+        .toDouble();
+    final first = column.indexAtOrAfter(end - window.inMicroseconds);
+    // A window scrolling on ends a little short of the newest sample: the
+    // first one past its end is kept, for the trace to run off the edge to,
+    // and no more.
+    final past = column.indexAtOrAfter(end + 1);
+    final stop = past < column.length ? past + 1 : past;
+
     double? low;
     double? high;
-    for (final sample in history.since(start)) {
-      // A window scrolling on ends a little short of the newest sample: the
-      // first one past its end is kept, for the trace to run off the edge to,
-      // and no more.
-      final past = sample.timestamp.isAfter(end);
-      if (past && times.isNotEmpty && times.last > 1) break;
-      final value = sample[spec.channel];
-      times.add(sample.timestamp.difference(start).inMicroseconds / span);
-      values.add(value);
-      if (value == null) continue;
-      if (low == null || value < low) low = value;
-      if (high == null || value > high) high = value;
+    if (!spec.hasRange) {
+      for (var i = first; i < stop; i++) {
+        final value = column.valueAt(i);
+        if (value.isNaN) continue;
+        if (low == null || value < low) low = value;
+        if (high == null || value > high) high = value;
+      }
     }
-
-    final scale = _scaleFor(low, high);
-    final (:min, :max) = scale;
     return (
-      points: [
-        for (var i = 0; i < times.length; i++)
-          if (values[i] case final value?)
-            Offset(times[i], 1 - ((value - min) / (max - min)).clamp(0.0, 1.0))
-          else
-            null,
-      ],
-      scale: scale,
+      column: column,
+      first: first,
+      stop: stop,
+      scale: _scaleFor(low, high),
     );
+  }
+
+  /// What [paint] draws in [size]: the readings in view, thinned to two a
+  /// pixel column - as [decimate] would thin [points], without making that
+  /// list first.
+  @visibleForTesting
+  List<Offset?> pointsDrawn(Size size) => _drawn(_window(), size);
+
+  List<Offset?> _drawn(
+    ({
+      SampleColumn? column,
+      int first,
+      int stop,
+      ({double min, double max}) scale,
+    })
+    inView,
+    Size size,
+  ) {
+    final (:column, :first, :stop, :scale) = inView;
+    if (column == null) return const [];
+    final columns = size.width.ceil();
+    if (columns <= 0 || stop - first <= columns * 2) {
+      final all = <Offset?>[];
+      _plot(column, first, stop, scale, all.add);
+      return all;
+    }
+    final thinned = _Decimator(columns);
+    _plot(column, first, stop, scale, thinned.add);
+    return thinned.finish();
+  }
+
+  /// Hands each reading from [first] up to [stop] to [point], as a fraction
+  /// of the lane: `null` for a gap.
+  void _plot(
+    SampleColumn column,
+    int first,
+    int stop,
+    ({double min, double max}) scale,
+    void Function(Offset? point) point,
+  ) {
+    final (:min, :max) = scale;
+    final span = window.inMicroseconds.toDouble();
+    final start =
+        (edge?.value ?? history.latest!.timestamp).microsecondsSinceEpoch -
+        window.inMicroseconds;
+    for (var i = first; i < stop; i++) {
+      final value = column.valueAt(i);
+      point(
+        value.isNaN
+            ? null
+            : Offset(
+                (column.timeAt(i) - start) / span,
+                1 - ((value - min) / (max - min)).clamp(0.0, 1.0),
+              ),
+      );
+    }
   }
 
   ({double min, double max}) _scaleFor(double? low, double? high) {
@@ -347,8 +416,9 @@ class LanePainter extends CustomPainter {
 
     _paintAlarms(canvas, size);
 
-    final (:points, :scale) = _trace();
-    final (:min, :max) = scale;
+    final inView = _window();
+    final drawn = _drawn(inView, size);
+    final (:min, :max) = inView.scale;
     _label(canvas, spec.formatLabel(max), const Offset(2, 1));
     _label(
       canvas,
@@ -381,7 +451,7 @@ class LanePainter extends CustomPainter {
       path = null;
     }
 
-    for (final point in decimate(points, size.width.ceil())) {
+    for (final point in drawn) {
       if (point == null) {
         finish();
         continue;
@@ -568,44 +638,62 @@ class _LiveEdgeState extends State<LiveEdge>
 @visibleForTesting
 List<Offset?> decimate(List<Offset?> points, int columns) {
   if (columns <= 0 || points.length <= columns * 2) return points;
+  final thinned = _Decimator(columns);
+  points.forEach(thinned.add);
+  return thinned.finish();
+}
 
-  final result = <Offset?>[];
-  int? column;
-  Offset? top;
-  Offset? bottom;
-  var topAt = 0;
-  var bottomAt = 0;
+/// [decimate], a point at a time - so a lane can thin its readings as it
+/// plots them, without a list of every one first.
+class _Decimator {
+  _Decimator(this.columns);
 
-  void flush() {
-    final (first, second) = topAt <= bottomAt ? (top, bottom) : (bottom, top);
-    if (first != null) result.add(first);
-    if (second != null && !identical(second, first)) result.add(second);
-    top = null;
-    bottom = null;
-  }
+  final int columns;
+  final _result = <Offset?>[];
 
-  for (var i = 0; i < points.length; i++) {
-    final point = points[i];
+  int? _column;
+  Offset? _top;
+  Offset? _bottom;
+  var _topAt = 0;
+  var _bottomAt = 0;
+  var _index = 0;
+
+  void add(Offset? point) {
+    final index = _index++;
     if (point == null) {
-      flush();
-      column = null;
-      if (result.isNotEmpty && result.last != null) result.add(null);
-      continue;
+      _flush();
+      _column = null;
+      if (_result.isNotEmpty && _result.last != null) _result.add(null);
+      return;
     }
     final at = (point.dx * columns).floor().clamp(0, columns - 1);
-    if (at != column) {
-      flush();
-      column = at;
+    if (at != _column) {
+      _flush();
+      _column = at;
     }
-    if (top == null || point.dy < top!.dy) {
-      top = point;
-      topAt = i;
+    if (_top == null || point.dy < _top!.dy) {
+      _top = point;
+      _topAt = index;
     }
-    if (bottom == null || point.dy > bottom!.dy) {
-      bottom = point;
-      bottomAt = i;
+    if (_bottom == null || point.dy > _bottom!.dy) {
+      _bottom = point;
+      _bottomAt = index;
     }
   }
-  flush();
-  return result;
+
+  void _flush() {
+    final (first, second) = _topAt <= _bottomAt
+        ? (_top, _bottom)
+        : (_bottom, _top);
+    if (first != null) _result.add(first);
+    if (second != null && !identical(second, first)) _result.add(second);
+    _top = null;
+    _bottom = null;
+  }
+
+  /// The points kept, once every point has been added.
+  List<Offset?> finish() {
+    _flush();
+    return _result;
+  }
 }

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:foxtune_tune/foxtune_tune.dart';
 
+import '../motion/readout_text.dart';
+
 /// Shows where the engine is currently operating on the open table.
 ///
 /// The grid rings the live cell, but on a 16x16 table that cell is often
@@ -68,14 +70,23 @@ class CursorReadout extends StatelessWidget {
         Icon(Icons.my_location, size: 15, color: scheme.tertiary),
         const SizedBox(width: 8),
         Text('Operating at ', style: label),
-        Text('${x!.toStringAsFixed(0)} ${view.xUnits}', style: figure),
+        ReadoutText(
+          '${x!.toStringAsFixed(0)} ${view.xUnits}',
+          maxLines: null,
+          style: figure,
+        ),
         Text(' · ', style: label),
-        Text('${y!.toStringAsFixed(0)} ${view.yUnits}', style: figure),
+        ReadoutText(
+          '${y!.toStringAsFixed(0)} ${view.yUnits}',
+          maxLines: null,
+          style: figure,
+        ),
         Text('  →  ', style: label),
-        Text(
+        ReadoutText(
           value == null
               ? '--'
               : '${value.toStringAsFixed(view.zDecimals)} ${view.zUnits}',
+          maxLines: null,
           style: figure?.copyWith(color: scheme.tertiary),
         ),
         Text('   cell R${cell.row + 1} C${cell.column + 1}', style: label),

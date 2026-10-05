@@ -72,7 +72,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         final scope = SettingsScope(
           tune: tune,
           resolver: resolver,
-          realtime: watchWhileVisible(ref, context, realtimeProvider).value,
+          // Ten times a second at most: forms state live values in words,
+          // which nobody reads faster.
+          realtime: watchWhileVisible(ref, context, calmLiveProvider),
         );
 
         final permission = ref.watch(editPermissionProvider);
@@ -441,7 +443,7 @@ class SettingDetail extends ConsumerWidget {
     final scope = SettingsScope(
       tune: tune,
       resolver: resolver,
-      realtime: watchWhileVisible(ref, context, realtimeProvider).value,
+      realtime: watchWhileVisible(ref, context, calmLiveProvider),
     );
     final editable = ref.watch(editPermissionProvider).allowed;
     final baseline = ref.watch(tuneBaselineProvider);

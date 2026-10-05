@@ -43,12 +43,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     // Whether any sample has come, not the samples themselves: each gauge
-    // follows the feed on its own, so the page is not rebuilt 30 times a
-    // second to pass readings down.
+    // follows the feed on its own, so the page is not rebuilt with every
+    // sample to pass readings down.
     final hasData = watchWhileVisible(
       ref,
       context,
-      realtimeProvider.select((live) => live.hasValue),
+      liveProvider.select((live) => live != null),
     );
     final monitor = ref.watch(realtimeMonitorProvider);
     final layout = ref.watch(dashboardLayoutProvider);
@@ -435,15 +435,16 @@ class _Message extends StatelessWidget {
 }
 
 /// The achieved poll rate and count - the one part of the status bar that
-/// changes with every sample, so the only part rebuilt for one.
+/// changes with every sample, so the only part rebuilt for one. Ten times a
+/// second at most: a count running at 200 a second is not read any faster.
 class _PollRate extends ConsumerWidget {
   const _PollRate({required this.monitor});
 
-  final RealtimeMonitor monitor;
+  final RealtimeSource monitor;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    watchWhileVisible(ref, context, realtimeProvider);
+    watchWhileVisible(ref, context, calmLiveProvider);
     final theme = Theme.of(context);
     return Text(
       // The achieved rate, not the requested one.
@@ -465,7 +466,7 @@ class _StatusBar extends ConsumerWidget {
   });
 
   final EcuConnected connection;
-  final RealtimeMonitor? monitor;
+  final RealtimeSource? monitor;
   final bool hasData;
 
   @override

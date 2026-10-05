@@ -110,6 +110,10 @@ abstract class FakeTsEcu {
     server.listen((socket) {
       socket.setOption(SocketOption.tcpNoDelay, true);
       _clients.add(socket);
+      // A client hanging up while a reply is on its way - disconnecting
+      // mid-poll - fails the reply's write through `done`. Routine for an
+      // ECU, not an error to raise in whoever runs the simulator.
+      socket.done.then<void>((_) {}, onError: (Object _) {});
       final buffer = BytesBuilder(copy: false);
       socket.listen(
         (chunk) => _consume(socket, buffer, chunk),

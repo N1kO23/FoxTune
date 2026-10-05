@@ -433,7 +433,7 @@ void _overlayTests() {
             body: TableGrid(
               view: view,
               selection: const CellSelection.single(0, 0),
-              preciseCursor: precise,
+              preciseCursor: ValueNotifier(precise),
               onSelectionChanged: (_) {},
               onEdit: (_) {},
             ),
@@ -501,7 +501,7 @@ void _overlayTests() {
               view: table.view,
               selection: const CellSelection.single(0, 0),
               cursor: (row: 1, column: 1),
-              preciseCursor: (row: 1.2, column: 1.3),
+              preciseCursor: ValueNotifier((row: 1.2, column: 1.3)),
               onSelectionChanged: (_) {},
               onEdit: (_) {},
             ),
@@ -584,7 +584,7 @@ void _contributingTests() {
             body: TableGrid(
               view: table.view,
               selection: const CellSelection.single(5, 5),
-              preciseCursor: precise,
+              preciseCursor: ValueNotifier(precise),
               contributing: table.view
                   .contributingCells(precise.row, precise.column)
                   .toSet(),
@@ -646,7 +646,7 @@ void _contributingTests() {
               view: table.view,
               selection: const CellSelection.single(5, 5),
               cursor: (row: 0, column: 2),
-              preciseCursor: precise,
+              preciseCursor: ValueNotifier(precise),
               contributing: table.view
                   .contributingCells(precise.row, precise.column)
                   .toSet(),

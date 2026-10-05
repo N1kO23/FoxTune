@@ -10,6 +10,7 @@ import 'msq_actions.dart';
 import 'offline_tune.dart';
 import 'table_file_actions.dart';
 import 'cursor_readout.dart';
+import 'live_position.dart';
 import 'surface_view.dart';
 import 'table_grid.dart';
 import 'tune_controller.dart';
@@ -40,7 +41,8 @@ class TableEditorScreen extends ConsumerStatefulWidget {
   ConsumerState<TableEditorScreen> createState() => _TableEditorScreenState();
 }
 
-class _TableEditorScreenState extends ConsumerState<TableEditorScreen> {
+class _TableEditorScreenState extends ConsumerState<TableEditorScreen>
+    with LivePosition {
   CellSelection _selection = const CellSelection.single(0, 0);
   bool _showSurface = false;
 
@@ -72,6 +74,8 @@ class _TableEditorScreenState extends ConsumerState<TableEditorScreen> {
           );
         }
 
+        final place = followLive(view);
+
         return Column(
           children: [
             _Toolbar(
@@ -94,11 +98,24 @@ class _TableEditorScreenState extends ConsumerState<TableEditorScreen> {
                 xAscending: view.isXAxisAscending,
                 yAscending: view.isYAxisAscending,
               ),
-            CursorReadout(
-              view: view,
-              cursor: _cursorFor(view),
-              x: _channelValue(view.table.xBins.channel),
-              y: _channelValue(view.table.yBins.channel),
+            // Its own consumer: the figures change with every reading, and
+            // nothing else here needs to.
+            Consumer(
+              builder: (context, ref, _) {
+                final (x, y) = watchWhileVisible(
+                  ref,
+                  context,
+                  liveProvider.select(
+                    (live) => LivePosition.axesOf(view, live),
+                  ),
+                );
+                return CursorReadout(
+                  view: view,
+                  cursor: x == null || y == null ? null : view.cellFor(x, y),
+                  x: x,
+                  y: y,
+                );
+              },
             ),
             const Divider(height: 1),
             Expanded(
@@ -108,10 +125,25 @@ class _TableEditorScreenState extends ConsumerState<TableEditorScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (_showSurface) ...[
-                      SurfaceView(
-                        view: view,
-                        cursor: _cursorFor(view),
-                        preciseCursor: _preciseCursorFor(view),
+                      Consumer(
+                        builder: (context, ref, _) {
+                          final (x, y) = watchWhileVisible(
+                            ref,
+                            context,
+                            liveProvider.select(
+                              (live) => LivePosition.axesOf(view, live),
+                            ),
+                          );
+                          return SurfaceView(
+                            view: view,
+                            cursor: x == null || y == null
+                                ? null
+                                : view.cellFor(x, y),
+                            preciseCursor: x == null || y == null
+                                ? null
+                                : view.preciseCellFor(x, y),
+                          );
+                        },
                       ),
                       const SizedBox(height: 12),
                     ],
@@ -119,9 +151,9 @@ class _TableEditorScreenState extends ConsumerState<TableEditorScreen> {
                       view: view,
                       selection: _selection,
                       editable: permission.allowed,
-                      cursor: _cursorFor(view),
-                      preciseCursor: _preciseCursorFor(view),
-                      contributing: _contributingFor(view),
+                      cursor: place?.cell,
+                      preciseCursor: precise,
+                      contributing: LivePosition.contributingAt(view, place),
                       changes: _changesFor(view, table),
                       onSelectionChanged: (s) => setState(() => _selection = s),
                       onEdit: (edit) {
@@ -150,12 +182,6 @@ class _TableEditorScreenState extends ConsumerState<TableEditorScreen> {
     );
   }
 
-  /// A live realtime channel value, or `null` when it is unavailable.
-  double? _channelValue(String? channel) {
-    if (channel == null) return null;
-    return watchWhileVisible(ref, context, realtimeProvider).value?[channel];
-  }
-
   /// Cells this session has changed but not yet burned.
   Map<({int row, int column}), CellChange> _changesFor(
     TableView view,
@@ -165,29 +191,6 @@ class _TableEditorScreenState extends ConsumerState<TableEditorScreen> {
     if (baseline == null) return const {};
     final before = TableView.of(baseline, table);
     return before == null ? const {} : view.changesAgainst(before);
-  }
-
-  /// The cells the ECU is interpolating between right now.
-  Set<({int row, int column})> _contributingFor(TableView view) {
-    final precise = _preciseCursorFor(view);
-    if (precise == null) return const {};
-    return view.contributingCells(precise.row, precise.column).toSet();
-  }
-
-  /// The engine's exact position on the grid, for the overlay marker.
-  ({double row, double column})? _preciseCursorFor(TableView view) {
-    final x = _channelValue(view.table.xBins.channel);
-    final y = _channelValue(view.table.yBins.channel);
-    if (x == null || y == null) return null;
-    return view.preciseCellFor(x, y);
-  }
-
-  /// Where the engine is operating, from the live realtime feed.
-  ({int row, int column})? _cursorFor(TableView view) {
-    final x = _channelValue(view.table.xBins.channel);
-    final y = _channelValue(view.table.yBins.channel);
-    if (x == null || y == null) return null;
-    return view.cellFor(x, y);
   }
 }
 

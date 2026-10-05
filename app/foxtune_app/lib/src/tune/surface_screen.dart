@@ -54,7 +54,7 @@ class SurfaceScreen extends ConsumerWidget {
       );
     }
 
-    final live = watchWhileVisible(ref, context, realtimeProvider).value;
+    final live = watchWhileVisible(ref, context, liveProvider);
     double? channel(String? name) => name == null ? null : live?[name];
 
     final x = channel(table.xBins.channel);

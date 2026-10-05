@@ -98,6 +98,61 @@ void main() {
     }
   }, timeout: const Timeout(Duration(seconds: 60)));
 
+  test('records a log on a worker, rows timed as their samples were read',
+      () async {
+    final ecu = FakeSpeeduino(
+      pageSizes: doc.constants.pageSizes,
+      realtimeBlockSize: doc.outputChannels.blockSize!,
+      channels: doc.outputChannels,
+    );
+    final port = await ecu.start();
+    ecu.simulateEngine(tick: const Duration(milliseconds: 10));
+    final worker = await EcuWorker.spawn(TcpLinkOpener('127.0.0.1', port));
+    final client = EcuClient.withRunner(worker.commands)..useDefinition(doc);
+    final probe = await client.readRealtime(
+      count: doc.outputChannels.blockSize!,
+    );
+
+    final source = worker.realtime(
+      channels: doc.outputChannels,
+      decoder: RealtimeDecoder(doc.outputChannels),
+      commands: client.commands,
+      interval: const Duration(milliseconds: 10),
+    )..start();
+    final file = File('${dir.path}/worker.msl');
+    final recording = worker.startRecording(
+      MslSinkFactory(
+        definition: doc,
+        path: file.path,
+        probe: probe,
+        tune: TuneState.empty(doc),
+        // At most fifty rows a second, of the hundred read.
+        spacing: const Duration(milliseconds: 20),
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    final rows = await recording.stop();
+    await source.dispose();
+    await client.close();
+    await worker.close();
+    await ecu.stop();
+
+    final lines = file.readAsLinesSync();
+    expect(lines.length, 4 + rows);
+    expect(rows, inInclusiveRange(15, 30));
+    final labels = lines[2].split('\t');
+    final timeIndex = labels.indexOf('Time');
+    final times = [
+      for (final line in lines.skip(4))
+        double.parse(line.split('\t')[timeIndex]),
+    ];
+    expect(times.first, 0);
+    for (var i = 1; i < times.length; i++) {
+      // Fifty a second: rows about 20 ms apart, as read.
+      expect(times[i] - times[i - 1], closeTo(0.02, 0.012));
+    }
+  }, timeout: const Timeout(Duration(seconds: 60)));
+
   test('reports which channels were left out of the log', () {
     final writer = MslLogWriter.forDefinition(doc);
     // Without a probe nothing is dropped for being blank, so anything here

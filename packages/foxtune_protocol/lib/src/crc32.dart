@@ -27,8 +27,16 @@ Uint32List _buildTable() {
 /// previous call to continue a running checksum.
 int crc32(List<int> bytes, [int seed = 0]) {
   var crc = (seed ^ 0xFFFFFFFF) & 0xFFFFFFFF;
-  for (final byte in bytes) {
-    crc = _table[(crc ^ byte) & 0xFF] ^ (crc >> 8);
+  if (bytes is Uint8List) {
+    // Indexed rather than iterated: every frame is checked, a kilobyte at a
+    // time for rusEFI, and this is the loop it spends that time in.
+    for (var i = 0; i < bytes.length; i++) {
+      crc = _table[(crc ^ bytes[i]) & 0xFF] ^ (crc >> 8);
+    }
+  } else {
+    for (final byte in bytes) {
+      crc = _table[(crc ^ byte) & 0xFF] ^ (crc >> 8);
+    }
   }
   return (crc ^ 0xFFFFFFFF) & 0xFFFFFFFF;
 }

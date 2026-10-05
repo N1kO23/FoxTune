@@ -1,4 +1,5 @@
 import 'package:foxtune_protocol/foxtune_protocol.dart';
+import 'package:foxtune_protocol/io.dart' show LinkOpener;
 
 import 'platform_transport_stub.dart'
     if (dart.library.io) 'platform_transport_io.dart';
@@ -140,3 +141,21 @@ class EcuTransportException implements Exception {
       ? 'EcuTransportException: $message'
       : 'EcuTransportException: $message (${port!.address})';
 }
+
+/// A transport whose links can be opened on an `EcuWorker`'s isolate - out of
+/// reach of whatever keeps the UI's isolate busy.
+abstract interface class IsolateTransport implements EcuTransport {
+  /// How to open [port] there: whatever [EcuTransport.open] needs, as data.
+  /// Opening fails with an [EcuTransportException], as [EcuTransport.open]
+  /// does.
+  LinkOpener openerFor(
+    EcuPort port, {
+    required int baudRate,
+    required Duration delayAfterOpen,
+  });
+}
+
+/// A transport only the UI's isolate can reach, whose links an `EcuWorker`
+/// relays: Android's USB serial, whose bytes Flutter delivers to the root
+/// isolate alone.
+abstract interface class RelayedTransport implements EcuTransport {}

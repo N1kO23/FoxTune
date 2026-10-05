@@ -10,6 +10,7 @@ import '../dashboard/gauge_status.dart';
 import '../definitions/definition_library.dart';
 import '../definitions/definitions_screen.dart';
 import '../files/file_saving.dart';
+import '../logging/log_controller.dart';
 import '../storage/json_store.dart';
 import '../window/window_app_bar.dart';
 import '../window/window_controls.dart';
@@ -158,13 +159,32 @@ class AppSettingsScreen extends ConsumerWidget {
                   title: 'Live data rate',
                   explanation:
                       'How many times a second live data is read, at most. A '
-                      "slow link manages what it can; a lower rate spares a "
-                      "phone's battery.",
+                      'slow link manages what it can - Speeduino at 115200 '
+                      'baud tops out well below 100, while rusEFI over USB or '
+                      "WiFi can reach 200. A lower rate spares a phone's "
+                      'battery. The dashboard shows the rate reached.',
                   value: settings.liveDataRate,
                   choices: AppSettings.liveDataRates,
                   label: (rate) => '$rate times a second',
                   onChanged: (rate) =>
                       controller.update((s) => s.copyWith(liveDataRate: rate)),
+                ),
+                _Picked<int>(
+                  title: 'Log rate',
+                  explanation:
+                      'How many rows a second a log keeps, at most. Every '
+                      'sample keeps all that is read; fewer keeps files '
+                      "smaller - rusEFI's thousand channels logged 200 times "
+                      'a second come to over a megabyte a second.',
+                  value: settings.logRate,
+                  choices: AppSettings.logRates,
+                  label: (rate) =>
+                      rate == 0 ? 'Every sample' : '$rate a second',
+                  note: ref.watch(logSessionProvider.select((s) => s.recording))
+                      ? 'applies from the next log'
+                      : null,
+                  onChanged: (rate) =>
+                      controller.update((s) => s.copyWith(logRate: rate)),
                 ),
                 SwitchListTile(
                   title: const Text('Keep the screen on while connected'),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../motion/motion.dart';
+import '../motion/readout_text.dart';
 import 'gauge_appearance.dart';
 import 'gauge_status.dart';
 
@@ -86,8 +87,9 @@ class StatTile extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.baseline,
                 textBaseline: TextBaseline.alphabetic,
                 children: [
-                  Text(
+                  ReadoutText(
                     spec.format(value),
+                    maxLines: null,
                     style:
                         (readout.valueSize == ValueSize.large
                                 ? theme.textTheme.headlineMedium

@@ -426,14 +426,45 @@ Pushing needs an AUR account holding an SSH key, set up once:
 
 The first push creates the package, with that account as its maintainer.
 
-## Measuring dashboard performance
+## Live data at high rates
+
+rusEFI can report 200 times a second, against Speeduino's 30 or so. Two things keep that from
+dragging the app down, or the app from holding it back.
+
+**The connection runs on an isolate of its own** (`EcuWorker`, in
+`packages/foxtune_protocol/lib/src/worker/`). The link, the command queue and its timeouts, live
+data polling and datalog writing all run there, on their own event loop. A frame that takes long
+to build, or a heavy screen opening, delays nothing on it: the poll rate holds and no reading is
+missed. Live data is handed to the UI's isolate in batches, each one acknowledged before the next
+is sent, so a busy UI gets fewer, larger batches rather than a flood. Past 2 seconds of backlog
+the oldest are dropped for the UI; a datalog, written on the worker, never drops any.
+
+- **Desktop serial and TCP open on the worker**: libserialport is plain FFI, and sockets work on
+  any isolate.
+- **Android's USB serial is relayed**: Flutter delivers platform-channel messages to the root
+  isolate alone, so its bytes pass through the UI's isolate on their way to and from the worker.
+  Framing, polling and logging still happen on the worker, but a UI hitch can delay a poll on
+  this route. Reading the device by its file descriptor (usbfs through FFI) from the worker would
+  close that gap.
+- **Tests and other transports run in-process**: a transport that is neither
+  `IsolateTransport` nor `RelayedTransport`, such as a test's fake, runs on the caller's isolate
+  as before. So does any connection whose worker cannot be started.
+
+**The UI takes what it can draw.** Widgets watch `liveProvider`, which passes on the newest sample
+at most once a frame. History, autotuning and the trigger logger listen to `realtimeProvider`,
+which carries every sample. The graph history keeps at most 50 samples a second, decoded once
+into columns per channel. Calm readouts, the default, let numbers change about 10 times a second
+while needles and bars follow every reading.
+
+## Measuring performance
 
 Judge smoothness in a profile or release build, never in a plain `flutter run`: debug builds
 run Dart unoptimised, and a dashboard that is smooth in release can stutter there.
 
-To put numbers on it, a benchmark draws a real saved layout (4 time graphs, 11 gauges and
-14 lamps) from a synthetic 30 Hz feed, with the whole connected shell up, and records frame
-timings in profile mode on the desktop:
+### The dashboard
+
+A benchmark draws a dashboard from a synthetic feed, with the whole connected shell up, and
+records frame timings in profile mode on the desktop:
 
 ```sh
 cd app/foxtune_app
@@ -443,17 +474,44 @@ flutter drive --profile -d linux \
 ```
 
 It opens a window for about 40 seconds and writes the summary to
-`build/integration_response_data.json`: build (UI thread) and raster times, average and
-percentiles, once with the dashboard showing and once with it hidden behind the Tables tab. At
-30 Hz only about every other frame carries a new sample, so the 90th percentile is the figure to
-watch. Keep it well under the 16 ms a 60 Hz frame allows.
+`build/integration_response_data.json`. That covers build (UI thread) and raster times, averages
+and percentiles, once with the dashboard showing and once with it hidden behind the Tables tab.
+It also reports how late a 2 ms timer fired, which is how long the UI's isolate was kept busy by
+frames and live data alike, and how much the graph history holds. Keep the 90th percentile well
+under the 16 ms a 60 Hz frame allows.
 
-Two rules keep it low, and the benchmark shows it when either is broken:
+| `--dart-define`              | Effect                                                                  |
+| ---------------------------- | ----------------------------------------------------------------------- |
+| (none)                       | A real saved Speeduino layout (4 graphs, 11 gauges, 14 lamps) at 30 Hz |
+| `FOXTUNE_FEED=speeduino200`  | The same layout at 200 Hz: a full dashboard at rusEFI's rate            |
+| `FOXTUNE_FEED=rusefi200`     | rusEFI's default layout from the repository's fixture, at 200 Hz       |
+| `FOXTUNE_STILL=true`         | Every animation and effect off, to see what they cost                   |
 
-- **A widget showing live data watches it with `watchWhileVisible`**, not `ref.watch`. The shell
-  keeps every tab alive, so a plain watch rebuilds hidden screens 30 times a second.
-- **A dashboard gauge watches only what it shows** (`realtimeProvider.select`), so a lamp that
-  holds its state and the page around it are not rebuilt per sample.
+A few rules keep it low, and the benchmark shows it when one is broken:
+
+- **A widget showing live data watches `liveProvider` with `watchWhileVisible`**, not
+  `realtimeProvider` and not with `ref.watch`. The first passes on one sample a frame, however fast
+  they come. The second keeps hidden tabs, which the shell keeps alive, from rebuilding.
+- **It watches only what it shows** (`liveProvider.select`), so a lamp that holds its state and
+  the page around it are not rebuilt per sample.
+- **What moves with every reading is split from what does not.** The table grid takes the live
+  position as a listenable: its marker follows each reading, and its cells are rebuilt only when
+  the engine moves to another cell. Words and forms read `calmLiveProvider`, at most 10 times a
+  second.
+
+### The protocol
+
+A second benchmark polls a simulated rusEFI at 200 Hz, both on the calling isolate and on a
+worker. It runs once with that isolate idle, once with it busy 10 ms of every 16 as drawing
+frames keeps the UI's, and once with a 150 ms stall every second:
+
+```sh
+FOXTUNE_BENCH=1 dart test packages/foxtune_protocol/test/throughput_test.dart
+```
+
+On the calling isolate, frames cut the rate to about 120 Hz and every stall leaves a 150 ms hole
+in the data. On a worker, reading holds 200 Hz with no gap longer than a few milliseconds; only
+the handing over to the busy isolate waits for it.
 
 ## Dependencies
 

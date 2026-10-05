@@ -95,8 +95,13 @@ class RealtimeSnapshot {
   final Map<String, CompiledExpression?> _scaleExpressions;
   final double? Function(String name)? _constantResolver;
 
-  final Map<String, double?> _cache = {};
-  final Set<String> _resolving = {};
+  // Made on first use rather than with the snapshot: a graph's history holds
+  // thousands of samples, most of which are never asked for anything.
+  Map<String, double?>? _cache;
+  Set<String>? _resolving;
+
+  /// The block, for reading fields - made once, not once a field.
+  late final ByteData _view = ByteData.sublistView(block);
 
   /// Every channel name available, byte-backed and computed.
   Set<String> get names => _definition.allNames;
@@ -110,17 +115,19 @@ class RealtimeSnapshot {
 
   /// See [operator []].
   double? value(String name) {
-    if (_cache.containsKey(name)) return _cache[name];
+    final cache = _cache ??= {};
+    if (cache.containsKey(name)) return cache[name];
 
     // A definition could in principle define channels in terms of each other
     // circularly; refuse rather than recurse forever.
-    if (!_resolving.add(name)) return null;
+    final resolving = _resolving ??= {};
+    if (!resolving.add(name)) return null;
     try {
       final result = _compute(name);
-      _cache[name] = result;
+      cache[name] = result;
       return result;
     } finally {
-      _resolving.remove(name);
+      resolving.remove(name);
     }
   }
 
@@ -205,7 +212,7 @@ class RealtimeSnapshot {
   /// `F32` - rusEFI sends lambda, AFR and most of its channels as floats.
   num? _readRaw(int offset, IniDataType type) {
     if (offset < 0 || offset + type.bytes > block.length) return null;
-    final view = ByteData.sublistView(block);
+    final view = _view;
     // Payload data is little-endian, unlike the frame envelope.
     return switch (type) {
       IniDataType.u08 => view.getUint8(offset),

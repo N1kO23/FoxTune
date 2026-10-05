@@ -3,13 +3,14 @@ import 'dart:typed_data';
 
 import 'package:flutter_libserialport/flutter_libserialport.dart';
 import 'package:foxtune_protocol/foxtune_protocol.dart';
+import 'package:foxtune_protocol/io.dart' show LinkOpener;
 
 import 'ecu_transport.dart';
 
 /// Desktop serial transport, backed by libserialport.
 ///
 /// Covers Linux, Windows and macOS.
-class SerialPortTransport implements EcuTransport {
+class SerialPortTransport implements IsolateTransport {
   @override
   String get name => 'libserialport';
 
@@ -48,7 +49,22 @@ class SerialPortTransport implements EcuTransport {
     EcuPort port, {
     int baudRate = kSpeeduinoBaudRate,
     Duration delayAfterOpen = kDelayAfterPortOpen,
-  }) async {
+  }) =>
+      _openPort(port, baudRate, delayAfterOpen);
+
+  @override
+  LinkOpener openerFor(
+    EcuPort port, {
+    required int baudRate,
+    required Duration delayAfterOpen,
+  }) =>
+      _SerialPortOpener(port, baudRate, delayAfterOpen);
+
+  static Future<EcuLink> _openPort(
+    EcuPort port,
+    int baudRate,
+    Duration delayAfterOpen,
+  ) async {
     final serial = SerialPort(port.address);
     if (!serial.openReadWrite()) {
       serial.dispose();
@@ -86,6 +102,20 @@ class SerialPortTransport implements EcuTransport {
       return null;
     }
   }
+}
+
+/// Opens a port through libserialport on an `EcuWorker`'s isolate: plain FFI,
+/// which works on any isolate.
+class _SerialPortOpener implements LinkOpener {
+  const _SerialPortOpener(this.port, this.baudRate, this.delayAfterOpen);
+
+  final EcuPort port;
+  final int baudRate;
+  final Duration delayAfterOpen;
+
+  @override
+  Future<EcuLink> open() =>
+      SerialPortTransport._openPort(port, baudRate, delayAfterOpen);
 }
 
 class _SerialPortLink implements EcuLink {

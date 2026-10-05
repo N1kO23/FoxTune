@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'ecu_client.dart';
 import 'realtime_decoder.dart';
+import 'realtime_source.dart';
 import 'response_code.dart';
 
 /// Polls the ECU for realtime data and publishes decoded snapshots.
@@ -10,7 +11,7 @@ import 'response_code.dart';
 /// the previous one settles. Firing on a fixed timer instead would queue
 /// requests faster than a 115200-baud link can answer them, and latency would
 /// grow without bound.
-class RealtimeMonitor {
+class RealtimeMonitor implements RealtimeSource {
   RealtimeMonitor({
     required EcuClient client,
     required RealtimeDecoder decoder,
@@ -23,6 +24,7 @@ class RealtimeMonitor {
   final RealtimeDecoder _decoder;
 
   /// Target time between polls. 33ms is roughly 30 Hz.
+  @override
   final Duration interval;
 
   /// How many failures in a row before the monitor gives up and stops.
@@ -34,11 +36,15 @@ class RealtimeMonitor {
   final _snapshots = StreamController<RealtimeSnapshot>.broadcast();
   final _errors = StreamController<Object>.broadcast();
 
-  /// Decoded samples, newest last.
+  @override
   Stream<RealtimeSnapshot> get snapshots => _snapshots.stream;
 
-  /// Poll failures. Subscribing is optional; errors are not fatal on their own.
+  @override
   Stream<Object> get errors => _errors.stream;
+
+  @override
+  RealtimeSnapshot? get latest => _latest;
+  RealtimeSnapshot? _latest;
 
   bool _running = false;
   int _consecutiveErrors = 0;
@@ -47,19 +53,16 @@ class RealtimeMonitor {
   int _rateWindowCount = 0;
   double _measuredHz = 0;
 
-  /// Whether polling is active.
+  @override
   bool get isRunning => _running;
 
-  /// Total successful polls since [start].
+  @override
   int get pollCount => _pollCount;
 
-  /// Achieved poll rate, averaged over the last second.
-  ///
-  /// This is the honest number: it reflects what the link actually sustained,
-  /// which on a slow connection is well below the requested rate.
+  @override
   double get measuredHz => _measuredHz;
 
-  /// Begins polling. Does nothing if already running.
+  @override
   void start() {
     if (_running) return;
     _running = true;
@@ -69,12 +72,12 @@ class RealtimeMonitor {
     unawaited(_loop());
   }
 
-  /// Stops polling. Safe to call when not running.
+  @override
   Future<void> stop() async {
     _running = false;
   }
 
-  /// Stops polling and releases the streams.
+  @override
   Future<void> dispose() async {
     await stop();
     await _snapshots.close();
@@ -101,7 +104,7 @@ class RealtimeMonitor {
         _pollCount++;
         _recordRate();
         if (!_snapshots.isClosed) {
-          _snapshots.add(_decoder.decode(block, timestamp: started));
+          _snapshots.add(_latest = _decoder.decode(block, timestamp: started));
         }
       } on Object catch (error) {
         if (!_running) return;

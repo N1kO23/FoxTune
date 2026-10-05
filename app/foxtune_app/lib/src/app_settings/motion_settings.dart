@@ -9,6 +9,7 @@ class MotionSettings {
     this.liveData = true,
     this.transitions = true,
     this.glow = true,
+    this.calmReadouts = true,
   });
 
   /// Nothing moves that does not have to, and nothing glows.
@@ -30,21 +31,33 @@ class MotionSettings {
   /// the Grid wallpaper's glow drifts.
   final bool glow;
 
+  /// Numbers stating live readings change about ten times a second, however
+  /// fast readings come, so they can still be read. Needles, bars and alarms
+  /// follow every reading regardless. Not motion, so not part of [allOn] or
+  /// [allOff], nor held back by a system asking for reduced motion.
+  final bool calmReadouts;
+
   bool get allOn => liveData && transitions && glow;
 
   bool get allOff => !liveData && !transitions && !glow;
 
-  MotionSettings copyWith({bool? liveData, bool? transitions, bool? glow}) =>
-      MotionSettings(
-        liveData: liveData ?? this.liveData,
-        transitions: transitions ?? this.transitions,
-        glow: glow ?? this.glow,
-      );
+  MotionSettings copyWith({
+    bool? liveData,
+    bool? transitions,
+    bool? glow,
+    bool? calmReadouts,
+  }) => MotionSettings(
+    liveData: liveData ?? this.liveData,
+    transitions: transitions ?? this.transitions,
+    glow: glow ?? this.glow,
+    calmReadouts: calmReadouts ?? this.calmReadouts,
+  );
 
   Map<String, Object?> toJson() => {
     'liveData': liveData,
     'transitions': transitions,
     'glow': glow,
+    'calmReadouts': calmReadouts,
   };
 
   /// Reads what [toJson] wrote; anything missing or not understood keeps its
@@ -57,6 +70,7 @@ class MotionSettings {
       liveData: flag(json['liveData']) ?? defaults.liveData,
       transitions: flag(json['transitions']) ?? defaults.transitions,
       glow: flag(json['glow']) ?? defaults.glow,
+      calmReadouts: flag(json['calmReadouts']) ?? defaults.calmReadouts,
     );
   }
 
@@ -65,8 +79,9 @@ class MotionSettings {
       other is MotionSettings &&
       other.liveData == liveData &&
       other.transitions == transitions &&
-      other.glow == glow;
+      other.glow == glow &&
+      other.calmReadouts == calmReadouts;
 
   @override
-  int get hashCode => Object.hash(liveData, transitions, glow);
+  int get hashCode => Object.hash(liveData, transitions, glow, calmReadouts);
 }

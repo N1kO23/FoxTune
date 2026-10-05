@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../motion/gliding_value.dart';
 import '../motion/motion.dart';
+import '../motion/readout_text.dart';
 import 'gauge_appearance.dart';
 import 'gauge_status.dart';
 import 'meter_gauge.dart' show AlarmBadge, alarmRanges;
@@ -67,8 +68,9 @@ class BarGauge extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.baseline,
             textBaseline: TextBaseline.alphabetic,
             children: [
-              Text(
+              ReadoutText(
                 spec.format(value),
+                maxLines: null,
                 style: theme.textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.w600,
                   color: colours.textOn(scheme),

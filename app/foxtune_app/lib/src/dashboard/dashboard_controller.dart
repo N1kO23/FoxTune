@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
@@ -12,7 +15,12 @@ import '../tune/tune_controller.dart';
 ///
 /// Tied to the connection: reconnecting rebuilds it, and disconnecting stops
 /// the polling rather than leaving it running against a dead link.
-final realtimeMonitorProvider = Provider<RealtimeMonitor?>((ref) {
+///
+/// It polls on the connection's worker where it has one - out of reach of
+/// whatever keeps this isolate busy, so the rate holds and no reading is
+/// missed while a frame takes long; the samples are handed over as fast as
+/// this isolate takes them.
+final realtimeMonitorProvider = Provider<RealtimeSource?>((ref) {
   final connection = ref.watch(connectionProvider);
   if (connection is! EcuConnected) return null;
 
@@ -37,25 +45,109 @@ final realtimeMonitorProvider = Provider<RealtimeMonitor?>((ref) {
     appSettingsProvider.select((s) => s.liveDataInterval),
   );
 
-  final monitor = RealtimeMonitor(
-    client: client,
-    decoder: RealtimeDecoder(
-      definition.outputChannels,
-      constantResolver: (name) => tuneController.resolver?.resolve(name),
-    ),
-    interval: interval,
+  final decoder = RealtimeDecoder(
+    definition.outputChannels,
+    constantResolver: (name) => tuneController.resolver?.resolve(name),
   );
+  final worker = ref.read(connectionProvider.notifier).worker;
+  final monitor = worker != null
+      ? worker.realtime(
+          channels: definition.outputChannels,
+          decoder: decoder,
+          commands: client.commands,
+          interval: interval,
+          timeout: client.timeout,
+        )
+      : RealtimeMonitor(client: client, decoder: decoder, interval: interval);
   monitor.start();
   ref.onDispose(monitor.dispose);
   return monitor;
 });
 
-/// Decoded realtime samples.
+/// Decoded realtime samples - every one of them.
+///
+/// For what needs each sample: the graph history, autotuning, logging. A
+/// widget showing live data watches [liveProvider] instead, which passes on
+/// at most one a frame.
 final realtimeProvider = StreamProvider<RealtimeSnapshot>((ref) {
   final monitor = ref.watch(realtimeMonitorProvider);
   if (monitor == null) return const Stream<RealtimeSnapshot>.empty();
   return monitor.snapshots;
 });
+
+/// The newest realtime sample, for widgets: passed on at most once a frame.
+///
+/// The feed can run far faster than the screen is drawn - rusEFI reports up
+/// to 200 times a second - and a widget watching [realtimeProvider] is told of
+/// every sample, its selectors run for each, though it is drawn at most once a
+/// frame. This keeps the newest and hands it over as the next frame begins,
+/// so whatever watches it rebuilds once, with what that frame will show.
+///
+/// Asks for a frame only while something watches it: unwatched, Riverpod
+/// pauses it, and its own listening with it.
+final liveProvider = NotifierProvider<LiveSample, RealtimeSnapshot?>(
+  LiveSample.new,
+);
+
+class LiveSample extends Notifier<RealtimeSnapshot?> {
+  RealtimeSnapshot? _newest;
+  var _scheduled = false;
+
+  @override
+  RealtimeSnapshot? build() {
+    ref.listen(realtimeProvider, (_, next) {
+      _newest = next.value;
+      if (_scheduled) return;
+      _scheduled = true;
+      SchedulerBinding.instance.scheduleFrameCallback((_) {
+        _scheduled = false;
+        if (ref.mounted) state = _newest;
+      });
+    });
+    return _newest = ref.read(realtimeProvider).value;
+  }
+}
+
+/// The newest realtime sample, at most ten times a second: for what states
+/// live values in words or forms rather than drawing them - a reader cannot
+/// take in more, and rebuilding them faster is wasted.
+final calmLiveProvider = NotifierProvider<CalmLiveSample, RealtimeSnapshot?>(
+  CalmLiveSample.new,
+);
+
+class CalmLiveSample extends Notifier<RealtimeSnapshot?> {
+  /// The least time between two samples passed on.
+  static const spacing = Duration(milliseconds: 100);
+
+  /// Open for [spacing] after a sample is passed on; one arriving meanwhile
+  /// waits for it to close, and then the newest is passed on.
+  Timer? _window;
+  var _waiting = false;
+
+  @override
+  RealtimeSnapshot? build() {
+    ref.onDispose(() => _window?.cancel());
+    ref.listen(realtimeProvider, (_, next) {
+      if (_window == null) {
+        _publish(next.value);
+      } else {
+        _waiting = true;
+      }
+    });
+    return ref.read(realtimeProvider).value;
+  }
+
+  void _publish(RealtimeSnapshot? sample) {
+    state = sample;
+    _window = Timer(spacing, () {
+      _window = null;
+      if (_waiting && ref.mounted) {
+        _waiting = false;
+        _publish(ref.read(realtimeProvider).value);
+      }
+    });
+  }
+}
 
 /// Poll failures, so the UI can show link trouble instead of a frozen display.
 final realtimeErrorProvider = StreamProvider<Object>((ref) {

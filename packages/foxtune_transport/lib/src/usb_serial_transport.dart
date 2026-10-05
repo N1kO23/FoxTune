@@ -11,7 +11,7 @@ import 'ecu_transport.dart';
 ///
 /// This is the path that makes FoxTune useful without a laptop: a phone plugged
 /// straight into the ECU with an OTG cable.
-class UsbSerialTransport implements EcuTransport {
+class UsbSerialTransport implements RelayedTransport {
   @override
   String get name => 'usb_serial (Android USB host)';
 

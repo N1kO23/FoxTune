@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../motion/gliding_value.dart';
 import '../motion/motion.dart';
+import '../motion/readout_text.dart';
 import 'gauge_appearance.dart';
 import 'gauge_status.dart';
 
@@ -60,8 +61,8 @@ class MeterGauge extends StatelessWidget {
 
     final title = line(Text(spec.label, maxLines: 1, style: caption));
     // The value wears a text token, not the status colour; the arc and the
-    // badge carry the state.
-    final number = Text(
+    // badge carry the state - at once, where calm readouts hold the number.
+    final number = ReadoutText(
       spec.format(value),
       maxLines: 1,
       style: theme.textTheme.titleLarge?.copyWith(

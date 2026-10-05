@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'ecu_link.dart';
+import 'worker/ecu_worker.dart' show LinkOpener;
 
 /// An [EcuLink] over a TCP socket.
 ///
@@ -77,4 +78,15 @@ class SocketEcuLink implements EcuLink {
     _socket.destroy();
     await _controller.close();
   }
+}
+
+/// Opens a [SocketEcuLink] to [host]:[port] - on an `EcuWorker`'s isolate.
+class TcpLinkOpener implements LinkOpener {
+  const TcpLinkOpener(this.host, this.port);
+
+  final String host;
+  final int port;
+
+  @override
+  Future<EcuLink> open() => SocketEcuLink.connect(host, port);
 }

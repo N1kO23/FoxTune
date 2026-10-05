@@ -93,10 +93,20 @@ class MotionScreen extends ConsumerWidget {
                   subtitle: const Text(
                     "Dials, bars and the table's live marker glide between "
                     'readings, lamps fade, and graphs scroll smoothly. The '
-                    'numbers are always the latest reading.',
+                    'glide never holds back a number.',
                   ),
                   value: motion.liveData,
                   onChanged: (on) => update(motion.copyWith(liveData: on)),
+                ),
+                SwitchListTile(
+                  title: const Text('Calm readouts'),
+                  subtitle: const Text(
+                    'Numbers change about 10 times a second, so they can be '
+                    'read at high data rates. Needles, bars and alarms still '
+                    'follow every reading.',
+                  ),
+                  value: motion.calmReadouts,
+                  onChanged: (on) => update(motion.copyWith(calmReadouts: on)),
                 ),
                 SwitchListTile(
                   title: const Text('Transitions'),

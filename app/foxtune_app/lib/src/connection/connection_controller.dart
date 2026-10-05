@@ -1,5 +1,8 @@
+import 'dart:isolate';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:foxtune_protocol/foxtune_protocol.dart';
+import 'package:foxtune_protocol/io.dart' show EcuWorker;
 import 'package:foxtune_transport/foxtune_transport.dart';
 
 import '../app_settings/app_settings.dart';
@@ -25,6 +28,7 @@ final connectionProvider =
 class ConnectionController extends Notifier<EcuConnectionState> {
   EcuLink? _link;
   EcuClient? _client;
+  EcuWorker? _worker;
 
   /// What the last connection attempt went through, so a retry or reconnect
   /// uses the same route. A network ECU must be retried over TCP, not handed
@@ -40,6 +44,10 @@ class ConnectionController extends Notifier<EcuConnectionState> {
 
   /// The client for the live connection, or `null` when disconnected.
   EcuClient? get client => _client;
+
+  /// The isolate the live connection runs on, or `null` when disconnected -
+  /// or when it runs on this one. See [EcuWorker].
+  EcuWorker? get worker => _worker;
 
   /// Connects over TCP to an ESP-based WiFi bridge at `host:port`.
   Future<void> connectToNetwork(String address) {
@@ -57,16 +65,7 @@ class ConnectionController extends Notifier<EcuConnectionState> {
     _lastTransport = resolved;
 
     try {
-      final settings = ref.read(appSettingsProvider);
-      final link = await resolved.open(
-        port,
-        baudRate: settings.baudRate,
-        delayAfterOpen: settings.delayAfterOpen,
-      );
-      _link = link;
-
-      final client = EcuClient(link);
-      _client = client;
+      final client = _client = await _open(resolved, port);
 
       final identification = await client.identify();
 
@@ -85,6 +84,45 @@ class ConnectionController extends Notifier<EcuConnectionState> {
       await _teardown();
       state = EcuConnectionFailed(_describe(error), port: port);
     }
+  }
+
+  /// Opens [port], and a client for it.
+  ///
+  /// On an [EcuWorker] where the transport allows: commands, their timeouts
+  /// and live data polling then run on an isolate of their own, so neither a
+  /// busy UI nor a fast ECU can hold the other up. On this isolate otherwise,
+  /// as a transport a test supplies is - or if a worker cannot be started.
+  Future<EcuClient> _open(EcuTransport transport, EcuPort port) async {
+    final settings = ref.read(appSettingsProvider);
+    Future<EcuLink> openHere() => transport.open(
+      port,
+      baudRate: settings.baudRate,
+      delayAfterOpen: settings.delayAfterOpen,
+    );
+
+    try {
+      final worker = switch (transport) {
+        IsolateTransport() => await EcuWorker.spawn(
+          transport.openerFor(
+            port,
+            baudRate: settings.baudRate,
+            delayAfterOpen: settings.delayAfterOpen,
+          ),
+        ),
+        // Opened here, where its bytes arrive, and relayed: the worker owns
+        // it from then on.
+        RelayedTransport() => await EcuWorker.relay(_link = await openHere()),
+        _ => null,
+      };
+      if (worker != null) {
+        _worker = worker;
+        _link = null;
+        return EcuClient.withRunner(worker.commands);
+      }
+    } on IsolateSpawnException {
+      // Run it here instead - on a link already opened, where one was.
+    }
+    return EcuClient(_link ??= await openHere());
   }
 
   /// The connected state for what the definition lookup found.
@@ -209,10 +247,13 @@ class ConnectionController extends Notifier<EcuConnectionState> {
 
   Future<void> _teardown() async {
     final client = _client;
+    final worker = _worker;
     final link = _link;
     _client = null;
+    _worker = null;
     _link = null;
     await client?.close();
+    await worker?.close();
     await link?.close();
   }
 
