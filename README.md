@@ -16,12 +16,12 @@ codebase.
 > **Status: works; tuning a real Speeduino over USB is proven.** Everything below is
 > implemented and tested against a protocol-accurate simulator. On a real Speeduino, over USB
 > serial, FoxTune has connected, shown the live dashboard, changed settings, edited tables,
-> run autotuning and the trigger loggers, and written, verified and burned the tune; it has
-> also connected from an Android phone over USB OTG, and the battery voltage offset has been
-> calibrated. Not yet tried on hardware: the temperature, O2 and TPS calibrations, and network
-> (TCP) bridges - treat those as unverified, and see [Safety](#safety). rusEFI has been read,
-> edited, verified and burned against rusEFI's own simulator - the real firmware, built for a
-> PC - but not yet against a rusEFI board.
+> run autotuning and the trigger loggers, calibrated the temperature, O2 and throttle position
+> sensors, and written, verified and burned the tune - all of it from a desktop and from an
+> Android phone over USB OTG alike. Not yet tried on hardware: network (TCP) bridges - treat
+> those as unverified, and see [Safety](#safety). rusEFI has been read, edited, verified and
+> burned against rusEFI's own simulator - the real firmware, built for a PC - but not yet
+> against a rusEFI board.
 
 ## Why
 
@@ -257,7 +257,11 @@ as the definition's own templates - `R%2i%2o%2c` for a rusEFI page read, `p%2i%2
 Speeduino's - with pages addressed by the bytes its `pageIdentifier` gives. rusEFI's live data is
 larger than one transfer and is read in pieces; its two working-memory pages declare no burn
 command and are never burned. It stores hundreds of settings and most live channels as 32-bit
-floats, which are kept as floats throughout - a lambda of 0.98 reads 0.98.
+floats, which are kept as floats throughout - a lambda of 0.98 reads 0.98. Live data is read
+only where it is used: the channels on the dashboard, and whatever else is on screen. rusEFI's
+two-kilobyte block then usually comes in one short request rather than three long ones, and a
+Speeduino's serial link spends its time on the readings shown. A log, or autotuning while it is
+armed, has all of it read.
 
 **The handshake.** Both firmwares answer `S`, with different things: rusEFI with its
 signature, Speeduino with its display string. So FoxTune sends `S` first and follows up with
@@ -489,11 +493,10 @@ A logger runs until stopped, and stops when you leave the tab or disconnect: Spe
 over the trigger inputs' interrupts while it runs, so it is not left running.
 
 **How far they have been tested.** Both, against the simulated Speeduino, which keeps
-calibrations as the firmware does and runs its loggers on a simulated 36-1 wheel. On a real
-Speeduino the loggers have run too, and of the calibrations only the battery voltage offset so
-far - an ordinary setting, burned with the tune, not one of the tables above. Not yet: the
-tables on a real Speeduino, and rusEFI's loggers, which are decoded from its definition but
-have not been run against its simulator.
+calibrations as the firmware does and runs its loggers on a simulated 36-1 wheel - and on a
+real Speeduino, from a desktop and from an Android phone: the loggers, and the temperature, O2
+and throttle position calibrations. Not yet: rusEFI's loggers, which are decoded from its
+definition but have not been run against its simulator.
 
 ## Autotuning
 

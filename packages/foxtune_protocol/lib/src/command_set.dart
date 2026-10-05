@@ -159,6 +159,12 @@ class EcuCommandSet {
     return render(template, page: page, offset: 0, count: size);
   }
 
+  /// Whether a part of the live data block can be asked for: the realtime
+  /// command takes an offset and a count, as Speeduino's and rusEFI's do. A
+  /// command that takes neither reads the whole block, always.
+  bool get canReadRealtimeParts =>
+      realtimeCommand.contains('%2o') && realtimeCommand.contains('%2c');
+
   /// Reads [count] bytes of live data from [offset].
   List<int> realtime(int offset, int count) =>
       render(realtimeCommand, offset: offset, count: count);

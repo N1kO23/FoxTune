@@ -5,6 +5,7 @@ import 'package:foxtune_tune/foxtune_tune.dart';
 import '../connection/connection_controller.dart';
 import '../connection/connection_state.dart';
 import '../dashboard/dashboard_controller.dart';
+import '../dashboard/live_demand.dart';
 import '../tune/tune_controller.dart';
 
 /// What the autotuning screen shows.
@@ -101,6 +102,9 @@ class AutotuneController extends Notifier<AutotuneSession> {
 
   DateTime _lastPublished = DateTime.fromMillisecondsSinceEpoch(0);
 
+  /// What has the whole live data block polled while this is armed.
+  WholeBlockHolders? _wholeBlock;
+
   /// How often the status strip refreshes while nothing is changing.
   ///
   /// Samples arrive at about 30 Hz. Publishing every one of them would rebuild
@@ -111,6 +115,10 @@ class AutotuneController extends Notifier<AutotuneSession> {
 
   @override
   AutotuneSession build() {
+    // Not let go of when this is disposed: it outlives every session, and is
+    // disposed only with everything else.
+    _wholeBlock = ref.read(wholeBlockProvider.notifier);
+
     // Deliberately not watching the tune: applying a correction changes it,
     // and a rebuild here would discard the session that made the change.
     ref.listen(realtimeProvider, (previous, next) {
@@ -135,6 +143,11 @@ class AutotuneController extends Notifier<AutotuneSession> {
 
   /// Publishes [next] without reading the current state back.
   void _emit(AutotuneSession next) {
+    // Armed, every channel a filter reads is wanted from every sample: the
+    // whole block is polled until it disarms.
+    if (next.armed != _session.armed) {
+      next.armed ? _wholeBlock?.hold(this) : _wholeBlock?.release(this);
+    }
     _session = next;
     state = next;
   }
@@ -264,6 +277,11 @@ class AutotuneController extends Notifier<AutotuneSession> {
     final session = _session;
     final tuner = session.tuner;
     if (!session.armed || tuner == null) return;
+    // Only whole samples - armed, it has the whole block polled. A channel
+    // left unread reads as missing, and a filter cannot reject a sample on a
+    // reading it does not have: one read in parts could pass for a sample
+    // the filters would have thrown out.
+    if (snapshot.coverage != null) return;
 
     // The sample's own timestamp drives the throttle rather than the wall
     // clock: it is the clock the data is on, and it stays meaningful when the

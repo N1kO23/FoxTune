@@ -99,6 +99,9 @@ class LogRecorder {
     final sink = _sink;
     final writer = _writer;
     if (sink == null || writer == null) return;
+    // A sample read in parts would log blanks for the channels left unread:
+    // a log has the whole block polled, and keeps only whole samples.
+    if (snapshot.coverage != null) return;
 
     final at = snapshot.timestamp;
     final due = _due;

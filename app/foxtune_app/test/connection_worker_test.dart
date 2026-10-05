@@ -8,6 +8,7 @@ import 'package:foxtune_app/src/app_settings/app_settings.dart';
 import 'package:foxtune_app/src/connection/connection_controller.dart';
 import 'package:foxtune_app/src/connection/connection_state.dart';
 import 'package:foxtune_app/src/dashboard/dashboard_controller.dart';
+import 'package:foxtune_app/src/dashboard/live_demand.dart';
 import 'package:foxtune_app/src/definitions/definition_library.dart';
 import 'package:foxtune_app/src/logging/log_controller.dart';
 import 'package:foxtune_app/src/logging/log_files.dart';
@@ -49,9 +50,11 @@ void main() {
     storage.deleteSync(recursive: true);
   });
 
-  ProviderContainer containerFor() {
+  ProviderContainer containerFor({Set<String>? dashboard}) {
     final container = ProviderContainer(
       overrides: [
+        if (dashboard != null)
+          dashboardChannelsProvider.overrideWithValue(dashboard),
         initialAppSettingsProvider.overrideWithValue(
           const AppSettings(liveDataRate: 100),
         ),
@@ -115,6 +118,47 @@ void main() {
     expect(session.error, isNull);
     expect(session.rows, greaterThan(5));
     expect(File(session.path!).readAsLinesSync(), hasLength(4 + session.rows));
+  });
+
+  /// The live data reads the ECU has answered, as (offset, count).
+  List<(int, int)> reads() => [
+    for (final r in ecu.requests)
+      if (r.first == SpeeduinoCommand.realtime)
+        (r[3] | r[4] << 8, r[5] | r[6] << 8),
+  ];
+
+  test('only the parts of the block in use are read', () async {
+    final container = containerFor(dashboard: {'rpm', 'map'});
+    final samples = await connect(container);
+    // Past the half second the whole block is read for at first.
+    await Future<void>.delayed(const Duration(milliseconds: 800));
+
+    // map at 4 and rpm at 14, in one read - of the 139 bytes there are.
+    expect(reads().last, (4, 12));
+    final latest = samples.last;
+    expect(latest.coverage, [const BlockSpan(4, 16)]);
+    expect(latest['rpm'], isNotNull);
+    // Barometric pressure, at 41: not read, and not made up.
+    expect(latest['baro'], isNull);
+
+    // A channel read that the polls left out is read from then on.
+    await _waitFor(() => samples.last['baro'] != null);
+  });
+
+  test('a log has the whole block read while it records', () async {
+    final container = containerFor(dashboard: {'rpm'});
+    await connect(container);
+    await Future<void>.delayed(const Duration(milliseconds: 800));
+    expect(reads().last.$2, lessThan(139));
+
+    final log = container.read(logSessionProvider.notifier);
+    await log.start();
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    expect(reads().last, (0, 139));
+
+    await log.stop();
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    expect(reads().last.$2, lessThan(139));
   });
 
   test(

@@ -12,6 +12,7 @@ import '../ecu_link.dart';
 import '../frame.dart';
 import '../realtime_decoder.dart';
 import '../realtime_monitor.dart';
+import '../realtime_plan.dart';
 import '../realtime_source.dart';
 import '../response_code.dart';
 
@@ -193,6 +194,11 @@ class EcuWorker {
   /// Polls live data on the worker: [channels] says how big the block is and
   /// [decoder] decodes it here; [commands] says how to ask for it.
   ///
+  /// Where [decoder] notes what is read - it has a [ChannelDemand] - only the
+  /// parts of the block read of late are polled, as [DemandReadPlan] works
+  /// them out here and tells the worker. A recording on the worker has every
+  /// poll read the whole block, whatever this asks for.
+  ///
   /// One at a time: a source made here replaces the last.
   RealtimeSource realtime({
     required IniOutputChannels channels,
@@ -216,6 +222,14 @@ class EcuWorker {
         maxConsecutiveErrors: maxConsecutiveErrors,
       ),
       decoder,
+      switch (decoder.demand) {
+        final demand? => DemandReadPlan(
+            channels: channels,
+            demand: demand,
+            commands: commands,
+          ),
+        null => null,
+      },
     );
   }
 
@@ -365,12 +379,25 @@ class _WorkerCommands implements EcuCommandRunner {
 
 /// [RealtimeSource] polled on an [EcuWorker].
 class _WorkerSource implements RealtimeSource {
-  _WorkerSource(this._worker, this.generation, this._polling, this._decoder);
+  _WorkerSource(
+    this._worker,
+    this.generation,
+    this._polling,
+    this._decoder,
+    this._plan,
+  );
 
   final EcuWorker _worker;
   final int generation;
   final _StartPolling _polling;
   final RealtimeDecoder _decoder;
+
+  /// Which parts of the block to poll, worked out here from what is read
+  /// here; `null` to poll the whole of it.
+  final DemandReadPlan? _plan;
+
+  /// The spans the worker was last told to read: at first, the whole block.
+  List<BlockSpan>? _told;
 
   final _snapshots = StreamController<RealtimeSnapshot>.broadcast();
   final _errors = StreamController<Object>.broadcast();
@@ -386,6 +413,36 @@ class _WorkerSource implements RealtimeSource {
 
   @override
   Duration get interval => _polling.interval;
+
+  @override
+  bool get readWholeBlock => _plan?.readWholeBlock ?? true;
+
+  @override
+  set readWholeBlock(bool whole) {
+    final plan = _plan;
+    if (plan == null) return;
+    plan.readWholeBlock = whole;
+    // At once, not with the next batch: what wants the whole block wants it
+    // from now.
+    _tell();
+  }
+
+  /// Tells the worker which spans to read, where that has changed.
+  void _tell() {
+    final spans = _plan?.next();
+    if (_same(spans, _told) || !isRunning) return;
+    _told = spans;
+    _worker._send(_SetSpans(generation, spans));
+  }
+
+  static bool _same(List<BlockSpan>? a, List<BlockSpan>? b) {
+    if (a == null || b == null) return a == b;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
 
   @override
   bool isRunning = false;
@@ -426,10 +483,12 @@ class _WorkerSource implements RealtimeSource {
       final sample = _decoder.decode(
         batch.blocks[i],
         timestamp: DateTime.fromMicrosecondsSinceEpoch(batch.times[i]),
+        coverage: batch.coverage[i],
       );
       latest = sample;
       _snapshots.add(sample);
     }
+    _tell();
   }
 
   void _fail(_PollFailed failure) {
@@ -476,6 +535,13 @@ final class _StartPolling extends _ToWorker {
 final class _StopPolling extends _ToWorker {
   const _StopPolling(this.generation);
   final int generation;
+}
+
+/// The parts of the block to poll from now on; `null` for all of it.
+final class _SetSpans extends _ToWorker {
+  const _SetSpans(this.generation, this.spans);
+  final int generation;
+  final List<BlockSpan>? spans;
 }
 
 /// The UI isolate has taken the last batch, and can take another.
@@ -546,18 +612,20 @@ final class _Failed {
 }
 
 /// Samples polled since the last batch: when each was read, in microseconds
-/// since the epoch, and its block.
+/// since the epoch, its block, and which parts of that were read.
 final class _Batch {
   const _Batch({
     required this.generation,
     required this.times,
     required this.blocks,
+    required this.coverage,
     required this.pollCount,
     required this.measuredHz,
   });
   final int generation;
   final Int64List times;
   final List<Uint8List> blocks;
+  final List<List<BlockSpan>?> coverage;
   final int pollCount;
   final double measuredHz;
 }
@@ -637,6 +705,10 @@ class _Worker {
   /// Samples polled and not yet sent, oldest first.
   final _times = ListQueue<int>();
   final _blocks = ListQueue<Uint8List>();
+  final _coverage = ListQueue<List<BlockSpan>?>();
+
+  /// The parts of the block the UI isolate wants polled; `null` for all.
+  List<BlockSpan>? _spans;
 
   /// Whether the last batch is still waiting to be taken.
   var _awaitingAck = false;
@@ -667,6 +739,8 @@ class _Worker {
         _poll(polling);
       case _StopPolling(:final generation):
         if (generation == _generation) await _stopPolling();
+      case _SetSpans(:final generation, :final spans):
+        if (generation == _generation) _spans = spans;
       case _Ack():
         _awaitingAck = false;
         _flush();
@@ -707,11 +781,13 @@ class _Worker {
       commands: polling.commands,
       timeout: polling.timeout,
     );
+    _spans = null;
     final monitor = _monitor = RealtimeMonitor(
       client: client,
       decoder: RealtimeDecoder(polling.channels),
       interval: polling.interval,
       maxConsecutiveErrors: polling.maxConsecutiveErrors,
+      plan: _PushedPlan(this),
     );
     _samples = monitor.snapshots.listen(_take);
     _errors = monitor.errors.listen(
@@ -738,21 +814,29 @@ class _Worker {
     _errors = null;
     _times.clear();
     _blocks.clear();
+    _coverage.clear();
     _awaitingAck = false;
     // Not the client: it is only a view of the runner, which carries on.
     await monitor?.dispose();
   }
 
   void _take(RealtimeSnapshot sample) {
-    for (final sink in _sinks.values) {
-      sink.add(sample.block, sample.timestamp);
+    // Whole blocks only: a recording has every poll read all of it, and one
+    // already under way as it began, read in parts, is not one to keep -
+    // its unread parts would be recorded as zeroes.
+    if (sample.coverage == null) {
+      for (final sink in _sinks.values) {
+        sink.add(sample.block, sample.timestamp);
+      }
     }
     _times.addLast(sample.timestamp.microsecondsSinceEpoch);
     _blocks.addLast(sample.block);
+    _coverage.addLast(sample.coverage);
     while (_times.length > 1 &&
         _times.last - _times.first > backlog.inMicroseconds) {
       _times.removeFirst();
       _blocks.removeFirst();
+      _coverage.removeFirst();
     }
     if (!_awaitingAck) _flush();
   }
@@ -766,12 +850,14 @@ class _Worker {
         generation: _generation,
         times: Int64List.fromList(_times.toList()),
         blocks: _blocks.toList(),
+        coverage: _coverage.toList(),
         pollCount: monitor.pollCount,
         measuredHz: monitor.measuredHz,
       ),
     );
     _times.clear();
     _blocks.clear();
+    _coverage.clear();
     _awaitingAck = true;
   }
 
@@ -791,6 +877,17 @@ class _Worker {
       );
     }
   }
+}
+
+/// What the UI isolate says to poll - or the whole block, while a recording
+/// needs every channel.
+class _PushedPlan implements RealtimeReadPlan {
+  _PushedPlan(this._worker);
+
+  final _Worker _worker;
+
+  @override
+  List<BlockSpan>? next() => _worker._sinks.isEmpty ? _worker._spans : null;
 }
 
 /// The worker's end of a link relayed through the isolate that opened it.

@@ -10,6 +10,7 @@ import 'package:foxtune_app/src/autotune/autotune_screen.dart';
 import 'package:foxtune_app/src/branding/brand_theme.dart';
 import 'package:foxtune_app/src/connection/connection_state.dart';
 import 'package:foxtune_app/src/dashboard/dashboard_controller.dart';
+import 'package:foxtune_app/src/dashboard/live_demand.dart';
 import 'package:foxtune_app/src/tune/tune_controller.dart';
 import 'package:foxtune_ini/foxtune_ini.dart';
 import 'package:foxtune_protocol/foxtune_protocol.dart';
@@ -75,6 +76,7 @@ void main() {
     double afr = 14.7,
     double coolant = 85,
     double deltaTps = 0,
+    List<BlockSpan>? coverage,
   }) {
     final channels = doc.outputChannels;
     final block = Uint8List(channels.blockSize!);
@@ -122,7 +124,7 @@ void main() {
     return RealtimeDecoder(
       channels,
       constantResolver: TuneValueResolver(tune).resolve,
-    ).decode(block, timestamp: clock);
+    ).decode(block, timestamp: clock, coverage: coverage);
   }
 
   Future<ProviderContainer> pumpAutotune(WidgetTester tester) async {
@@ -179,9 +181,14 @@ void main() {
     int count = 30,
     double coolant = 85,
     double deltaTps = 0,
+    List<BlockSpan>? coverage,
   }) async {
-    RealtimeSnapshot next() =>
-        sample(afr: afr, coolant: coolant, deltaTps: deltaTps);
+    RealtimeSnapshot next() => sample(
+      afr: afr,
+      coolant: coolant,
+      deltaTps: deltaTps,
+      coverage: coverage,
+    );
     feed.add(next());
     await tester.pump();
     clock = clock.add(const Duration(milliseconds: 600));
@@ -225,6 +232,28 @@ void main() {
     expect(ve.valueAt(cell.row, cell.column), greaterThan(seeded + 0.5));
     expect(tune.isDirty, isTrue);
     expect(find.text('Burn to ECU'), findsOneWidget);
+  });
+
+  testWidgets('armed, has the whole block read, and takes no sample read in '
+      'parts', (tester) async {
+    final container = await pumpAutotune(tester);
+    expect(container.read(wholeBlockProvider), isFalse);
+    await start(tester);
+    expect(container.read(wholeBlockProvider), isTrue);
+
+    // A lean run - read in parts that hold every channel autotuning looks
+    // at. A filter's channel could as well have been left out, so none of it
+    // counts.
+    await drive(tester, afr: 15.5, coverage: const [BlockSpan(0, 2216)]);
+    expect(container.read(autotuneProvider).accepted, 0);
+    expect(container.read(autotuneProvider).moved, 0);
+
+    // The same run, read whole: taken.
+    await drive(tester, afr: 15.5);
+    expect(container.read(autotuneProvider).accepted, greaterThan(0));
+
+    container.read(autotuneProvider.notifier).disarm();
+    expect(container.read(wholeBlockProvider), isFalse);
   });
 
   testWidgets('will not arm on a MAP axis shown in psi', (tester) async {

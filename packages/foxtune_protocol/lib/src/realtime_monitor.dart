@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'ecu_client.dart';
 import 'realtime_decoder.dart';
+import 'realtime_plan.dart';
 import 'realtime_source.dart';
 import 'response_code.dart';
 
@@ -17,8 +19,15 @@ class RealtimeMonitor implements RealtimeSource {
     required RealtimeDecoder decoder,
     this.interval = const Duration(milliseconds: 33),
     this.maxConsecutiveErrors = 5,
+    this.plan,
   })  : _client = client,
         _decoder = decoder;
+
+  /// Which parts of the block each poll reads; the whole of it, without one.
+  final RealtimeReadPlan? plan;
+
+  @override
+  bool readWholeBlock = false;
 
   final EcuClient _client;
   final RealtimeDecoder _decoder;
@@ -97,14 +106,34 @@ class RealtimeMonitor implements RealtimeSource {
     while (_running) {
       final started = DateTime.now();
       try {
-        final block = await _client.readRealtime(count: count);
+        final spans = readWholeBlock ? null : plan?.next();
+        final Uint8List block;
+        if (spans == null) {
+          block = await _client.readRealtime(count: count);
+        } else {
+          // The parts asked for, each where it lies in the block.
+          block = Uint8List(count);
+          for (final span in spans) {
+            final part = await _client.readRealtime(
+              offset: span.offset,
+              count: span.length,
+            );
+            block.setRange(span.offset, span.end, part);
+          }
+        }
         if (!_running) return;
 
         _consecutiveErrors = 0;
         _pollCount++;
         _recordRate();
         if (!_snapshots.isClosed) {
-          _snapshots.add(_latest = _decoder.decode(block, timestamp: started));
+          _snapshots.add(
+            _latest = _decoder.decode(
+              block,
+              timestamp: started,
+              coverage: spans,
+            ),
+          );
         }
       } on Object catch (error) {
         if (!_running) return;

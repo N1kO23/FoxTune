@@ -97,6 +97,17 @@ abstract class FakeTsEcu {
   /// step can be proven to catch it.
   bool mutateAfterWrite = false;
 
+  /// How fast the link to this ECU is, in bytes a second - or `null` for as
+  /// fast as the socket goes.
+  ///
+  /// Holds each reply back for as long as it and its request would take on a
+  /// serial line that fast: a Speeduino at 115200 baud manages about 11,500
+  /// bytes a second. What reading less of the live data gains shows there.
+  int? linkBytesPerSecond;
+
+  /// The size of the request being answered, for [linkBytesPerSecond].
+  var _requestBytes = 0;
+
   ServerSocket? _server;
   final _clients = <Socket>[];
 
@@ -146,7 +157,17 @@ abstract class FakeTsEcu {
       corruptNextResponse = false;
       frame[frame.length - 1] ^= 0xFF;
     }
-    socket.add(frame);
+    final speed = linkBytesPerSecond;
+    if (speed == null) {
+      socket.add(frame);
+      return;
+    }
+    Timer(
+      Duration(
+        microseconds: (_requestBytes + frame.length) * 1000000 ~/ speed,
+      ),
+      () => socket.add(frame),
+    );
   }
 
   /// Replies with a CRC-32 in the envelope's byte order.
@@ -190,6 +211,7 @@ abstract class FakeTsEcu {
           ByteData.view(data.buffer, data.offsetInBytes + start + length, 4)
               .getUint32(0, Endian.big);
       consumed += 2 + length + 4;
+      _requestBytes = 2 + length + 4;
 
       if (crc32(payload) != crc) {
         reply(socket, [0x82]); // CRC failure

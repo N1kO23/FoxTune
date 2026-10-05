@@ -2,13 +2,15 @@ import 'dart:typed_data';
 
 import 'package:foxtune_ini/foxtune_ini.dart';
 
+import 'realtime_plan.dart';
+
 /// Decodes the realtime data block into named, scaled channel values.
 ///
 /// The layout comes entirely from the definition's `[OutputChannels]`, never
 /// from fixed offsets, so a firmware update that moves a field is picked up by
 /// loading the matching `.ini` rather than by changing this code.
 class RealtimeDecoder {
-  RealtimeDecoder(this.definition, {this.constantResolver})
+  RealtimeDecoder(this.definition, {this.constantResolver, this.demand})
       : _compiled = {
           for (final channel in definition.computed)
             if (CompiledExpression.tryCompile(channel.expression)
@@ -27,6 +29,10 @@ class RealtimeDecoder {
   /// gauge reads as unavailable, so a dashboard with a loaded tune should pass
   /// a resolver backed by it.
   final double? Function(String name)? constantResolver;
+
+  /// Where the snapshots made here note what is read of them, so polling can
+  /// read only that. See [DemandReadPlan].
+  final ChannelDemand? demand;
 
   /// Computed channels that parsed successfully, by name.
   final Map<String, CompiledExpression> _compiled;
@@ -56,13 +62,23 @@ class RealtimeDecoder {
   /// A block shorter than the definition expects is accepted: fields that fall
   /// outside it read as unavailable. Partial data is common while a connection
   /// is settling, and is better surfaced per-channel than as a hard failure.
-  RealtimeSnapshot decode(Uint8List block, {DateTime? timestamp}) =>
+  ///
+  /// Where only parts of the block were read, [coverage] says which: a field
+  /// outside them reads as unavailable too, never as the zeroes standing in
+  /// for it.
+  RealtimeSnapshot decode(
+    Uint8List block, {
+    DateTime? timestamp,
+    List<BlockSpan>? coverage,
+  }) =>
       RealtimeSnapshot._(
         block: block,
         definition: definition,
         compiled: _compiled,
         scaleExpressions: _scaleExpressions,
         constantResolver: constantResolver,
+        demand: demand,
+        coverage: coverage,
         timestamp: timestamp ?? DateTime.now(),
       );
 }
@@ -79,13 +95,22 @@ class RealtimeSnapshot {
     required Map<String, CompiledExpression?> scaleExpressions,
     required this.timestamp,
     double? Function(String name)? constantResolver,
+    ChannelDemand? demand,
+    this.coverage,
   })  : _definition = definition,
         _compiled = compiled,
         _scaleExpressions = scaleExpressions,
-        _constantResolver = constantResolver;
+        _constantResolver = constantResolver,
+        _demand = demand;
 
   /// The raw bytes this snapshot was decoded from.
+  ///
+  /// The whole block, at its own offsets - but where [coverage] says only
+  /// parts of it were read, the rest is zeroes standing in for what was not.
   final Uint8List block;
+
+  /// The parts of [block] that were read, or `null` where all of it was.
+  final List<BlockSpan>? coverage;
 
   /// When the sample was taken.
   final DateTime timestamp;
@@ -94,6 +119,7 @@ class RealtimeSnapshot {
   final Map<String, CompiledExpression> _compiled;
   final Map<String, CompiledExpression?> _scaleExpressions;
   final double? Function(String name)? _constantResolver;
+  final ChannelDemand? _demand;
 
   // Made on first use rather than with the snapshot: a graph's history holds
   // thousands of samples, most of which are never asked for anything.
@@ -117,6 +143,10 @@ class RealtimeSnapshot {
   double? value(String name) {
     final cache = _cache ??= {};
     if (cache.containsKey(name)) return cache[name];
+
+    // Once a snapshot, and only on the way to working it out: what decides
+    // which parts of the block are polled.
+    _demand?.note(name);
 
     // A definition could in principle define channels in terms of each other
     // circularly; refuse rather than recurse forever.
@@ -148,14 +178,14 @@ class RealtimeSnapshot {
 
     switch (field) {
       case IniBitsField(:final lowBit, :final highBit, :final type):
-        final word = _readRaw(offset, type)?.toInt();
+        final word = _readRaw(offset, type, field.name)?.toInt();
         if (word == null) return null;
         final width = highBit - lowBit + 1;
         final mask = (1 << width) - 1;
         return ((word >> lowBit) & mask).toDouble();
 
       case IniScalarField(:final type, :final scale, :final translate):
-        final raw = _readRaw(offset, type);
+        final raw = _readRaw(offset, type, field.name);
         if (raw == null) return null;
         final s = resolveScalar(scale);
         final t = resolveScalar(translate);
@@ -174,7 +204,7 @@ class RealtimeSnapshot {
     final field = _definition.channelNamed(name);
     final offset = field?.offset;
     if (field == null || offset == null) return null;
-    return _readRaw(offset, field.type);
+    return _readRaw(offset, field.type, name);
   }
 
   /// The option label for a bits channel, e.g. `"On"`.
@@ -210,8 +240,16 @@ class RealtimeSnapshot {
 
   /// A whole number for the integer types; the float itself, unrounded, for
   /// `F32` - rusEFI sends lambda, AFR and most of its channels as floats.
-  num? _readRaw(int offset, IniDataType type) {
+  ///
+  /// `null` for bytes the poll did not read: the field [name] is noted as
+  /// missed, so the next poll reads it.
+  num? _readRaw(int offset, IniDataType type, String name) {
     if (offset < 0 || offset + type.bytes > block.length) return null;
+    if (coverage case final read?
+        when !read.any((span) => span.covers(offset, type.bytes))) {
+      _demand?.missed(name);
+      return null;
+    }
     final view = _view;
     // Payload data is little-endian, unlike the frame envelope.
     return switch (type) {

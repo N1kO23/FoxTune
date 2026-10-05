@@ -155,20 +155,22 @@ class IniOutputChannels {
   final List<IniComputedChannel> computed;
 
   /// Looks up a byte-backed channel by name.
-  IniField? channelNamed(String name) {
-    for (final channel in channels) {
-      if (channel.name == name) return channel;
-    }
-    return null;
-  }
+  IniField? channelNamed(String name) => (_fieldIndex[this] ??= {
+        // The first declared wins, as a walk through [channels] would find.
+        for (final channel in channels.reversed) channel.name: channel,
+      })[name];
 
   /// Looks up a computed channel by name.
-  IniComputedChannel? computedNamed(String name) {
-    for (final channel in computed) {
-      if (channel.name == name) return channel;
-    }
-    return null;
-  }
+  IniComputedChannel? computedNamed(String name) => (_computedIndex[this] ??= {
+        for (final channel in computed.reversed) channel.name: channel,
+      })[name];
+
+  // Lookups by name, made once for each section on first use: rusEFI declares
+  // a thousand channels, and a decoder looks one up for every reading it
+  // makes - a walk through them each time cost more than the decoding.
+  // Kept beside the section rather than in it, which stays const.
+  static final _fieldIndex = Expando<Map<String, IniField>>();
+  static final _computedIndex = Expando<Map<String, IniComputedChannel>>();
 
   /// Every channel name, byte-backed and computed.
   Set<String> get allNames => {

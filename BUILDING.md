@@ -428,7 +428,7 @@ The first push creates the package, with that account as its maintainer.
 
 ## Live data at high rates
 
-rusEFI can report 200 times a second, against Speeduino's 30 or so. Two things keep that from
+rusEFI can report 200 times a second, against Speeduino's 30 or so. Three things keep that from
 dragging the app down, or the app from holding it back.
 
 **The connection runs on an isolate of its own** (`EcuWorker`, in
@@ -449,6 +449,23 @@ the oldest are dropped for the UI; a datalog, written on the worker, never drops
 - **Tests and other transports run in-process**: a transport that is neither
   `IsolateTransport` nor `RelayedTransport`, such as a test's fake, runs on the caller's isolate
   as before. So does any connection whose worker cannot be started.
+
+**Only the parts of the block in use are read.** rusEFI's live data is 2216 bytes, read in three
+requests, of which a dashboard shows a few hundred. A Speeduino over serial at 115200 baud spends a
+millisecond on every eleven bytes. So every snapshot notes which channels are read of it
+(`ChannelDemand`), and polling reads just those. It also reads every channel on every dashboard
+page, so a page switched to is complete at once, and whatever those channels are computed or
+scaled from. The parts are merged into as few requests as the whole block would take, or fewer
+(`DemandReadPlan`, in `packages/foxtune_protocol/lib/src/realtime_plan.dart`).
+
+A channel read that a poll left out reads as unavailable, never as a stale value or a zero, and
+is read from the next poll on. One unread for 3 seconds is dropped. The whole block is still read
+in these cases:
+
+- for the first half second;
+- while a log records, since a log keeps every channel;
+- while autotuning is armed, since its filters must not pass a sample on a channel left unread;
+- from an ECU whose live data command takes no offset and count.
 
 **The UI takes what it can draw.** Widgets watch `liveProvider`, which passes on the newest sample
 at most once a frame. History, autotuning and the trigger logger listen to `realtimeProvider`,
@@ -512,6 +529,12 @@ FOXTUNE_BENCH=1 dart test packages/foxtune_protocol/test/throughput_test.dart
 On the calling isolate, frames cut the rate to about 120 Hz and every stall leaves a 150 ms hole
 in the data. On a worker, reading holds 200 Hz with no gap longer than a few milliseconds; only
 the handing over to the busy isolate waits for it.
+
+It also polls each ECU as fast as it answers, first reading the whole block and then only a
+typical dashboard's channels. For rusEFI that is 264 bytes in one request instead of 2216 in
+three: about four times the polls a second. The Speeduino runs on a simulated 115200 baud line
+(`FakeTsEcu.linkBytesPerSecond`), as over USB, and goes from about 70 polls a second to about
+250.
 
 ## Dependencies
 

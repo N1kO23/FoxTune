@@ -10,6 +10,7 @@ import '../app_settings/app_settings.dart';
 import '../connection/connection_controller.dart';
 import '../connection/connection_state.dart';
 import '../tune/tune_controller.dart';
+import 'live_demand.dart';
 
 /// The polling loop for the live connection, or `null` when disconnected.
 ///
@@ -20,6 +21,13 @@ import '../tune/tune_controller.dart';
 /// whatever keeps this isolate busy, so the rate holds and no reading is
 /// missed while a frame takes long; the samples are handed over as fast as
 /// this isolate takes them.
+///
+/// It reads only the parts of the block in use: what has been read of the
+/// samples of late, and every channel on the dashboard - see
+/// [DemandReadPlan]. rusEFI's block is two kilobytes, of which a dashboard
+/// shows a few hundred bytes, and a serial link at 115200 baud spends a
+/// millisecond on every ten bytes. The whole block is read while something
+/// holds [wholeBlockProvider].
 final realtimeMonitorProvider = Provider<RealtimeSource?>((ref) {
   final connection = ref.watch(connectionProvider);
   if (connection is! EcuConnected) return null;
@@ -45,9 +53,11 @@ final realtimeMonitorProvider = Provider<RealtimeSource?>((ref) {
     appSettingsProvider.select((s) => s.liveDataInterval),
   );
 
+  final demand = ChannelDemand();
   final decoder = RealtimeDecoder(
     definition.outputChannels,
     constantResolver: (name) => tuneController.resolver?.resolve(name),
+    demand: demand,
   );
   final worker = ref.read(connectionProvider.notifier).worker;
   final monitor = worker != null
@@ -58,7 +68,28 @@ final realtimeMonitorProvider = Provider<RealtimeSource?>((ref) {
           interval: interval,
           timeout: client.timeout,
         )
-      : RealtimeMonitor(client: client, decoder: decoder, interval: interval);
+      : RealtimeMonitor(
+          client: client,
+          decoder: decoder,
+          interval: interval,
+          plan: DemandReadPlan(
+            channels: definition.outputChannels,
+            demand: demand,
+            commands: client.commands,
+          ),
+        );
+  // Listened to rather than watched: a dashboard edited, or a log started,
+  // changes what is read - not the polling, which carries on.
+  ref.listen(
+    dashboardChannelsProvider,
+    (_, channels) => demand.standing = channels,
+    fireImmediately: true,
+  );
+  ref.listen(
+    wholeBlockProvider,
+    (_, whole) => monitor.readWholeBlock = whole,
+    fireImmediately: true,
+  );
   monitor.start();
   ref.onDispose(monitor.dispose);
   return monitor;

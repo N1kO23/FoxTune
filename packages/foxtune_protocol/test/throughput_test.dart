@@ -22,14 +22,19 @@ import 'package:test/test.dart';
 void main() {
   late String ini;
   late IniDocument doc;
+  late String speeduinoIni;
+  late IniDocument speeduino;
+
+  String fixture(String name) => [
+        File('packages/foxtune_ini/test/fixtures/$name'),
+        File('../foxtune_ini/test/fixtures/$name'),
+      ].firstWhere((f) => f.existsSync()).readAsStringSync();
 
   setUpAll(() {
-    final candidates = [
-      File('packages/foxtune_ini/test/fixtures/rusefi_uaefi.ini'),
-      File('../foxtune_ini/test/fixtures/rusefi_uaefi.ini'),
-    ];
-    ini = candidates.firstWhere((f) => f.existsSync()).readAsStringSync();
+    ini = fixture('rusefi_uaefi.ini');
     doc = IniParser().parse(ini);
+    speeduinoIni = fixture('speeduino.ini');
+    speeduino = IniParser(defined: {'CELSIUS'}).parse(speeduinoIni);
   });
 
   final skip = Platform.environment['FOXTUNE_BENCH'] == null
@@ -37,7 +42,7 @@ void main() {
       : null;
 
   test('in-process polling, idle and under load', () async {
-    final ecu = await _SpawnedEcu.start(ini);
+    final ecu = await _SpawnedEcu.start(ini, rusefi: true);
     addTearDown(ecu.stop);
 
     for (final load in Load.values) {
@@ -61,7 +66,7 @@ void main() {
   }, skip: skip, timeout: const Timeout(Duration(minutes: 2)));
 
   test('polling on a worker, idle and under load', () async {
-    final ecu = await _SpawnedEcu.start(ini);
+    final ecu = await _SpawnedEcu.start(ini, rusefi: true);
     addTearDown(ecu.stop);
 
     for (final load in Load.values) {
@@ -99,6 +104,91 @@ void main() {
       print('worker, ${load.name}: $result as handed over; read at '
           '${(read.length / 5).toStringAsFixed(1)} Hz, longest gap '
           '${(longest.inMicroseconds / 1000).toStringAsFixed(1)} ms');
+    }
+  }, skip: skip, timeout: const Timeout(Duration(minutes: 2)));
+
+  test('reading the whole block, or only what a dashboard shows', () async {
+    // As fast as each answers: rusEFI over a socket, and a Speeduino over a
+    // serial line at 115200 baud.
+    for (final (name, source, definition, rusefi, speed, shown) in [
+      (
+        'rusEFI',
+        ini,
+        doc,
+        true,
+        null,
+        {
+          'RPMValue',
+          'MAPValue',
+          'TPSValue',
+          'coolant',
+          'intake',
+          'lambdaValue',
+          'AFRValue',
+          'VBatt',
+          'veValue'
+        },
+      ),
+      (
+        'Speeduino at 115200 baud',
+        speeduinoIni,
+        speeduino,
+        false,
+        11520,
+        {
+          'rpm',
+          'map',
+          'tps',
+          'coolant',
+          'iat',
+          'afr',
+          'advance',
+          'batteryVoltage'
+        },
+      ),
+    ]) {
+      final ecu = await _SpawnedEcu.start(
+        source,
+        rusefi: rusefi,
+        bytesPerSecond: speed,
+      );
+      for (final parts in [false, true]) {
+        final link = await SocketEcuLink.connect('127.0.0.1', ecu.port);
+        final client = EcuClient(link, timeout: const Duration(seconds: 2))
+          ..useDefinition(definition);
+        final demand = ChannelDemand()..standing = shown;
+        final monitor = RealtimeMonitor(
+          client: client,
+          decoder: RealtimeDecoder(definition.outputChannels, demand: demand),
+          interval: Duration.zero,
+          plan: parts
+              ? DemandReadPlan(
+                  channels: definition.outputChannels,
+                  demand: demand,
+                  commands: client.commands,
+                  warmUp: Duration.zero,
+                )
+              : null,
+        );
+        final result = await measure(
+          monitor.snapshots,
+          monitor.start,
+          load: Load.idle,
+          duration: const Duration(seconds: 3),
+        );
+        final read = monitor.latest?.coverage?.fold<int>(
+              0,
+              (sum, span) => sum + span.length,
+            ) ??
+            definition.outputChannels.blockSize!;
+        await monitor.dispose();
+        await client.close();
+        await link.close();
+        // ignore: avoid_print
+        print('$name, ${parts ? 'what is shown' : 'whole block'}: '
+            '${result.hz.toStringAsFixed(1)} Hz, $read bytes a poll');
+      }
+      await ecu.stop();
     }
   }, skip: skip, timeout: const Timeout(Duration(minutes: 2)));
 }
@@ -176,9 +266,16 @@ class _SpawnedEcu {
   final Isolate _isolate;
   final SendPort _stop;
 
-  static Future<_SpawnedEcu> start(String ini) async {
+  static Future<_SpawnedEcu> start(
+    String ini, {
+    required bool rusefi,
+    int? bytesPerSecond,
+  }) async {
     final ready = ReceivePort();
-    final isolate = await Isolate.spawn(_serve, (ini, ready.sendPort));
+    final isolate = await Isolate.spawn(
+      _serve,
+      (ini, rusefi, bytesPerSecond, ready.sendPort),
+    );
     final [port as int, stop as SendPort] = await ready.first as List<Object?>;
     return _SpawnedEcu._(port, isolate, stop);
   }
@@ -189,11 +286,22 @@ class _SpawnedEcu {
     _isolate.kill();
   }
 
-  static Future<void> _serve((String, SendPort) args) =>
+  static Future<void> _serve((String, bool, int?, SendPort) args) =>
       // A client hanging up mid-reply is routine here, not a failure.
       runZonedGuarded(() async {
-        final (ini, ready) = args;
-        final ecu = FakeRusEfi.fromDefinition(IniParser().parse(ini));
+        final (ini, rusefi, bytesPerSecond, ready) = args;
+        final FakeTsEcu ecu;
+        if (rusefi) {
+          ecu = FakeRusEfi.fromDefinition(IniParser().parse(ini));
+        } else {
+          final doc = IniParser(defined: {'CELSIUS'}).parse(ini);
+          ecu = FakeSpeeduino(
+            pageSizes: doc.constants.pageSizes,
+            realtimeBlockSize: doc.outputChannels.blockSize!,
+            channels: doc.outputChannels,
+          );
+        }
+        ecu.linkBytesPerSecond = bytesPerSecond;
         final port = await ecu.start();
         final stop = ReceivePort();
         ready.send([port, stop.sendPort]);
