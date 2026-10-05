@@ -23,7 +23,7 @@ rendered from it into the app - see [Where it is used](#where-it-is-used).
   are slightly heavier than the master logo's so it stays readable at small sizes.
 - `splash/` - `splash-android12-*.png` is the 1152 x 1152 Android 12+ splash icon (fits the
   768 px circle); `splash-logo-*.png` is the stacked logo for older Android and loading screens,
-  rendered from `logo/svg/` (see the end of this file). Not wired up yet.
+  768 px wide, as the brand bundle ships it. Not wired up yet.
 - `store/` - the Google Play listing icon (full square; Play rounds the corners) and the
   1024 x 500 feature graphic.
 
@@ -85,14 +85,4 @@ cp branding/logo/svg/foxtune-wordmark-dark.svg branding/logo/svg/foxtune-wordmar
 pipx run picosvg --output_file $out/foxtune-emblem-mono.svg \
   branding/logo/svg/foxtune-emblem-mono-black.svg
 sed -i '/^\s*<defs\/>\s*$/d' $out/foxtune-icon.svg $out/foxtune-emblem-mono.svg
-```
-
-The splash logos are the stacked logo centred on a transparent 768 x 1024 canvas. Re-render them
-whenever the stacked logo changes, from the repository root:
-
-```sh
-for v in dark light; do
-  rsvg-convert -a -w 768 -h 1024 branding/logo/svg/foxtune-stacked-$v.svg |
-    magick - -background none -gravity center -extent 768x1024 branding/splash/splash-logo-$v.png
-done
 ```
